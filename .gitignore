@@ -7,3 +7,6 @@ __pycache__/
 .idea/
 .DS_Store
 Thumbs.db
+# local test/build scratch
+/out/
+/work/

@@ -1,0 +1,65 @@
+--- a/src/NzbDrone.Core/Jobs/TaskManager.cs
++++ b/src/NzbDrone.Core/Jobs/TaskManager.cs
+@@ -3,6 +3,7 @@
+ using System.Linq;
+ using NLog;
+ using NzbDrone.Common.Cache;
++using NzbDrone.Common.EnvironmentInfo;
+ using NzbDrone.Core.Backup;
+ using NzbDrone.Core.Configuration;
+ using NzbDrone.Core.Configuration.Events;
+@@ -33,12 +34,15 @@
+         private readonly IConfigService _configService;
+         private readonly Logger _logger;
+         private readonly ICached<ScheduledTask> _cache;
+-
+-        public TaskManager(IScheduledTaskRepository scheduledTaskRepository, IConfigService configService, ICacheManager cacheManager, Logger logger)
++        private readonly IAppFolderInfo _appFolderInfo;
++        private Dictionary<string, int> _intervalOverrides = new Dictionary<string, int>();
++
++        public TaskManager(IScheduledTaskRepository scheduledTaskRepository, IConfigService configService, ICacheManager cacheManager, IAppFolderInfo appFolderInfo, Logger logger)
+         {
+             _scheduledTaskRepository = scheduledTaskRepository;
+             _configService = configService;
+             _cache = cacheManager.GetCache<ScheduledTask>(GetType());
++            _appFolderInfo = appFolderInfo;
+             _logger = logger;
+         }
+ 
+@@ -126,6 +130,11 @@
+                         TypeName = typeof(RssSyncCommand).FullName
+                     }
+                 };
++
++            // scheduled-tasks.properties in the app data folder can override the interval of any task
++            // (see ScheduledTaskIntervalOverrides). Read once, at start.
++            _intervalOverrides = ScheduledTaskIntervalOverrides.Load(_appFolderInfo.AppDataFolder, defaultTasks, _logger);
++            ScheduledTaskIntervalOverrides.Apply(defaultTasks, _intervalOverrides, _logger);
+ 
+             var currentTasks = _scheduledTaskRepository.All().ToList();
+ 
+@@ -192,6 +201,14 @@
+             return interval;
+         }
+ 
++        private void ApplyOverride(ScheduledTask task)
++        {
++            if (_intervalOverrides.TryGetValue(task.TypeName, out var minutes))
++            {
++                task.Interval = minutes;
++            }
++        }
++
+         public void Handle(CommandExecutedEvent message)
+         {
+             var scheduledTask = _scheduledTaskRepository.All().SingleOrDefault(c => c.TypeName == message.Command.Body.GetType().FullName);
+@@ -220,6 +237,9 @@
+             var backup = _scheduledTaskRepository.GetDefinition(typeof(BackupCommand));
+             backup.Interval = GetBackupInterval();
+ 
++            ApplyOverride(rss);
++            ApplyOverride(backup);
++
+             _scheduledTaskRepository.UpdateMany(new List<ScheduledTask> { rss, backup });
+ 
+             _cache.Find(rss.TypeName).Interval = rss.Interval;
