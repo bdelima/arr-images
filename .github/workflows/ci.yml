@@ -1,0 +1,73 @@
+name: CI
+
+# Builds the overlay images (radarr, sonarr, lidarr) from the current upstream releases and runs the start-test against them.
+# Nothing is pushed anywhere and no secrets are used. A new upstream release that changes the patched lines
+# of TaskManager.cs makes this fail, which is the point: it is the early warning.
+
+on:
+  pull_request:
+    paths:
+      - 'radarr/**'
+      - 'sonarr/**'
+      - 'lidarr/**'
+      - 'common/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'radarr/**'
+      - 'sonarr/**'
+      - 'lidarr/**'
+      - 'common/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [radarr, sonarr, lidarr]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Resolve upstream version and the LinuxServer base build
+        id: up
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/resolve-upstream.sh "${{ matrix.app }}"
+
+      - name: LinuxServer has not built this version yet
+        if: steps.up.outputs.status == 'no-base'
+        run: echo "::notice::LinuxServer has no ${{ matrix.app }}:${{ steps.up.outputs.version }} image yet; nothing to test"
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        if: steps.up.outputs.status == 'ok'
+
+      - name: Build (amd64, loaded locally, not pushed)
+        if: steps.up.outputs.status == 'ok'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ${{ matrix.app }}/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: arr-test/${{ matrix.app }}:ci
+          build-args: |
+            UPSTREAM_TAG=${{ steps.up.outputs.upstream_tag }}
+            BASE_TAG=${{ steps.up.outputs.base_tag }}
+            VERSION=${{ steps.up.outputs.version }}
+            REVISION=${{ github.sha }}
+
+      - name: Start-test (defaults, overrides, bad file)
+        if: steps.up.outputs.status == 'ok'
+        run: tests/start-test.sh "${{ matrix.app }}" "arr-test/${{ matrix.app }}:ci" "${{ steps.up.outputs.version }}"

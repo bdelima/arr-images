@@ -1,0 +1,147 @@
+name: Release
+
+# Builds and publishes bdelima/radarr, bdelima/sonarr and bdelima/lidarr for each upstream release.
+#
+#   - Every 6 hours (and on demand): find the newest stable upstream release and the exact LinuxServer.io build
+#     of it. If bdelima/<app>:<that -lsN build> is already on Docker Hub, do nothing. That makes a new LinuxServer
+#     rebuild of the same upstream version (a new -lsN) publish too, and everything else a cheap no-op.
+#   - The image is built, run through tests/start-test.sh, and only then pushed (multi-arch, amd64 and arm64).
+#   - Tags: <version>, <version>-ls<N>, latest.
+#
+# Runs unattended on purpose. The `release` Environment is restricted to the main branch, has no required
+# reviewer, and holds the Docker Hub secrets, so a workflow run from any other branch cannot read them.
+# One-time setup (done by the user, never by a session):
+#   gh secret set DOCKERHUB_USERNAME --env release --repo bdelima/arr-images
+#   gh secret set DOCKERHUB_TOKEN    --env release --repo bdelima/arr-images
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "Which app to build"
+        type: choice
+        options: [all, radarr, sonarr, lidarr]
+        default: all
+      force:
+        description: "Rebuild and push even if this -lsN build is already on Docker Hub (e.g. after a patch fix)"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Build and test only; do not push"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: release
+    # One run per app at a time (a scheduled run must not race a manual one pushing the same tags).
+    concurrency:
+      group: release-${{ matrix.app }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [radarr, sonarr, lidarr]
+    steps:
+      - name: Skip (a different app was requested)
+        id: sel
+        env:
+          WANT: ${{ github.event.inputs.app }}
+        run: |
+          if [[ -n "$WANT" && "$WANT" != "all" && "$WANT" != "${{ matrix.app }}" ]]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Not ${WANT}; skipping ${{ matrix.app }}"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: steps.sel.outputs.run == 'true'
+
+      - name: Resolve upstream version and the LinuxServer base build
+        id: up
+        if: steps.sel.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/resolve-upstream.sh "${{ matrix.app }}"
+
+      - name: Already published?
+        id: pub
+        if: steps.sel.outputs.run == 'true' && steps.up.outputs.status == 'ok'
+        env:
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          if [[ "$FORCE" == "true" ]]; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"; echo "force=true: building regardless"; exit 0
+          fi
+          code="$(curl -s -o /dev/null -w '%{http_code}' \
+            "https://hub.docker.com/v2/repositories/bdelima/${{ matrix.app }}/tags/${{ steps.up.outputs.base_tag }}")"
+          if [[ "$code" == "200" ]]; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "bdelima/${{ matrix.app }}:${{ steps.up.outputs.base_tag }} is already on Docker Hub: nothing to do"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        if: steps.pub.outputs.needed == 'true'
+
+      - name: Build (amd64, loaded locally) for the start-test
+        if: steps.pub.outputs.needed == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ${{ matrix.app }}/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: arr-test/${{ matrix.app }}:release
+          build-args: |
+            UPSTREAM_TAG=${{ steps.up.outputs.upstream_tag }}
+            BASE_TAG=${{ steps.up.outputs.base_tag }}
+            VERSION=${{ steps.up.outputs.version }}
+            REVISION=${{ github.sha }}
+
+      - name: Start-test
+        if: steps.pub.outputs.needed == 'true'
+        run: tests/start-test.sh "${{ matrix.app }}" "arr-test/${{ matrix.app }}:release" "${{ steps.up.outputs.version }}"
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        if: steps.pub.outputs.needed == 'true' && github.event.inputs.dry_run != 'true'
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push (amd64 + arm64)
+        if: steps.pub.outputs.needed == 'true' && github.event.inputs.dry_run != 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ${{ matrix.app }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            UPSTREAM_TAG=${{ steps.up.outputs.upstream_tag }}
+            BASE_TAG=${{ steps.up.outputs.base_tag }}
+            VERSION=${{ steps.up.outputs.version }}
+            REVISION=${{ github.sha }}
+          tags: |
+            bdelima/${{ matrix.app }}:${{ steps.up.outputs.version }}
+            bdelima/${{ matrix.app }}:${{ steps.up.outputs.base_tag }}
+            bdelima/${{ matrix.app }}:latest
+
+      - name: Summary
+        if: always() && steps.sel.outputs.run == 'true'
+        run: |
+          {
+            echo "### ${{ matrix.app }}"
+            echo "- upstream: \`${{ steps.up.outputs.upstream_tag }}\`, LinuxServer base: \`${{ steps.up.outputs.base_tag }}\` (${{ steps.up.outputs.status }})"
+            if [[ "${{ steps.pub.outputs.needed }}" == "false" ]]; then echo "- already on Docker Hub: skipped"; fi
+            if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then echo "- dry run: built and tested, not pushed"; fi
+          } >> "$GITHUB_STEP_SUMMARY"

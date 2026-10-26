@@ -1,0 +1,20 @@
+# scheduled-tasks.properties for the bdelima/lidarr image. Put it in the /config folder.
+#
+# Name=minutes. 0 turns that task's own schedule off. Remove the leading # to use a line.
+# Names are the "taskName" values of GET /api/v1/system/task (case-insensitive).
+# Read once at start: restart the container after editing.
+#
+# The numbers shown are upstream's defaults at the time this image was built.
+
+#MessagingCleanup=5
+#ImportListSync=5
+#RefreshMonitoredDownloads=1
+#ApplicationUpdateCheck=360
+#CheckHealth=360
+#RefreshArtist=1440
+#RescanFolders=1440
+#Housekeeping=1440
+
+# These two normally follow Settings; a value here wins over Settings, including after Settings is saved.
+#Backup=10080
+#RssSync=15
