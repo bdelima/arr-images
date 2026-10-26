@@ -20,9 +20,9 @@ image="${2:?usage: start-test.sh radarr|sonarr|lidarr IMAGE}"
 expected_version="${3:-}"
 
 case "$app" in
-  radarr) port=7878; api=v3; refresh=RefreshMovie;  refresh_default=1440 ;;
-  sonarr) port=8989; api=v3; refresh=RefreshSeries; refresh_default=720 ;;
-  lidarr) port=8686; api=v1; refresh=RefreshArtist; refresh_default=1440 ;;  # Lidarr's API is v1
+  radarr) port=7878; api=v3; refresh=RefreshMovie;  refresh_default=1440; other=CleanUpRecycleBin ;;
+  sonarr) port=8989; api=v3; refresh=RefreshSeries; refresh_default=720;  other=CleanUpRecycleBin ;;
+  lidarr) port=8686; api=v1; refresh=RefreshArtist; refresh_default=1440; other=RescanFolders ;;  # Lidarr's API is v1
   *) echo "unknown app: $app" >&2; exit 2 ;;
 esac
 
@@ -98,7 +98,7 @@ expect Housekeeping 1440
 expect CheckHealth 360
 expect MessagingCleanup 5
 expect ImportListSync 5
-expect CleanUpRecycleBin 1440
+expect "$other" 1440
 expect "$refresh" "$refresh_default"
 expect_log "No scheduled-tasks.properties"
 
@@ -121,21 +121,21 @@ expect Backup 43200                   # likewise
 expect "$refresh" 10080
 expect MessagingCleanup 5             # not mentioned: unchanged
 expect ImportListSync 5
-expect CleanUpRecycleBin 1440
+expect "$other" 1440
 expect_log "Scheduled task Housekeeping: interval 1440 -> 0"
 
 # ---- 3. bad lines --------------------------------------------------------------------------------------
 cat > "$work/bad.properties" <<EOF
 this line has no equals sign
 Housekeeping=-5
-CleanUpRecycleBin=abc
+${other}=abc
 NoSuchTask=5
 CheckHealth=720
 EOF
 start bad "$work/bad.properties"
 expect CheckHealth 720                # the good line still applies
 expect Housekeeping 1440              # bad values are ignored, upstream default stays
-expect CleanUpRecycleBin 1440
+expect "$other" 1440
 expect_log "unknown task 'NoSuchTask'"
 expect_log "is not a whole number of minutes"
 expect_log "expected Name=minutes"

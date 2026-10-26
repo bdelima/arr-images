@@ -14,17 +14,19 @@
 ARG UPSTREAM_TAG
 ARG BASE_TAG
 
+# ---- fetch the upstream source (its own stage: the .NET SDK images are old Debian releases whose apt is unreliable) ----
+FROM --platform=$BUILDPLATFORM alpine:3 AS source
+ARG UPSTREAM_TAG
+RUN apk add --no-cache git ca-certificates \
+    && git clone --quiet --depth 1 --branch "${UPSTREAM_TAG}" https://github.com/Radarr/Radarr.git /src
+
 # ---- build the patched assembly (runs on the build host's own architecture; the output is managed code) ----
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 ARG UPSTREAM_TAG
 ARG VERSION
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /src
-RUN git clone --quiet --depth 1 --branch "${UPSTREAM_TAG}" https://github.com/Radarr/Radarr.git .
+COPY --from=source /src /src
 
 COPY radarr/patches/ /patches/
 COPY common/ScheduledTaskIntervalOverrides.cs src/NzbDrone.Core/Jobs/ScheduledTaskIntervalOverrides.cs
