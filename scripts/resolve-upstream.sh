@@ -29,11 +29,11 @@ out() { echo "$1=$2"; [ -z "${GITHUB_OUTPUT:-}" ] || echo "$1=$2" >> "$GITHUB_OU
 out upstream_tag "$tag"
 out version "$version"
 
-# LinuxServer publishes <version> as a moving tag and <version>-ls<N> as the immutable build. Read which build
+# LinuxServer publishes version-<version> as a moving tag and <version>-ls<N> as the immutable build. Read which build
 # <version> currently is, so what we overlay (and what we tag) is exact.
-image="lscr.io/linuxserver/${app}:${version}"
+image="lscr.io/linuxserver/${app}:version-${version}"
 if ! docker pull --quiet "$image" >/dev/null 2>&1; then
-  echo "LinuxServer has no ${app}:${version} image yet" >&2
+  echo "LinuxServer has no ${app}:version-${version} image yet" >&2
   out status no-base
   exit 0
 fi
