@@ -1,0 +1,39 @@
+diff --git a/src/NzbDrone.Core/Jobs/TaskManager.cs b/src/NzbDrone.Core/Jobs/TaskManager.cs
+index 98ca42c..5fce8c7 100644
+--- a/src/NzbDrone.Core/Jobs/TaskManager.cs
++++ b/src/NzbDrone.Core/Jobs/TaskManager.cs
+@@ -142,6 +142,7 @@ namespace NzbDrone.Core.Jobs
+             // (see ScheduledTaskIntervalOverrides). Read once, at start.
+             _intervalOverrides = ScheduledTaskIntervalOverrides.Load(_appFolderInfo.AppDataFolder, defaultTasks, _logger);
+             ScheduledTaskIntervalOverrides.Apply(defaultTasks, _intervalOverrides, _logger);
++            ScheduledTaskIntervalOverrides.Publish(defaultTasks, _logger);
+ 
+             var currentTasks = _scheduledTaskRepository.All().ToList();
+ 
+diff --git a/src/NzbDrone.Core/Messaging/Commands/CommandQueueManager.cs b/src/NzbDrone.Core/Messaging/Commands/CommandQueueManager.cs
+index 6f7f6d7..5f46ddb 100644
+--- a/src/NzbDrone.Core/Messaging/Commands/CommandQueueManager.cs
++++ b/src/NzbDrone.Core/Messaging/Commands/CommandQueueManager.cs
+@@ -9,6 +9,7 @@ using NzbDrone.Common.Composition;
+ using NzbDrone.Common.EnsureThat;
+ using NzbDrone.Common.Serializer;
+ using NzbDrone.Core.Exceptions;
++using NzbDrone.Core.Jobs;
+ using NzbDrone.Core.Lifecycle;
+ using NzbDrone.Core.Messaging.Events;
+ 
+@@ -106,6 +107,14 @@ namespace NzbDrone.Core.Messaging.Commands
+             _logger.Trace("Publishing {0}", command.Name);
+             _logger.Trace("Checking if command is queued or started: {0}", command.Name);
+ 
++            // arr-images: an API caller (the controller passes Manual) may ask for the Scheduled trigger in the
++            // request body, to have the task run as the app's own timer would. Honor exactly that one case.
++            if (trigger == CommandTrigger.Manual && command.Trigger == CommandTrigger.Scheduled)
++            {
++                trigger = CommandTrigger.Scheduled;
++                ScheduledTaskIntervalOverrides.PrepareScheduledRequest(command, _logger);
++            }
++
+             command.Trigger = trigger;
+ 
+             lock (_commandQueue)

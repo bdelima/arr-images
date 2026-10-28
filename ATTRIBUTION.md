@@ -13,8 +13,8 @@ applies. Everything below keeps its own license and copyright; nothing here reli
   and `Radarr.Core.dll` is rebuilt from it with the patches in `radarr/patches/` applied and
   `common/ScheduledTaskIntervalOverrides.cs` added. **This is a modified version of Radarr.** The modification is
   limited to `TaskManager.cs` (reads `scheduled-tasks.properties` and applies it to the scheduled task intervals),
-  `MetadataService.cs` (skips an image step when no metadata consumer is enabled) and the added source file; all are
-  public in this repository.
+  `MetadataService.cs` (skips an image step when no metadata consumer is enabled), `CommandQueueManager.cs` (honors a
+  requested Scheduled trigger) and the added source file; all are public in this repository.
 
 ## Sonarr
 
@@ -27,7 +27,8 @@ applies. Everything below keeps its own license and copyright; nothing here reli
 
 - **Project:** [Lidarr/Lidarr](https://github.com/Lidarr/Lidarr)
 - **License:** GPL-3.0
-- **How it's used:** same as Radarr, with the patches in `lidarr/patches/`. **This is a modified
+- **How it's used:** same as Radarr, with the patches in `lidarr/patches/`, which also change Lidarr's
+  `CommandController.cs` (so `Lidarr.Api.V1.dll` is rebuilt too). **This is a modified
   version of Lidarr.**
 
 ## LinuxServer.io images

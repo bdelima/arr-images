@@ -18,3 +18,8 @@
 # These two normally follow Settings; a value here wins over Settings, including after Settings is saved.
 #Backup=10080
 #RssSync=15
+
+# For API calls that ask for the Scheduled trigger (see the README): minutes of "changed since" history to use for
+# RefreshArtist. Without this line it is the task's interval plus 5 minutes. A task whose interval is 0 refuses
+# scheduled calls.
+#ScheduledLookback.RefreshArtist=1445

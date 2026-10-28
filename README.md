@@ -62,6 +62,31 @@ CheckHealth=1440
 A task you run yourself (for example from a cron job through the API) re-stamps its own "last run" time as
 upstream does, so it does not fire again on its own timer straight afterwards.
 
+### Running a task through the API as the app's own timer would
+
+`POST /api/v3/command` (Lidarr: `/api/v1/command`) normally runs the task as a **Manual** run, and for the refresh
+tasks that means it walks the whole library. Upstream's own timer runs them as **Scheduled**, which does less:
+Radarr `RefreshMovie` and Lidarr `RefreshArtist` ask the metadata server what changed since the last run and refresh
+only those, `RefreshCollections` skips recent ones, `CheckHealth` runs a subset, Sonarr `RefreshSeries` refreshes only
+series that are due. These images let an API call ask for that:
+
+```json
+{ "name": "RefreshMovie", "trigger": "scheduled" }
+```
+
+- Only `"trigger": "scheduled"` is honored. A call without `trigger` (or the UI) is a Manual run, exactly as before.
+  `GET /api/v3/command/<id>` shows which one ran in its `trigger` field.
+- Radarr `RefreshMovie` and Lidarr `RefreshArtist` need a "changed since" time, which the app works out itself: the
+  task's interval plus 5 minutes (1445 with the default 1440), or `ScheduledLookback.<Task>=minutes` from the
+  properties file. Any `lastStartTime` in the request is replaced. Upstream ignores a window over 14 days (20160
+  minutes) and falls back to its per-item rules; a longer value is logged as a warning.
+- A task whose interval is `0` in the properties file **refuses** a scheduled request with HTTP 400 instead of
+  quietly running as Manual. A request for a task with no scheduled entry just gets the trigger.
+- The app logs one line per scheduled request, for example `Scheduled request for RefreshMovie: trigger honored,
+  look-back 1445 minutes (interval 1440 + 5)`.
+- Radarr and Sonarr need only `Core`. Lidarr's controller forced the trigger to Manual, so its image also rebuilds
+  `Lidarr.Api.V1.dll` with that one line removed.
+
 ## What is different from the LinuxServer image
 
 One file: `Radarr.Core.dll` / `Sonarr.Core.dll` / `Lidarr.Core.dll`, rebuilt from the upstream source tag with small
@@ -77,6 +102,9 @@ is LinuxServer's, unchanged.
    the step would only read the database and check the media folder. Cover download and resizing are unchanged. The
    one thing lost is that step's cleanup of database rows for metadata files that no longer exist; the library-scan
    paths still do that. With any consumer enabled the behaviour is upstream's.
+3. **`03-scheduled-trigger.patch`** lets an API call ask for the Scheduled trigger (see above). It changes
+   `CommandQueueManager.Push` to keep a requested `scheduled` trigger, and publishes the effective task intervals
+   from `TaskManager`. In Lidarr it also removes the controller line that forced the trigger to Manual.
 
 ## How the images are built
 
