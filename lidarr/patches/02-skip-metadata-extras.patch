@@ -1,0 +1,18 @@
+diff --git a/src/NzbDrone.Core/Extras/Metadata/MetadataService.cs b/src/NzbDrone.Core/Extras/Metadata/MetadataService.cs
+index 8aa0675..89d6e1a 100644
+--- a/src/NzbDrone.Core/Extras/Metadata/MetadataService.cs
++++ b/src/NzbDrone.Core/Extras/Metadata/MetadataService.cs
+@@ -61,6 +61,13 @@ namespace NzbDrone.Core.Extras.Metadata
+ 
+         public override IEnumerable<ExtraFile> CreateAfterMediaCoverUpdate(Artist artist)
+         {
++            // arr-images: with no metadata consumer enabled this step has nothing to write. The database read,
++            // Clean() and FolderExists() below would only touch the media folder, so skip them.
++            if (!_metadataFactory.Enabled().Any())
++            {
++                return Enumerable.Empty<MetadataFile>();
++            }
++
+             var metadataFiles = _metadataFileService.GetFilesByArtist(artist.Id);
+             _cleanMetadataService.Clean(artist);
+ 

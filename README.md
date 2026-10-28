@@ -64,11 +64,19 @@ upstream does, so it does not fire again on its own timer straight afterwards.
 
 ## What is different from the LinuxServer image
 
-One file: `Radarr.Core.dll` / `Sonarr.Core.dll`, rebuilt from the upstream source tag with a small patch
-([`radarr/patches`](radarr/patches), [`sonarr/patches`](sonarr/patches), [`lidarr/patches`](lidarr/patches)) plus one new source file
-([`common/ScheduledTaskIntervalOverrides.cs`](common/ScheduledTaskIntervalOverrides.cs)). The patch adds
-`IAppFolderInfo` to `TaskManager`'s constructor, loads the overrides at start and applies them to the default task
-list, and re-applies them when Settings is saved. Everything else in the image is LinuxServer's, unchanged.
+One file: `Radarr.Core.dll` / `Sonarr.Core.dll` / `Lidarr.Core.dll`, rebuilt from the upstream source tag with small
+patches ([`radarr/patches`](radarr/patches), [`sonarr/patches`](sonarr/patches), [`lidarr/patches`](lidarr/patches),
+applied in file-name order) plus one new source file
+([`common/ScheduledTaskIntervalOverrides.cs`](common/ScheduledTaskIntervalOverrides.cs)). Everything else in the image
+is LinuxServer's, unchanged.
+
+1. **`01-task-interval-overrides.patch`** adds `IAppFolderInfo` to `TaskManager`'s constructor, loads the overrides at
+   start and applies them to the default task list, and re-applies them when Settings is saved.
+2. **`02-skip-metadata-extras.patch`** makes the step that runs after a cover re-download return immediately when no
+   metadata consumer (Kodi/Emby, Roksbox, WDTV and so on) is enabled. With no consumer there is nothing to write, and
+   the step would only read the database and check the media folder. Cover download and resizing are unchanged. The
+   one thing lost is that step's cleanup of database rows for metadata files that no longer exist; the library-scan
+   paths still do that. With any consumer enabled the behaviour is upstream's.
 
 ## How the images are built
 
