@@ -2,7 +2,7 @@
 #
 # Lidarr with every scheduled-task interval overridable from /config/scheduled-tasks.properties.
 #
-# An overlay on the LinuxServer.io image: the only change is a rebuilt Lidarr.Core.dll, compiled from the
+# An overlay on the LinuxServer.io image: the only changes are a rebuilt Lidarr.Core.dll and Lidarr.Api.V1.dll, compiled from the
 # upstream source tag with the patches in lidarr/patches/ (applied in file-name order) and common/ScheduledTaskIntervalOverrides.cs
 # applied. Everything else in the image is LinuxServer's, unchanged. Build context: the repository root.
 #
@@ -42,7 +42,7 @@ COPY common/ScheduledTaskIntervalOverrides.cs src/NzbDrone.Core/Jobs/ScheduledTa
 RUN test -n "${VERSION}" || { echo "VERSION build-arg is required (the upstream release version, e.g. 6.4.4.10685)" >&2; exit 1; } \
     && for p in /patches/*.patch; do echo "applying $p"; git apply --check "$p" && git apply "$p" || exit 1; done \
     && rm -f global.json \
-    && dotnet build src/NzbDrone.Core/Lidarr.Core.csproj -c Release -o /out --nologo -v minimal \
+    && dotnet build src/Lidarr.Api.V1/Lidarr.Api.V1.csproj -c Release -o /out --nologo -v minimal \
          -p:AssemblyVersion=${VERSION} -p:TreatWarningsAsErrors=false -p:EnforceCodeStyleInBuild=false -p:RunAnalyzersDuringBuild=false
 
 # ---- the LinuxServer image with the one assembly replaced ----
@@ -55,6 +55,10 @@ ARG REVISION=unknown
 
 COPY --from=build /out/Lidarr.Core.dll /app/lidarr/bin/Lidarr.Core.dll
 COPY --from=build /out/Lidarr.Core.pdb /app/lidarr/bin/Lidarr.Core.pdb
+# Lidarr's command controller overwrites the request's trigger with Manual before the queue sees it
+# (03-scheduled-trigger.patch removes that line), so unlike Radarr and Sonarr its API assembly is rebuilt too.
+COPY --from=build /out/Lidarr.Api.V1.dll /app/lidarr/bin/Lidarr.Api.V1.dll
+COPY --from=build /out/Lidarr.Api.V1.pdb /app/lidarr/bin/Lidarr.Api.V1.pdb
 
 ENV APP_VERSION=${VERSION}
 

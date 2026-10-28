@@ -20,3 +20,8 @@
 #Backup=10080
 #RssSync=30
 #RefreshMonitoredDownloads=1
+
+# For API calls that ask for the Scheduled trigger (see the README): minutes of "changed since" history to use for
+# RefreshMovie. Without this line it is the task's interval plus 5 minutes. A task whose interval is 0 refuses
+# scheduled calls.
+#ScheduledLookback.RefreshMovie=1445

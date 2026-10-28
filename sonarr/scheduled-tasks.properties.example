@@ -19,3 +19,6 @@
 # These two normally follow Settings; a value here wins over Settings, including after Settings is saved.
 #Backup=10080
 #RssSync=15
+
+# ScheduledLookback.<Task> does not apply to Sonarr: none of its tasks use a changed list, so a scheduled API call
+# needs no window. (A line for it is logged as a warning and ignored.)
