@@ -3,7 +3,7 @@
 # Radarr with every scheduled-task interval overridable from /config/scheduled-tasks.properties.
 #
 # An overlay on the LinuxServer.io image: the only change is a rebuilt Radarr.Core.dll, compiled from the
-# upstream source tag with radarr/patches/task-interval-overrides.patch and common/ScheduledTaskIntervalOverrides.cs
+# upstream source tag with the patches in radarr/patches/ (applied in file-name order) and common/ScheduledTaskIntervalOverrides.cs
 # applied. Everything else in the image is LinuxServer's, unchanged. Build context: the repository root.
 #
 #   docker build -f radarr/Dockerfile \
@@ -40,8 +40,7 @@ COPY common/ScheduledTaskIntervalOverrides.cs src/NzbDrone.Core/Jobs/ScheduledTa
 # global.json pins an exact SDK patch version; the image's SDK of the same major version is fine for this library.
 # Upstream builds with warnings as errors and StyleCop; that is upstream's own lint, not a build requirement here.
 RUN test -n "${VERSION}" || { echo "VERSION build-arg is required (the upstream release version, e.g. 6.4.4.10685)" >&2; exit 1; } \
-    && git apply --check /patches/task-interval-overrides.patch \
-    && git apply /patches/task-interval-overrides.patch \
+    && for p in /patches/*.patch; do echo "applying $p"; git apply --check "$p" && git apply "$p" || exit 1; done \
     && rm -f global.json \
     && dotnet build src/NzbDrone.Core/Radarr.Core.csproj -c Release -o /out --nologo -v minimal \
          -p:AssemblyVersion=${VERSION} -p:TreatWarningsAsErrors=false -p:EnforceCodeStyleInBuild=false -p:RunAnalyzersDuringBuild=false

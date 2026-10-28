@@ -10,23 +10,24 @@ applies. Everything below keeps its own license and copyright; nothing here reli
 - **Project:** [Radarr/Radarr](https://github.com/Radarr/Radarr)
 - **License:** GPL-3.0
 - **How it's used:** the source tag named in each image's `dev.pumapants.upstream-tag` label is cloned at build time
-  and `Radarr.Core.dll` is rebuilt from it with `radarr/patches/task-interval-overrides.patch` applied and
+  and `Radarr.Core.dll` is rebuilt from it with the patches in `radarr/patches/` applied and
   `common/ScheduledTaskIntervalOverrides.cs` added. **This is a modified version of Radarr.** The modification is
-  limited to `TaskManager.cs` (reads `scheduled-tasks.properties` and applies it to the scheduled task intervals)
-  and the added source file; both are public in this repository.
+  limited to `TaskManager.cs` (reads `scheduled-tasks.properties` and applies it to the scheduled task intervals),
+  `MetadataService.cs` (skips an image step when no metadata consumer is enabled) and the added source file; all are
+  public in this repository.
 
 ## Sonarr
 
 - **Project:** [Sonarr/Sonarr](https://github.com/Sonarr/Sonarr)
 - **License:** GPL-3.0
-- **How it's used:** same as Radarr, with `sonarr/patches/task-interval-overrides.patch`. **This is a modified
+- **How it's used:** same as Radarr, with the patches in `sonarr/patches/`. **This is a modified
   version of Sonarr.**
 
 ## Lidarr
 
 - **Project:** [Lidarr/Lidarr](https://github.com/Lidarr/Lidarr)
 - **License:** GPL-3.0
-- **How it's used:** same as Radarr, with `lidarr/patches/task-interval-overrides.patch`. **This is a modified
+- **How it's used:** same as Radarr, with the patches in `lidarr/patches/`. **This is a modified
   version of Lidarr.**
 
 ## LinuxServer.io images
