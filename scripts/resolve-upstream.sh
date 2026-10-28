@@ -32,10 +32,24 @@ out version "$version"
 # LinuxServer publishes version-<version> as a moving tag and <version>-ls<N> as the immutable build. Read which build
 # <version> currently is, so what we overlay (and what we tag) is exact.
 image="lscr.io/linuxserver/${app}:version-${version}"
-if ! docker pull --quiet "$image" >/dev/null 2>&1; then
-  echo "LinuxServer has no ${app}:version-${version} image yet" >&2
-  out status no-base
-  exit 0
+pulled=false
+for attempt in 1 2 3; do
+  if docker pull --quiet "$image" >/dev/null 2>&1; then pulled=true; break; fi
+  sleep $((attempt * 5))
+done
+
+if ! $pulled; then
+  # A failed pull is not proof that LinuxServer has not built this version: the registry can hiccup, and
+  # treating that as "nothing to do" would silently skip a build (or a whole CI test). Ask Docker Hub whether
+  # the tag exists, and only a clear 404 means "not built yet".
+  code="$(curl -s -o /dev/null -w '%{http_code}' "https://hub.docker.com/v2/repositories/linuxserver/${app}/tags/version-${version}" || true)"
+  if [ "$code" = 404 ]; then
+    echo "LinuxServer has no ${app}:version-${version} image yet" >&2
+    out status no-base
+    exit 0
+  fi
+  echo "could not pull ${image} (Docker Hub says HTTP ${code:-none} for the tag); not treating that as 'not built yet'" >&2
+  exit 1
 fi
 
 base="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$image")"
