@@ -53,9 +53,11 @@ fail() {
 
 start() {  # start <scenario-name> [properties-file]
   scenario="$1"; local props="${2:-}"
+  # Remove the previous container before its config directory: while it still runs it can write into the
+  # directory, which made rm fail with "Directory not empty" and ended the whole test with no FAIL message.
+  [ -z "$cname" ] || docker rm -f "$cname" >/dev/null 2>&1 || true
   rm -rf "$work/cfg"; mkdir -p "$work/cfg"
   [ -z "$props" ] || cp "$props" "$work/cfg/scheduled-tasks.properties"
-  [ -z "$cname" ] || docker rm -f "$cname" >/dev/null 2>&1 || true
   cname="arrtest-${app}-${scenario}"
   echo "== [$scenario] starting $image"
   docker run -d --name "$cname" -e PUID="$(id -u)" -e PGID="$(id -g)" -e TZ=UTC \
@@ -79,8 +81,18 @@ start() {  # start <scenario-name> [properties-file]
   done
   [ -s "$work/status.json" ] || fail "the API did not come up after 180 s"
 
-  curl -fsS -H "X-Api-Key: $key" "http://127.0.0.1:${port}/api/${api}/system/task" -o "$work/tasks.json" \
-    || fail "GET /api/${api}/system/task failed"
+  # The API answers a moment before TaskManager has stored the task list (it does that on ApplicationStarted),
+  # so an empty list right after start-up is not a failure yet.
+  rm -f "$work/tasks.json"
+  for _ in $(seq 1 30); do
+    if curl -fsS -H "X-Api-Key: $key" "http://127.0.0.1:${port}/api/${api}/system/task" -o "$work/tasks.json" 2>/dev/null \
+       && [ "$(jq 'length' "$work/tasks.json" 2>/dev/null || echo 0)" -gt 0 ]; then
+      break
+    fi
+    sleep 1
+  done
+  [ -s "$work/tasks.json" ] && [ "$(jq 'length' "$work/tasks.json")" -gt 0 ] \
+    || fail "GET /api/${api}/system/task returned no scheduled tasks after 30 s"
   local reported
   reported="$(jq -r .version "$work/status.json")"
   echo "   app reports version ${reported}"
