@@ -53,9 +53,11 @@ fail() {
 
 start() {  # start <scenario-name> [properties-file]
   scenario="$1"; local props="${2:-}"
+  # Remove the previous container before its config directory: while it still runs it can write into the
+  # directory, which made rm fail with "Directory not empty" and ended the whole test with no FAIL message.
+  [ -z "$cname" ] || docker rm -f "$cname" >/dev/null 2>&1 || true
   rm -rf "$work/cfg"; mkdir -p "$work/cfg"
   [ -z "$props" ] || cp "$props" "$work/cfg/scheduled-tasks.properties"
-  [ -z "$cname" ] || docker rm -f "$cname" >/dev/null 2>&1 || true
   cname="arrtest-${app}-${scenario}"
   echo "== [$scenario] starting $image"
   docker run -d --name "$cname" -e PUID="$(id -u)" -e PGID="$(id -g)" -e TZ=UTC \
