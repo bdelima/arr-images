@@ -1,0 +1,30 @@
+diff --git a/src/NzbDrone.Core/Music/Services/RefreshAlbumService.cs b/src/NzbDrone.Core/Music/Services/RefreshAlbumService.cs
+index 1867cfa..258ba33 100644
+--- a/src/NzbDrone.Core/Music/Services/RefreshAlbumService.cs
++++ b/src/NzbDrone.Core/Music/Services/RefreshAlbumService.cs
+@@ -247,7 +247,10 @@ protected override void SaveEntity(Album local)
+ 
+         protected override void DeleteEntity(Album local, bool deleteFiles)
+         {
+-            _albumService.DeleteAlbum(local.Id, true);
++            // arr-images: ShouldDelete() only allows this for albums with no files, so there is nothing to delete from
++            // disk. Passing true made AlbumDeletedEvent claim files were deleted, and notification connections (Plex)
++            // answer that with a library scan of the artist folder.
++            _albumService.DeleteAlbum(local.Id, false);
+         }
+ 
+         protected override List<AlbumRelease> GetRemoteChildren(Album remote)
+diff --git a/src/NzbDrone.Core/Music/Services/RefreshArtistService.cs b/src/NzbDrone.Core/Music/Services/RefreshArtistService.cs
+index 15e93ea..9847bcd 100644
+--- a/src/NzbDrone.Core/Music/Services/RefreshArtistService.cs
++++ b/src/NzbDrone.Core/Music/Services/RefreshArtistService.cs
+@@ -210,7 +210,8 @@ protected override void SaveEntity(Artist local)
+ 
+         protected override void DeleteEntity(Artist local, bool deleteFiles)
+         {
+-            _artistService.DeleteArtist(local.Id, true);
++            // arr-images: see RefreshAlbumService.DeleteEntity.
++            _artistService.DeleteArtist(local.Id, false);
+         }
+ 
+         protected override List<Album> GetRemoteChildren(Artist remote)
