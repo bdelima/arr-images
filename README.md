@@ -105,6 +105,13 @@ is LinuxServer's, unchanged.
 3. **`03-scheduled-trigger.patch`** lets an API call ask for the Scheduled trigger (see above). It changes
    `CommandQueueManager.Push` to keep a requested `scheduled` trigger, and publishes the effective task intervals
    from `TaskManager`. In Lidarr it also removes the controller line that forced the trigger to Manual.
+4. **Lidarr only: `04-no-file-delete-for-metadata-removals.patch`** stops a metadata refresh from announcing file
+   deletions that did not happen. When a refresh drops an album or artist that has no files, upstream deletes the
+   database row with `deleteFiles = true`, so `AlbumDeletedEvent` says files were deleted and the Plex connection
+   answers each one with a library scan of the artist folder (25 scans in 3 seconds on one scheduled Refresh Artist).
+   The patch passes `false` in `RefreshAlbumService` and `RefreshArtistService`. These paths only run for entries with
+   no files, so nothing is lost; a delete you do yourself in the UI is unchanged. Radarr and Sonarr mark such items
+   as deleted rather than removing them, so they have no equivalent patch.
 
 ## How the images are built
 
