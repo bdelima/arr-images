@@ -33,7 +33,15 @@ class FakeTdarr:
                     return
                 if self.path == "/api/v2/scan-files":
                     fake.scans.append(data["scanConfig"])
-                    out = {}
+                    # the real Tdarr answers a successful scan with plain text "OK", not JSON -- confirmed
+                    # live 2026-11-01; validator.py must not treat this as an unparseable response
+                    body = b"OK"
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/plain; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
                 elif self.path == "/api/v2/cruddb":
                     table = fake.staged if data["collection"] == "StagedJSONDB" else fake.files
                     if data["mode"] == "getById":

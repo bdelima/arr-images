@@ -26,6 +26,9 @@ Container types to scan for) already ignores anything outside its configured ext
 on disk (no mount, or it is already gone), the bare path is sent as-is, same as before this walk was added -- which
 still works for a single file, just not for a folder.
 
+A successful scan-files call answers with a plain-text "OK", not JSON; that response is never parsed, so it is never
+mistaken for a failure.
+
 Standard library only. Configuration (environment):
 
     TDARR_URL              e.g. http://192.168.0.50:8266 (the Tdarr server port)
@@ -67,15 +70,23 @@ class Tdarr:
         self.library_id = library_id
         self.timeout = timeout
 
-    def _post(self, endpoint, data):
+    def _post_raw(self, endpoint, data):
+        """POST and return the raw response bytes, without trying to parse them as JSON.
+
+        scan-files answers a successful call with a plain-text "OK", not JSON; callers that don't need the
+        response body (scan()) use this directly instead of _post, so that reply is not mistaken for a failure.
+        """
         body = json.dumps({"data": data}).encode()
         req = urllib.request.Request(
             self.url + endpoint, data=body, headers={"Content-Type": "application/json"}, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                raw = resp.read()
+                return resp.read()
         except (urllib.error.URLError, OSError, ValueError) as exc:
             raise TdarrError(f"{endpoint}: {exc}") from exc
+
+    def _post(self, endpoint, data):
+        raw = self._post_raw(endpoint, data)
         if not raw.strip():
             return None
         try:
@@ -101,7 +112,9 @@ class Tdarr:
         return [d for d in value if self._doc(d)]
 
     def scan(self, paths):
-        self._post("/api/v2/scan-files", {"scanConfig": {
+        # the response is discarded either way (and is plain text "OK" on success, not JSON) -- _post_raw,
+        # not _post, so a successful scan is never mistaken for an "unparseable response" failure
+        self._post_raw("/api/v2/scan-files", {"scanConfig": {
             "dbID": self.library_id, "arrayOrPath": list(paths), "mode": "scanFolderWatcher"}})
 
 
