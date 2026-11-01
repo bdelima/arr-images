@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
-# Resolve what to build for one app: the newest stable upstream release, and the exact LinuxServer.io build of it.
+# Resolve what to build for one app: the newest stable upstream release, and the base image to overlay.
+# For radarr, sonarr and lidarr that is the exact LinuxServer.io build of the release; for sportarr it is the
+# official sportarr/sportarr image tagged with the release version.
 #
-#   scripts/resolve-upstream.sh radarr|sonarr|lidarr
+#   scripts/resolve-upstream.sh radarr|sonarr|lidarr|sportarr
 #
 # Prints key=value lines (appended to $GITHUB_OUTPUT when that is set):
-#   status        ok | no-base   (no-base: LinuxServer has not built this upstream version yet; nothing to do)
+#   status        ok | no-base   (no-base: the base image for this upstream version does not exist yet; nothing to do)
 #   upstream_tag  e.g. v6.4.4.10685
 #   version       e.g. 6.4.4.10685
-#   base_tag      e.g. 6.4.4.10685-ls323   (the exact LinuxServer build, pinned)
+#   base_tag      e.g. 6.4.4.10685-ls323   (the exact LinuxServer build, pinned; sportarr: the version itself)
 #
 # Needs: gh (authenticated via GH_TOKEN), docker.
 set -euo pipefail
 
-app="${1:?usage: resolve-upstream.sh radarr|sonarr|lidarr}"
+app="${1:?usage: resolve-upstream.sh radarr|sonarr|lidarr|sportarr}"
 case "$app" in
   radarr) upstream="Radarr/Radarr" ;;
   sonarr) upstream="Sonarr/Sonarr" ;;
   lidarr) upstream="Lidarr/Lidarr" ;;
+  sportarr) upstream="Sportarr/Sportarr" ;;
   *) echo "unknown app: $app" >&2; exit 2 ;;
 esac
 
@@ -30,8 +33,12 @@ out upstream_tag "$tag"
 out version "$version"
 
 # LinuxServer publishes version-<version> as a moving tag and <version>-ls<N> as the immutable build. Read which build
-# <version> currently is, so what we overlay (and what we tag) is exact.
-image="lscr.io/linuxserver/${app}:version-${version}"
+# <version> currently is, so what we overlay (and what we tag) is exact. Sportarr publishes plain <version> tags.
+if [ "$app" = sportarr ]; then
+  image="sportarr/sportarr:${version}"; hub_repo="sportarr/sportarr"; hub_tag="${version}"
+else
+  image="lscr.io/linuxserver/${app}:version-${version}"; hub_repo="linuxserver/${app}"; hub_tag="version-${version}"
+fi
 pulled=false
 for attempt in 1 2 3; do
   if docker pull --quiet "$image" >/dev/null 2>&1; then pulled=true; break; fi
@@ -42,14 +49,20 @@ if ! $pulled; then
   # A failed pull is not proof that LinuxServer has not built this version: the registry can hiccup, and
   # treating that as "nothing to do" would silently skip a build (or a whole CI test). Ask Docker Hub whether
   # the tag exists, and only a clear 404 means "not built yet".
-  code="$(curl -s -o /dev/null -w '%{http_code}' "https://hub.docker.com/v2/repositories/linuxserver/${app}/tags/version-${version}" || true)"
+  code="$(curl -s -o /dev/null -w '%{http_code}' "https://hub.docker.com/v2/repositories/${hub_repo}/tags/${hub_tag}" || true)"
   if [ "$code" = 404 ]; then
-    echo "LinuxServer has no ${app}:version-${version} image yet" >&2
+    echo "${image} does not exist yet" >&2
     out status no-base
     exit 0
   fi
   echo "could not pull ${image} (Docker Hub says HTTP ${code:-none} for the tag); not treating that as 'not built yet'" >&2
   exit 1
+fi
+
+if [ "$app" = sportarr ]; then
+  out base_tag "$version"
+  out status ok
+  exit 0
 fi
 
 base="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$image")"

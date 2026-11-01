@@ -6,17 +6,19 @@ plain properties file in `/config`.
 Upstream hard-codes most of these intervals (they are compiled into `TaskManager.Handle(ApplicationStartedEvent)`
 and overwritten from the code on every start, so editing the database does not stick). That is a problem on a
 file server whose disks spin down: library-wide tasks such as *Refresh Movies* walk every movie folder on their
-own timer and wake every drive. These images fix that. (Sonarr and Radarr also carry one unrelated fix -- see
-[Import hold](#import-hold) below.)
+own timer and wake every drive. These images fix that. (Sonarr and Radarr also carry one unrelated fix, and there
+is a Sportarr image that carries only that fix -- see [Import hold](#import-hold) below.)
 
 | Image | Based on |
 |---|---|
 | `bdelima/radarr` | [`lscr.io/linuxserver/radarr`](https://github.com/linuxserver/docker-radarr) |
 | `bdelima/sonarr` | [`lscr.io/linuxserver/sonarr`](https://github.com/linuxserver/docker-sonarr) |
 | `bdelima/lidarr` | [`lscr.io/linuxserver/lidarr`](https://github.com/linuxserver/docker-lidarr) |
+| `bdelima/sportarr` | [`sportarr/sportarr`](https://hub.docker.com/r/sportarr/sportarr) (no LinuxServer image exists) |
 
 Tags: `latest`, `<upstream version>` (for example `6.4.4.10685`) and `<upstream version>-ls<N>` (for example
-`6.4.4.10685-ls323`, the exact LinuxServer build it was made from). `amd64` and `arm64`.
+`6.4.4.10685-ls323`, the exact LinuxServer build it was made from). `amd64` and `arm64`. `bdelima/sportarr` has
+`latest` and `<upstream version>` only: Sportarr publishes one image per release, so there is no `-ls<N>` build.
 
 **The version number is upstream's.** An image's tag is the upstream release it was built from, the running app
 reports that same version (the start-test asserts it), and the rebuilt assembly is stamped with it the way
@@ -90,9 +92,9 @@ series that are due. These images let an API call ask for that:
 
 ## Import hold
 
-Sonarr and Radarr also carry a second, unrelated patch: a way for an external pre-import process (a hook that
-strips non-English audio/subtitle tracks and embedded images before import, say) to hold a specific download back
-from being imported, without touching the download client at all.
+Sonarr and Radarr also carry a second, unrelated patch, and `bdelima/sportarr` exists only for it: a way for an
+external pre-import process (a hook that strips non-English audio/subtitle tracks and embedded images before
+import, say) to hold a specific download back from being imported, without touching the download client at all.
 
 Pausing a torrent, or any other "make the download client say it isn't done yet" trick, does not actually work for
 this: both apps map a paused/stopped/seeding torrent to `DownloadItemStatus.Completed` regardless of client state,
@@ -111,9 +113,23 @@ advancing past `Downloading`, independent of which download client it came from,
 This is deliberately a dumb filesystem check rather than a new download state, API, or database field, so it
 can't interact badly with anything else these images -- or upstream -- already do.
 
+**Sportarr** has no `CompletedDownloadService`; its own `EnhancedDownloadMonitorService.HandleCompletedDownload` is the
+one place both a freshly completed download and an `ImportPending` retry pass through, so the check sits at the top
+of that method. Differences from Sonarr and Radarr:
+
+- The path is the one the download client reported, **translated with Sportarr's Remote Path Mappings** (the same
+  translation the import itself uses) before the marker is looked for. A client container that sees `/downloads`
+  where Sportarr sees something else would otherwise hide the marker.
+- A multi-file download is a folder: the marker is `<folder>/.tdarr-hold`. A **single-file** download has a file as
+  its output, so the marker is `<file>.tdarr-hold` next to it (a marker in the shared parent folder would hold every
+  download in it).
+- A held download changes no state and does not use up an import retry.
+- If looking for the marker fails for any reason, Sportarr warns in its log and imports as usual.
+- Downloads Sportarr finds on its own in a client ("external" downloads) take a different path and are not gated.
+
 ## What is different from the LinuxServer image
 
-One file: `Radarr.Core.dll` / `Sonarr.Core.dll` / `Lidarr.Core.dll`, rebuilt from the upstream source tag with small
+One file: `Radarr.Core.dll` / `Sonarr.Core.dll` / `Lidarr.Core.dll` (Sportarr: `Sportarr.dll`), rebuilt from the upstream source tag with small
 patches ([`radarr/patches`](radarr/patches), [`sonarr/patches`](sonarr/patches), [`lidarr/patches`](lidarr/patches),
 applied in file-name order) plus one new source file
 ([`common/ScheduledTaskIntervalOverrides.cs`](common/ScheduledTaskIntervalOverrides.cs)). Everything else in the image
@@ -138,6 +154,10 @@ is LinuxServer's, unchanged.
    as deleted rather than removing them, so they have no equivalent patch.
 5. **Sonarr and Radarr only: `04-tdarr-hold.patch`** gates `CompletedDownloadService.Check()` on a `.tdarr-hold`
    marker file in the download's own output folder -- see [Import hold](#import-hold) above.
+6. **Sportarr only: `sportarr/patches/01-tdarr-hold.patch`** is the same idea for Sportarr's own import monitor (its
+   only patch). The Sportarr image is built differently: `sportarr/sportarr` is not a LinuxServer image and Sportarr
+   compiles into a single `Sportarr.dll`, so that one assembly is rebuilt with upstream's own publish command and
+   copied over the official image.
 
 ## How the images are built
 
