@@ -138,8 +138,9 @@ top of that method. It works like the above, with these differences:
 
 `bdelima/tdarr-download-validator` is a small service the arr images can ask "is this download ready to import?"
 before they import it. It answers from [Tdarr](https://github.com/HaveAGitGat/Tdarr)'s own records and starts Tdarr on
-a download it has not seen, so nothing has to be wired into the download client. This replaces the hook script
-that wrote `.tdarr-hold` markers: the Sonarr, Radarr and Sportarr images call it (see above).
+a download it has not seen (walking the download's folder on disk to tell Tdarr about the files in it -- see below),
+so nothing has to be wired into the download client. This replaces the hook script that wrote `.tdarr-hold` markers:
+the Sonarr, Radarr and Sportarr images call it (see above).
 Remove the "run on completion" hooks from qBittorrent and NZBGet once the apps point at the validator.
 
 ```
@@ -149,9 +150,18 @@ POST /validate   {"path": "/downloads/Some.Show.S01E01"}     (a folder, or a sin
 
 Per call, in order: a file under the path is in Tdarr's staged collection (a Flow is running) → `processing`; Tdarr
 decided on a file and the decision contains "error" → `failed: true`; Tdarr has no decision yet (never seen,
-`Queued`, or blank) → ask Tdarr to scan the path (at most once a minute per path) and answer `triggered`; otherwise
+`Queued`, or blank) → ask Tdarr to scan it (at most once a minute per path) and answer `triggered`; otherwise
 `ready: true`. Tdarr being unreachable is "not ready", never "failed". Tdarr keeps its records per file, so for a
-folder the answer covers every file Tdarr knows under it. All containers must see the downloads under the same path.
+folder the answer covers every file Tdarr knows under it.
+
+Tdarr's scan API (`scanFolderWatcher`) only accepts individual file paths, never a folder, so to trigger a scan on a
+multi-file download the validator walks that folder **on disk** itself and hands Tdarr the files it finds there --
+it needs read access to the same downloads tree the arr apps and Tdarr use, at the same path (mount it read-only).
+Every file found is sent, including non-video extras (`.nfo`, `.txt`, subtitles, release notes): nothing is
+filtered here, since the Tdarr library's own scan-level filter (**Filters → Container types to scan for**) already
+drops anything outside its configured extensions. Without that mount, or if the path isn't there, the validator
+falls back to asking Tdarr about the bare path as given, same as before this walk was added -- correct for a single
+file, but a no-op for a folder, since `scanFolderWatcher` silently ignores a path that isn't an individual file.
 
 | Variable | |
 |---|---|
@@ -165,6 +175,8 @@ folder the answer covers every file Tdarr knows under it. All containers must se
     image: bdelima/tdarr-download-validator:latest
     container_name: tdarr-download-validator
     restart: unless-stopped
+    volumes:
+      - /path/to/downloads:/downloads:ro   # same path the arr apps and Tdarr use, read-only
     environment:
       - TDARR_URL=http://tdarr:8266
       - TDARR_LIBRARY_ID=<your Downloads library id>
@@ -172,8 +184,11 @@ folder the answer covers every file Tdarr knows under it. All containers must se
 
 It is published by dispatching [`release-validator.yml`](.github/workflows/release-validator.yml) (it does not follow
 an upstream release), and tested by [`ci.yml`](.github/workflows/ci.yml) against a fake Tdarr. The Tdarr calls were
-written from the records observed on a live instance; `getAll` (used to resolve a folder) is the one call not yet
-confirmed against it.
+written from the records observed on a live instance; live testing on 2026-11-01 confirmed `cruddb`/`getAll` behaves
+as expected, but also found that `scan-files` with `scanFolderWatcher` silently does nothing when given a folder
+path instead of individual files -- the on-disk walk above is the fix, and the Downloads library's own
+`Filters at scan level` setting is what keeps non-video files out of Tdarr without any filtering on the validator's
+side.
 
 ## What is different from the LinuxServer image
 
