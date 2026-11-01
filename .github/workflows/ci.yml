@@ -11,6 +11,7 @@ on:
       - 'sonarr/**'
       - 'lidarr/**'
       - 'sportarr/**'
+      - 'tdarr-download-validator/**'
       - 'common/**'
       - 'scripts/**'
       - 'tests/**'
@@ -22,6 +23,7 @@ on:
       - 'sonarr/**'
       - 'lidarr/**'
       - 'sportarr/**'
+      - 'tdarr-download-validator/**'
       - 'common/**'
       - 'scripts/**'
       - 'tests/**'
@@ -73,3 +75,24 @@ jobs:
       - name: Start-test (defaults, overrides, bad file)
         if: steps.up.outputs.status == 'ok'
         run: tests/start-test.sh "${{ matrix.app }}" "arr-test/${{ matrix.app }}:ci" "${{ steps.up.outputs.version }}"
+
+  validator:
+    # tdarr-download-validator: unit tests against a fake Tdarr, then the image itself is built and answers /health.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Unit tests
+        run: python3 -m unittest discover -s tdarr-download-validator -v
+
+      - name: Build the image
+        run: docker build -f tdarr-download-validator/Dockerfile --build-arg VERSION="$(cat tdarr-download-validator/VERSION)" -t arr-test/tdarr-download-validator:ci .
+
+      - name: The image starts and answers
+        run: |
+          docker run -d --name v -e TDARR_URL=http://127.0.0.1:1 -e TDARR_LIBRARY_ID=lib -p 127.0.0.1:8080:8080 arr-test/tdarr-download-validator:ci
+          for _ in $(seq 1 20); do curl -fsS http://127.0.0.1:8080/health && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8080/health | grep -q '"ok": true'
+          # Tdarr is unreachable here: the answer must still be a clean "not ready", not an error
+          curl -fsS -X POST -d '{"path":"/downloads/x"}' http://127.0.0.1:8080/validate | tee /dev/stderr | grep -q '"ready": false'
+          docker logs v 2>&1 | tail -5
