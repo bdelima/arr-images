@@ -127,6 +127,47 @@ of that method. Differences from Sonarr and Radarr:
 - If looking for the marker fails for any reason, Sportarr warns in its log and imports as usual.
 - Downloads Sportarr finds on its own in a client ("external" downloads) take a different path and are not gated.
 
+## Import validator (tdarr-download-validator)
+
+`bdelima/tdarr-download-validator` is a small service the arr images can ask "is this download ready to import?"
+before they import it. It answers from [Tdarr](https://github.com/HaveAGitGat/Tdarr)'s own records and starts Tdarr on
+a download it has not seen, so nothing has to be wired into the download client. (This replaces the hook script
+that wrote `.tdarr-hold` markers; the arr-side patch that calls the service comes in a separate change, and until
+then the images keep using the marker.)
+
+```
+POST /validate   {"path": "/downloads/Some.Show.S01E01"}     (a folder, or a single file)
+-> 200           {"ready": false, "failed": false, "message": "triggered"}
+```
+
+Per call, in order: a file under the path is in Tdarr's staged collection (a Flow is running) → `processing`; Tdarr
+decided on a file and the decision contains "error" → `failed: true`; Tdarr has no decision yet (never seen,
+`Queued`, or blank) → ask Tdarr to scan the path (at most once a minute per path) and answer `triggered`; otherwise
+`ready: true`. Tdarr being unreachable is "not ready", never "failed". Tdarr keeps its records per file, so for a
+folder the answer covers every file Tdarr knows under it. All containers must see the downloads under the same path.
+
+| Variable | |
+|---|---|
+| `TDARR_URL` | Tdarr server, e.g. `http://192.168.0.50:8266` |
+| `TDARR_LIBRARY_ID` | dbID of the library the downloads belong to |
+| `PORT` | listen port, default `8080` |
+| `TRIGGER_DEDUP_SECONDS` | minimum seconds between scan requests for one path, default `60` |
+
+```yaml
+  tdarr-download-validator:
+    image: bdelima/tdarr-download-validator:latest
+    container_name: tdarr-download-validator
+    restart: unless-stopped
+    environment:
+      - TDARR_URL=http://tdarr:8266
+      - TDARR_LIBRARY_ID=<your Downloads library id>
+```
+
+It is published by dispatching [`release-validator.yml`](.github/workflows/release-validator.yml) (it does not follow
+an upstream release), and tested by [`ci.yml`](.github/workflows/ci.yml) against a fake Tdarr. The Tdarr calls were
+written from the records observed on a live instance; `getAll` (used to resolve a folder) is the one call not yet
+confirmed against it.
+
 ## What is different from the LinuxServer image
 
 One file: `Radarr.Core.dll` / `Sonarr.Core.dll` / `Lidarr.Core.dll` (Sportarr: `Sportarr.dll`), rebuilt from the upstream source tag with small

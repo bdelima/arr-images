@@ -1,6 +1,6 @@
 # Attribution
 
-This repository's own files (the patch, `common/ScheduledTaskIntervalOverrides.cs`, the Dockerfiles, scripts and
+This repository's own files (the patch, `tdarr-download-validator/`, `common/ScheduledTaskIntervalOverrides.cs`, the Dockerfiles, scripts and
 workflows) are licensed under the **GNU General Public License v3.0** (see `LICENSE`). They modify and build on the
 GPL-3.0 projects below, and the images built from this repository redistribute modified builds of them, so GPL-3.0
 applies. Everything below keeps its own license and copyright; nothing here relicenses it.
@@ -65,6 +65,13 @@ applies. Everything below keeps its own license and copyright; nothing here reli
 - **License:** GPL-3.0 (the project's; the image also carries third-party packages under their own licenses)
 - **How it's used:** the final image stage is `sportarr/sportarr:<version>`, unchanged except for the replaced
   assembly. The base tag is recorded in the `dev.pumapants.base-tag` label.
+
+## Tdarr
+
+- **Project:** [HaveAGitGat/Tdarr](https://github.com/HaveAGitGat/Tdarr)
+- **License:** Tdarr is proprietary freeware (not open source); no Tdarr code or binaries are included here.
+- **How it's used:** `tdarr-download-validator` only talks to a user-run Tdarr server over its HTTP API
+  (`/api/v2/cruddb`, `/api/v2/scan-files`). Written from the behaviour observed on the author's own instance.
 
 ## Corresponding source
 
