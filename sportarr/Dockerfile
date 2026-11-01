@@ -1,7 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Sportarr with an import hold: a `.tdarr-hold` marker in a download's output folder keeps that one download from
-# being imported until the marker is removed (see the README, "Import hold").
+# Sportarr that asks a PreImportValidator service before importing a completed download (see the README, "Import hold").
 #
 # An overlay on the official sportarr/sportarr image: the only change is a rebuilt Sportarr.dll, compiled from the
 # upstream source tag with the patches in sportarr/patches/ (applied in file-name order). Everything else in the
@@ -32,6 +31,7 @@ WORKDIR /src
 COPY --from=source /src /src
 
 COPY sportarr/patches/ /patches/
+COPY sportarr/PreImportValidator.cs src/Services/PreImportValidator.cs
 
 # git apply --check first: if upstream changed the patched lines, fail here with a clear message instead of
 # building something that silently lacks the hold.
@@ -57,8 +57,8 @@ ARG REVISION=unknown
 COPY --from=build /out/Sportarr.dll /app/Sportarr.dll
 COPY --from=build /out/Sportarr.pd[b] /app/
 
-LABEL org.opencontainers.image.title="sportarr (import hold)" \
-      org.opencontainers.image.description="Official Sportarr with a .tdarr-hold marker that holds a download back from import" \
+LABEL org.opencontainers.image.title="sportarr (pre-import validator)" \
+      org.opencontainers.image.description="Official Sportarr that asks a pre-import validator service before importing a completed download" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.source="https://github.com/bdelima/arr-images" \

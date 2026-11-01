@@ -1,0 +1,148 @@
+diff --git a/src/Services/EnhancedDownloadMonitorService.cs b/src/Services/EnhancedDownloadMonitorService.cs
+index e76317b..e94874c 100644
+--- a/src/Services/EnhancedDownloadMonitorService.cs
++++ b/src/Services/EnhancedDownloadMonitorService.cs
+@@ -38,6 +38,11 @@ public class EnhancedDownloadMonitorService : BackgroundService
+     // monitor holds the item as ImportPending for this long instead of failing it.
+     private static readonly TimeSpan ExtractionGracePeriod = TimeSpan.FromMinutes(30);
+ 
++    // arr-images: the PreImportValidator (sportarr/PreImportValidator.cs), created on first use, and the ids of
++    // downloads it failed so that HandleFailedDownload can bypass the completed-download data guard for them.
++    private PreImportValidator? _preImportValidator;
++    private readonly HashSet<int> _validatorFailedIds = new();
++
+     public EnhancedDownloadMonitorService(
+         IServiceProvider serviceProvider,
+         ILogger<EnhancedDownloadMonitorService> logger,
+@@ -459,7 +464,8 @@ await HandleFailedDownload(
+                     downloadClientService,
+                     db,
+                     redownloadFailed,
+-                    redownloadFailedFromInteractive);
++                    redownloadFailedFromInteractive,
++                    forceRemoveData: _validatorFailedIds.Remove(download.Id));
+             }
+             return;
+         }
+@@ -722,7 +728,8 @@ await HandleFailedDownload(
+                 downloadClientService,
+                 db,
+                 redownloadFailed,
+-                redownloadFailedFromInteractive);
++                redownloadFailedFromInteractive,
++                forceRemoveData: _validatorFailedIds.Remove(download.Id));
+         }
+     }
+ 
+@@ -823,12 +830,81 @@ private void CheckForStalledDownload(
+         }
+     }
+ 
++    private PreImportValidator GetPreImportValidator()
++    {
++        if (_preImportValidator == null)
++        {
++            var config = _serviceProvider.GetRequiredService<IConfiguration>();
++            var dataPath = config["Sportarr:DataPath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "data");
++            _preImportValidator = new PreImportValidator(dataPath, _logger);
++        }
++
++        return _preImportValidator;
++    }
++
++    // arr-images: the download's path as this container sees it: the one the client reported, translated with the
++    // same remote path mappings the import uses. A folder for a multi-file download, the file for a single-file one.
++    private async Task<string> ResolveDownloadPathAsync(DownloadQueueItem download, SportarrDbContext? db)
++    {
++        var host = download.DownloadClient?.Host;
++        if (host == null && download.DownloadClientId != null && db != null)
++        {
++            host = (await db.DownloadClients.AsNoTracking()
++                .FirstOrDefaultAsync(c => c.Id == download.DownloadClientId))?.Host;
++        }
++
++        var path = download.OutputPath!;
++        if (host != null)
++        {
++            using var scope = _serviceProvider.CreateScope();
++            var pathMapping = scope.ServiceProvider.GetRequiredService<IRemotePathMappingService>();
++            path = await pathMapping.RemapRemoteToLocalAsync(host, path);
++        }
++
++        return path;
++    }
++
+     private async Task HandleCompletedDownload(
+         DownloadQueueItem download,
+         DownloadClientService downloadClientService,
+         FileImportService fileImportService,
+         SportarrDbContext? db = null)
+     {
++        // arr-images: ask the PreImportValidator (preimport-validator.properties) whether this download may be
++        // imported yet. Not ready, or no answer at all, changes nothing and does not use up an import retry: the
++        // next poll asks again. A failure pins the download to Failed, which the callers hand to
++        // HandleFailedDownload (blocklist, re-search, removal from the client). With no validator configured
++        // none of this runs.
++        var preImportValidator = GetPreImportValidator();
++        if (preImportValidator.IsConfigured && !string.IsNullOrWhiteSpace(download.OutputPath))
++        {
++            PreImportResult preImport;
++            try
++            {
++                preImport = await preImportValidator.CheckAsync(await ResolveDownloadPathAsync(download, db));
++            }
++            catch (Exception ex)
++            {
++                _logger.LogWarning(ex, "[Enhanced Download Monitor] Could not prepare the pre-import check for '{Title}'; deferring the import", download.Title);
++                return;
++            }
++
++            if (preImport.Status == PreImportStatus.Failed)
++            {
++                _logger.LogWarning("[Enhanced Download Monitor] Pre-import check failed '{Title}': {Message}", download.Title, preImport.Message);
++                download.Status = DownloadStatus.Failed;
++                download.ErrorMessage = $"Pre-import check failed: {preImport.Message}";
++                _validatorFailedIds.Add(download.Id);
++                return;
++            }
++
++            if (preImport.Status != PreImportStatus.Ready)
++            {
++                _logger.LogDebug("[Enhanced Download Monitor] Pre-import check not ready for '{Title}', deferring import", download.Title);
++                return;
++            }
++        }
++
+         // Set-once: CompletedAt is the moment the download first finished, not the
+         // last poll. Re-imports (ImportPending retries) re-enter this method every
+         // poll; resetting CompletedAt here would keep the extraction grace window
+@@ -1004,7 +1080,8 @@ private async Task HandleFailedDownload(
+         DownloadClientService downloadClientService,
+         SportarrDbContext db,
+         bool redownloadFailed,
+-        bool redownloadFailedFromInteractive)
++        bool redownloadFailedFromInteractive,
++        bool forceRemoveData = false)
+     {
+         download.RetryCount = (download.RetryCount ?? 0) + 1;
+ 
+@@ -1060,14 +1137,17 @@ private async Task HandleFailedDownload(
+         // on a private tracker, cause a hit-and-run. Leave it fully intact so it keeps
+         // seeding and can be re-imported after manual extraction. The blocklist entry above
+         // still steers RSS/search toward a non-packed release.
++        // arr-images: forceRemoveData (a pre-import check failure) takes the completed-download guard out for this
++        // one trigger: the files are the validator's reason for failing, so a seeding torrent is not kept for them.
++        // The client's RemoveFailedDownloads setting still decides whether anything is removed.
+         var wasDownloaded = download.CompletedAt != null;
+-        if (wasDownloaded)
++        if (wasDownloaded && !forceRemoveData)
+         {
+             _logger.LogInformation(
+                 "[Enhanced Download Monitor] Import failed but download succeeded - leaving '{Title}' in the client intact (not removing, not deleting data)",
+                 download.Title);
+         }
+-        else if (DownloadFailurePolicy.ShouldRemoveDataOnFailure(wasDownloaded, download.DownloadClient?.RemoveFailedDownloads == true))
++        else if (DownloadFailurePolicy.ShouldRemoveDataOnFailure(wasDownloaded && !forceRemoveData, download.DownloadClient?.RemoveFailedDownloads == true))
+         {
+             try
+             {

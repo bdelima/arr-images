@@ -38,9 +38,11 @@ applies. Everything below keeps its own license and copyright; nothing here reli
 - **Project:** [Sportarr/Sportarr](https://github.com/Sportarr/Sportarr)
 - **License:** GPL-3.0
 - **How it's used:** the source tag named in the image's `dev.pumapants.upstream-tag` label is cloned at build time
-  and `Sportarr.dll` is rebuilt from it with the patch in `sportarr/patches/` applied, then copied over the official
+  and `Sportarr.dll` is rebuilt from it with the patch in `sportarr/patches/` applied and `sportarr/PreImportValidator.cs`
+  added, then copied over the official
   `sportarr/sportarr` image. **This is a modified version of Sportarr.** The modification is limited to
-  `EnhancedDownloadMonitorService.cs` (a `.tdarr-hold` marker file holds a download back from import); it is public
+  `EnhancedDownloadMonitorService.cs` (asks a configured pre-import validator before importing a completed download)
+  and the added source file; both are public
   in this repository. The rest of the image (web UI, ffmpeg and drivers, entrypoint) is the official image's, unchanged.
 
 ## LinuxServer.io images

@@ -118,21 +118,20 @@ download client it came from, so the gate lives there.
 - **Fail-closed:** a timeout, an HTTP error status, an unreadable answer or a mistyped Url all count as "not ready"
   (logged as a warning). The import never goes ahead on a missing answer, and there is no time limit; if the
   validator is down, imports wait.
-- The old `.tdarr-hold` marker is no longer looked for in Sonarr and Radarr.
+- The old `.tdarr-hold` marker is no longer looked for anywhere.
 
-**Sportarr** still uses the marker (its validator patch is a separate change): drop a file named `.tdarr-hold`
-in the download's output folder and the import waits until it is deleted. It has no `CompletedDownloadService`; its own `EnhancedDownloadMonitorService.HandleCompletedDownload` is the
-one place both a freshly completed download and an `ImportPending` retry pass through, so the check sits at the top
-of that method:
+**Sportarr** has no `CompletedDownloadService`; its own `EnhancedDownloadMonitorService.HandleCompletedDownload` is the
+one place both a freshly completed download and an `ImportPending` retry pass through, so the same check sits at the
+top of that method. It works like the above, with these differences:
 
-- The path is the one the download client reported, **translated with Sportarr's Remote Path Mappings** (the same
-  translation the import itself uses) before the marker is looked for. A client container that sees `/downloads`
-  where Sportarr sees something else would otherwise hide the marker.
-- A multi-file download is a folder: the marker is `<folder>/.tdarr-hold`. A **single-file** download has a file as
-  its output, so the marker is `<file>.tdarr-hold` next to it (a marker in the shared parent folder would hold every
-  download in it).
-- A held download changes no state and does not use up an import retry.
-- If looking for the marker fails for any reason, Sportarr warns in its log and imports as usual.
+- Configure it with `preimport-validator.properties` in Sportarr's data folder (`/config` in the image), same format.
+- The path sent is the one the download client reported, **translated with Sportarr's Remote Path Mappings** (the
+  same translation the import itself uses). A multi-file download is a folder, a single-file download is the file.
+- A download that is not ready is left exactly as it is: no state change, no import retry used up.
+- `failed: true` pins the download to Failed, so Sportarr's usual failed-download handling runs: blocklist, re-search
+  if enabled, and removal from the client if the client's "Remove Failed Downloads" is on. **Unlike any other
+  import failure**, the completed-download guard (which otherwise never deletes the data of a download that finished,
+  to protect a seeding torrent from a hit-and-run) is bypassed for this one trigger.
 - Downloads Sportarr finds on its own in a client ("external" downloads) take a different path and are not gated.
 
 ## Import validator (tdarr-download-validator)
@@ -140,7 +139,7 @@ of that method:
 `bdelima/tdarr-download-validator` is a small service the arr images can ask "is this download ready to import?"
 before they import it. It answers from [Tdarr](https://github.com/HaveAGitGat/Tdarr)'s own records and starts Tdarr on
 a download it has not seen, so nothing has to be wired into the download client. This replaces the hook script
-that wrote `.tdarr-hold` markers: the Sonarr and Radarr images call it (see above); Sportarr still uses the marker.
+that wrote `.tdarr-hold` markers: the Sonarr, Radarr and Sportarr images call it (see above).
 Remove the "run on completion" hooks from qBittorrent and NZBGet once the apps point at the validator.
 
 ```
@@ -205,8 +204,8 @@ is LinuxServer's, unchanged.
    `CompletedDownloadService.Check()` ask a configured PreImportValidator before a download becomes `ImportPending`,
    and adds a `MarkAsFailed(trackedDownload, message)` overload so a failed check shows its reason in history --
    see [Import hold](#import-hold) above.
-6. **Sportarr only: `sportarr/patches/01-tdarr-hold.patch`** is the same idea for Sportarr's own import monitor (its
-   only patch). The Sportarr image is built differently: `sportarr/sportarr` is not a LinuxServer image and Sportarr
+6. **Sportarr only: `sportarr/patches/01-preimport-validator.patch`** (with `sportarr/PreImportValidator.cs`) is the
+   same idea for Sportarr's own import monitor (its only patch). The Sportarr image is built differently: `sportarr/sportarr` is not a LinuxServer image and Sportarr
    compiles into a single `Sportarr.dll`, so that one assembly is rebuilt with upstream's own publish command and
    copied over the official image.
 
