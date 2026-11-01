@@ -1,0 +1,26 @@
+diff --git a/src/NzbDrone.Core/Download/CompletedDownloadService.cs b/src/NzbDrone.Core/Download/CompletedDownloadService.cs
+index e9b3feb..ec0afa5 100644
+--- a/src/NzbDrone.Core/Download/CompletedDownloadService.cs
++++ b/src/NzbDrone.Core/Download/CompletedDownloadService.cs
+@@ -66,6 +66,21 @@ public void Check(TrackedDownload trackedDownload)
+ 
+             SetImportItem(trackedDownload);
+ 
++            // arr-images: a `.tdarr-hold` file dropped in the download's own output folder means
++            // a pre-import hook (stripping non-English audio/subtitle tracks and embedded images)
++            // hasn't finished with these files yet. Deferring here, before any of the series/path
++            // checks below, just leaves the download in TrackedDownloadState.Downloading until the
++            // marker is gone -- no new state, no retry bookkeeping, it simply isn't time yet. Check()
++            // runs on every queue refresh, so the very next cycle after the marker disappears behaves
++            // exactly as if this block weren't here.
++            var tdarrHoldPath = trackedDownload.ImportItem.OutputPath;
++
++            if (!tdarrHoldPath.IsEmpty && File.Exists(Path.Combine(tdarrHoldPath.FullPath, ".tdarr-hold")))
++            {
++                _logger.Debug("Tdarr hold marker present for '{0}', deferring import check", trackedDownload.DownloadItem.Title);
++                return;
++            }
++
+             // Only process tracked downloads that are still downloading or have been blocked for importing due to an issue with matching
+             if (trackedDownload.State != TrackedDownloadState.Downloading && trackedDownload.State != TrackedDownloadState.ImportBlocked)
+             {
