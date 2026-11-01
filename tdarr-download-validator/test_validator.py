@@ -1,5 +1,7 @@
 """Tests for validator.py against a fake Tdarr server. Run: python3 -m unittest discover -s tdarr-download-validator"""
 import json
+import os
+import tempfile
 import threading
 import unittest
 import urllib.request
@@ -140,6 +142,8 @@ class ValidatorTests(unittest.TestCase):
         self.tdarr.file("/downloads/a/one.mkv", "Transcode success")
         self.tdarr.file("/downloads/a/two.mkv", "")
         self.assertEqual(self.check("/downloads/a")["message"], "triggered")
+        # not visible on disk in this test -> falls back to the bare path (see ScanTargetsTests
+        # for the case where the path IS on disk and gets walked for real files instead)
         self.assertEqual(self.tdarr.scans[0]["arrayOrPath"], ["/downloads/a"])
 
     def test_unknown_folder_is_triggered(self):
@@ -155,6 +159,60 @@ class ValidatorTests(unittest.TestCase):
     def test_tdarr_unreachable(self):
         v = validator.Validator(validator.Tdarr("http://127.0.0.1:9", "lib1", 1))
         self.assertFalse(v.safe_validate("/downloads/a")["ready"])
+
+
+class ScanTargetsTests(unittest.TestCase):
+    """What gets sent to scanFolderWatcher when the path IS visible on disk."""
+
+    def setUp(self):
+        self.tdarr = FakeTdarr()
+        self.validator = validator.Validator(validator.Tdarr(self.tdarr.url, "lib1", 2))
+
+    def tearDown(self):
+        self.tdarr.close()
+
+    @staticmethod
+    def _touch(*parts):
+        path = os.path.join(*parts)
+        open(path, "w").close()
+        return path
+
+    def test_folder_scan_enumerates_real_files_including_non_video(self):
+        with tempfile.TemporaryDirectory() as d:
+            one = self._touch(d, "one.mkv")
+            two = self._touch(d, "two.mkv")
+            # not filtered here -- Tdarr's own library scan filter (Filters -> Container types
+            # to scan for) is what drops this, not the validator
+            notes = self._touch(d, "notes.txt")
+            r = self.validator.safe_validate(d)
+            self.assertEqual(r["message"], "triggered")
+            self.assertEqual(set(self.tdarr.scans[0]["arrayOrPath"]), {one, two, notes})
+
+    def test_folder_scan_recurses_into_subdirectories(self):
+        with tempfile.TemporaryDirectory() as d:
+            sub = os.path.join(d, "Subs")
+            os.mkdir(sub)
+            ep = self._touch(d, "ep.mkv")
+            srt = self._touch(sub, "ep.en.srt")
+            self.validator.safe_validate(d)
+            self.assertEqual(set(self.tdarr.scans[0]["arrayOrPath"]), {ep, srt})
+
+    def test_single_file_download_scans_just_that_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            f = self._touch(d, "ep.mkv")
+            self.validator.safe_validate(f)
+            self.assertEqual(self.tdarr.scans[0]["arrayOrPath"], [f])
+
+    def test_empty_folder_triggers_without_calling_tdarr_scan(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = self.validator.safe_validate(d)
+            self.assertEqual(r["message"], "triggered")
+            self.assertEqual(self.tdarr.scans, [])
+
+    def test_path_not_on_disk_falls_back_to_the_bare_path(self):
+        missing = "/no/such/path/ep.mkv"
+        self.validator.safe_validate(missing)
+        self.assertEqual(self.tdarr.scans[0]["arrayOrPath"], [missing])
 
 
 class HttpTests(unittest.TestCase):

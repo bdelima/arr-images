@@ -18,6 +18,14 @@ The arr apps send the download's folder for multi-file downloads and the file it
 records per file, keyed by the file's absolute path, so a folder is answered from the records whose path is under
 it. Every container must therefore see the downloads under the same path (as the compose file does).
 
+Tdarr's scan API (scanFolderWatcher) only accepts individual file paths, never a folder, so triggering a scan on a
+folder walks it on disk for its real files first (this container needs read access to the same downloads tree, same
+path, as the arr apps and Tdarr -- mount it read-only). Every file found is handed over, including non-video extras
+(.nfo, .txt, subtitles): nothing is filtered here, since the Tdarr library's own scan-level filter (Filters ->
+Container types to scan for) already ignores anything outside its configured extensions. If the path isn't visible
+on disk (no mount, or it is already gone), the bare path is sent as-is, same as before this walk was added -- which
+still works for a single file, just not for a folder.
+
 Standard library only. Configuration (environment):
 
     TDARR_URL              e.g. http://192.168.0.50:8266 (the Tdarr server port)
@@ -92,9 +100,9 @@ class Tdarr:
             raise TdarrError(f"getAll {collection}: expected a list")
         return [d for d in value if self._doc(d)]
 
-    def scan(self, path):
+    def scan(self, paths):
         self._post("/api/v2/scan-files", {"scanConfig": {
-            "dbID": self.library_id, "arrayOrPath": [path], "mode": "scanFolderWatcher"}})
+            "dbID": self.library_id, "arrayOrPath": list(paths), "mode": "scanFolderWatcher"}})
 
 
 def _decision(doc):
@@ -120,6 +128,22 @@ class Validator:
         files = [d for d in self.tdarr.get_all("FileJSONDB") if _under(_norm(d["_id"]), path)]
         return staged, files
 
+    def _resolve_scan_targets(self, path):
+        """The actual file paths to hand scanFolderWatcher for `path`.
+
+        scanFolderWatcher only accepts individual file paths, never a folder, so a multi-file download's folder is
+        walked on disk here for its real files. Nothing is filtered out: the Tdarr library's own scan-level filter
+        (Filters -> Container types to scan for) already drops non-video extras like .nfo/.txt. If `path` is not
+        visible on disk at all (no mount, or it is already gone), fall back to the bare path so this degrades to
+        the old behaviour -- correct for a single file, a no-op for a folder -- instead of scanning nothing.
+        """
+        if os.path.isfile(path):
+            return [path]
+        if os.path.isdir(path):
+            found = [_norm(os.path.join(root, name)) for root, _dirs, files in os.walk(path) for name in files]
+            return sorted(found)
+        return [path]
+
     def _trigger(self, path):
         now = self.clock()
         with self._lock:
@@ -131,7 +155,9 @@ class Validator:
             for key in [k for k, t in self._triggered.items() if now - t >= self.dedup_seconds]:
                 if key != path:
                     del self._triggered[key]
-        self.tdarr.scan(path)
+        targets = self._resolve_scan_targets(path)
+        if targets:
+            self.tdarr.scan(targets)
         return True
 
     def validate(self, path):
