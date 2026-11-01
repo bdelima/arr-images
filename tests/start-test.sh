@@ -8,6 +8,7 @@
 #                                              the one good line still applied
 #   4. the refresh interval set to 0        -> an API request for the Scheduled trigger is refused (400),
 #                                              a plain request still works
+#   5. (Sonarr, Radarr) a preimport-validator.properties file -> the app starts and reads the address
 #
 # Scenarios 1 and 2 also post the refresh command through the API twice, with and without
 # {"trigger":"scheduled"}, and check the command reports the trigger that was asked for and the look-back
@@ -54,13 +55,14 @@ fail() {
   exit 1
 }
 
-start() {  # start <scenario-name> [properties-file]
-  scenario="$1"; local props="${2:-}"
+start() {  # start <scenario-name> [scheduled-tasks properties file] [preimport-validator properties file]
+  scenario="$1"; local props="${2:-}" prevalidator="${3:-}"
   # Remove the previous container before its config directory: while it still runs it can write into the
   # directory, which made rm fail with "Directory not empty" and ended the whole test with no FAIL message.
   [ -z "$cname" ] || docker rm -f "$cname" >/dev/null 2>&1 || true
   rm -rf "$work/cfg"; mkdir -p "$work/cfg"
   [ -z "$props" ] || cp "$props" "$work/cfg/scheduled-tasks.properties"
+  [ -z "$prevalidator" ] || cp "$prevalidator" "$work/cfg/preimport-validator.properties"
   cname="arrtest-${app}-${scenario}"
   echo "== [$scenario] starting $image"
   docker run -d --name "$cname" -e PUID="$(id -u)" -e PGID="$(id -g)" -e TZ=UTC \
@@ -238,4 +240,30 @@ run_command "{\"name\":\"${refresh}\"}"
 [ "$cmd_trigger" = manual ] || fail "a plain ${refresh} request reports trigger '${cmd_trigger}', expected manual"
 echo "   ok   a plain ${refresh} request still runs"
 
-echo "PASS: $app start-test (4 scenarios)"
+# ---- 5. the pre-import validator (Sonarr and Radarr) ------------------------------------------------------
+# The app must be able to build the download handling with the validator wired in (a dependency-injection problem
+# would show here) and pick up the address. The validator is created when the download handling is first used, so
+# run a download-processing pass and wait for the log line. Nothing listens on port 9, so this does not exercise a
+# check; that needs a real download.
+wait_log() {  # wait_log <fixed string>: the app log, within 30 s
+  for _ in $(seq 1 30); do
+    applog | grep -qF -- "$1" && { echo "   ok   log: $1"; return 0; }
+    sleep 1
+  done
+  fail "app log does not contain: $1"
+}
+if [ "$app" != lidarr ]; then
+  printf '# comment
+Url = http://127.0.0.1:9/
+' > "$work/preimport.properties"
+  start validator "" "$work/preimport.properties"
+  run_command '{"name":"ProcessMonitoredDownloads"}'
+  wait_log "PreImportValidator: completed downloads are checked with http://127.0.0.1:9/validate before import"
+  printf 'Url=not a url
+' > "$work/preimport-bad.properties"
+  start validator-bad "" "$work/preimport-bad.properties"
+  run_command '{"name":"ProcessMonitoredDownloads"}'
+  wait_log "is not an http(s) address; every import will be deferred until it is fixed"
+fi
+
+echo "PASS: $app start-test (5 scenarios)"

@@ -1,0 +1,12 @@
+# preimport-validator.properties -- put this file in the app's /config folder (Sonarr, Radarr; Sportarr: see the README)
+# and restart the container. Without it, or without a Url, completed downloads are imported exactly as upstream does.
+#
+# Before importing a completed download the app asks this service whether it is ready:
+#     POST <Url>/validate   {"path": "<the download's folder or file>"}
+#     -> {"ready": true|false, "failed": true|false, "message": "..."}
+# ready=true imports. ready=false waits and asks again on the next queue refresh. failed=true marks the download
+# failed (blocklisted; removed from the download client if that client's Remove Failed Downloads is on).
+# An error, a timeout (10 s) or an unreadable answer also waits: the import never proceeds on a missing answer.
+#
+# For the Tdarr service in this repository (bdelima/tdarr-download-validator):
+Url=http://tdarr-download-validator:8080

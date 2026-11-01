@@ -1,0 +1,91 @@
+diff --git a/src/NzbDrone.Core/Download/CompletedDownloadService.cs b/src/NzbDrone.Core/Download/CompletedDownloadService.cs
+index e9b3feb..6ed6428 100644
+--- a/src/NzbDrone.Core/Download/CompletedDownloadService.cs
++++ b/src/NzbDrone.Core/Download/CompletedDownloadService.cs
+@@ -34,6 +34,8 @@ public class CompletedDownloadService : ICompletedDownloadService
+         private readonly IMovieService _movieService;
+         private readonly ITrackedDownloadAlreadyImported _trackedDownloadAlreadyImported;
+         private readonly IRejectedImportService _rejectedImportService;
++        private readonly IPreImportValidator _preImportValidator;
++        private readonly IFailedDownloadService _failedDownloadService;
+         private readonly Logger _logger;
+ 
+         public CompletedDownloadService(IEventAggregator eventAggregator,
+@@ -44,6 +46,8 @@ public CompletedDownloadService(IEventAggregator eventAggregator,
+                                         IMovieService movieService,
+                                         ITrackedDownloadAlreadyImported trackedDownloadAlreadyImported,
+                                         IRejectedImportService rejectedImportService,
++                                        IPreImportValidator preImportValidator,
++                                        IFailedDownloadService failedDownloadService,
+                                         Logger logger)
+         {
+             _eventAggregator = eventAggregator;
+@@ -54,6 +58,8 @@ public CompletedDownloadService(IEventAggregator eventAggregator,
+             _movieService = movieService;
+             _trackedDownloadAlreadyImported = trackedDownloadAlreadyImported;
+             _rejectedImportService = rejectedImportService;
++            _preImportValidator = preImportValidator;
++            _failedDownloadService = failedDownloadService;
+             _logger = logger;
+         }
+ 
+@@ -116,6 +122,29 @@ public void Check(TrackedDownload trackedDownload)
+                 }
+             }
+ 
++            // arr-images: ask the PreImportValidator (preimport-validator.properties) whether this download may be
++            // imported yet. Not ready (or no answer) leaves it in Downloading/ImportBlocked, so the next queue
++            // refresh asks again; a failure marks it failed (blocklisted, removed from the client when that client's
++            // Remove Failed Downloads is on). With no validator configured nothing here runs.
++            if (_preImportValidator.IsConfigured)
++            {
++                var preImport = _preImportValidator.Check(trackedDownload.ImportItem.OutputPath.FullPath);
++
++                if (preImport.Status == PreImportStatus.Failed)
++                {
++                    _logger.Warn("PreImportValidator failed '{0}': {1}", trackedDownload.DownloadItem.Title, preImport.Message);
++                    trackedDownload.State = TrackedDownloadState.Failed;
++                    _failedDownloadService.MarkAsFailed(trackedDownload, preImport.Message);
++
++                    return;
++                }
++
++                if (preImport.Status != PreImportStatus.Ready)
++                {
++                    return;
++                }
++            }
++
+             trackedDownload.State = TrackedDownloadState.ImportPending;
+         }
+ 
+diff --git a/src/NzbDrone.Core/Download/FailedDownloadService.cs b/src/NzbDrone.Core/Download/FailedDownloadService.cs
+index 7bc7832..9ce9507 100644
+--- a/src/NzbDrone.Core/Download/FailedDownloadService.cs
++++ b/src/NzbDrone.Core/Download/FailedDownloadService.cs
+@@ -13,6 +13,7 @@ public interface IFailedDownloadService
+     {
+         void MarkAsFailed(int historyId, bool skipRedownload = false);
+         void MarkAsFailed(TrackedDownload trackedDownload, bool skipRedownload = false);
++        void MarkAsFailed(TrackedDownload trackedDownload, string message, bool skipRedownload = false);
+         void Check(TrackedDownload trackedDownload);
+         void ProcessFailed(TrackedDownload trackedDownload);
+     }
+@@ -55,6 +56,17 @@ public void MarkAsFailed(TrackedDownload trackedDownload, bool skipRedownload =
+             }
+         }
+ 
++        // arr-images: like MarkAsFailed(TrackedDownload, bool) above, with the reason in the history entry.
++        public void MarkAsFailed(TrackedDownload trackedDownload, string message, bool skipRedownload = false)
++        {
++            var history = GetGrabbedHistory(trackedDownload.DownloadItem.DownloadId);
++
++            if (history.Any())
++            {
++                PublishDownloadFailedEvent(history.First(), message, trackedDownload, skipRedownload: skipRedownload);
++            }
++        }
++
+         public void Check(TrackedDownload trackedDownload)
+         {
+             // Only process tracked downloads that are still downloading or import is blocked (if they fail after attempting to be processed)

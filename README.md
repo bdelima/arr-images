@@ -93,29 +93,37 @@ series that are due. These images let an API call ask for that:
 ## Import hold
 
 Sonarr and Radarr also carry a second, unrelated patch, and `bdelima/sportarr` exists only for it: a way for an
-external pre-import process (a hook that strips non-English audio/subtitle tracks and embedded images before
-import, say) to hold a specific download back from being imported, without touching the download client at all.
+external pre-import process (stripping non-English audio/subtitle tracks and embedded images before import, say)
+to hold a download back from being imported, without touching the download client at all.
 
 Pausing a torrent, or any other "make the download client say it isn't done yet" trick, does not actually work for
 this: both apps map a paused/stopped/seeding torrent to `DownloadItemStatus.Completed` regardless of client state,
-so a process relying on that is racing the app's own queue refresh, not blocking it -- which cycle wins is purely a
-timing accident. `CompletedDownloadService.Check()` is the one call every tracked download passes through before
-advancing past `Downloading`, independent of which download client it came from, so the gate lives there instead:
+so a process relying on that is racing the app's own queue refresh, not blocking it. `CompletedDownloadService.Check()`
+is the one call every tracked download passes through before it becomes `ImportPending`, independent of which
+download client it came from, so the gate lives there.
 
-- Drop a file named `.tdarr-hold` in the download's own output folder (the same folder `GET /api/v3/queue` reports
-  as that download's `outputPath`) before or as soon as the download completes.
-- `Check()` sees the marker and returns immediately, leaving the download in `Downloading` state. Nothing else
-  about it changes: it stays fully visible in the queue UI, and the download client's own state is untouched.
-- Delete the marker when the external process is done with the files. The very next queue refresh picks the
-  download back up and imports it exactly as if the marker had never been there.
-- With no marker file ever present, nothing changes versus upstream.
+**Sonarr and Radarr** ask a **PreImportValidator** (a small HTTP service; see the next section) at the last step of
+`Check()`, after the app has matched the download and found its folder, and before it would mark the download
+`ImportPending`:
 
-This is deliberately a dumb filesystem check rather than a new download state, API, or database field, so it
-can't interact badly with anything else these images -- or upstream -- already do.
+- Configure it with `/config/preimport-validator.properties` containing `Url=http://<validator>:<port>` (an example is
+  in [`common/preimport-validator.properties.example`](common/preimport-validator.properties.example)); restart to
+  apply. **Without a Url nothing changes versus upstream.**
+- The app sends `POST <Url>/validate` with `{"path": "<the download's output folder or file>"}` (10 second timeout)
+  and reads only the JSON body: `{"ready": bool, "failed": bool, "message": string}`.
+- `ready: true` -> the download goes on to import as it always does. `ready: false` -> it stays in `Downloading`
+  (still visible in the queue) and is asked again on the next queue refresh.
+- `failed: true` -> the download is marked failed: blocklisted, a replacement is searched for as for any failed
+  download, and it is removed from the download client **if that client's "Remove Failed Downloads" is on**.
+- **Fail-closed:** a timeout, an HTTP error status, an unreadable answer or a mistyped Url all count as "not ready"
+  (logged as a warning). The import never goes ahead on a missing answer, and there is no time limit; if the
+  validator is down, imports wait.
+- The old `.tdarr-hold` marker is no longer looked for in Sonarr and Radarr.
 
-**Sportarr** has no `CompletedDownloadService`; its own `EnhancedDownloadMonitorService.HandleCompletedDownload` is the
+**Sportarr** still uses the marker (its validator patch is a separate change): drop a file named `.tdarr-hold`
+in the download's output folder and the import waits until it is deleted. It has no `CompletedDownloadService`; its own `EnhancedDownloadMonitorService.HandleCompletedDownload` is the
 one place both a freshly completed download and an `ImportPending` retry pass through, so the check sits at the top
-of that method. Differences from Sonarr and Radarr:
+of that method:
 
 - The path is the one the download client reported, **translated with Sportarr's Remote Path Mappings** (the same
   translation the import itself uses) before the marker is looked for. A client container that sees `/downloads`
@@ -131,9 +139,9 @@ of that method. Differences from Sonarr and Radarr:
 
 `bdelima/tdarr-download-validator` is a small service the arr images can ask "is this download ready to import?"
 before they import it. It answers from [Tdarr](https://github.com/HaveAGitGat/Tdarr)'s own records and starts Tdarr on
-a download it has not seen, so nothing has to be wired into the download client. (This replaces the hook script
-that wrote `.tdarr-hold` markers; the arr-side patch that calls the service comes in a separate change, and until
-then the images keep using the marker.)
+a download it has not seen, so nothing has to be wired into the download client. This replaces the hook script
+that wrote `.tdarr-hold` markers: the Sonarr and Radarr images call it (see above); Sportarr still uses the marker.
+Remove the "run on completion" hooks from qBittorrent and NZBGet once the apps point at the validator.
 
 ```
 POST /validate   {"path": "/downloads/Some.Show.S01E01"}     (a folder, or a single file)
@@ -193,8 +201,10 @@ is LinuxServer's, unchanged.
    The patch passes `false` in `RefreshAlbumService` and `RefreshArtistService`. These paths only run for entries with
    no files, so nothing is lost; a delete you do yourself in the UI is unchanged. Radarr and Sonarr mark such items
    as deleted rather than removing them, so they have no equivalent patch.
-5. **Sonarr and Radarr only: `04-tdarr-hold.patch`** gates `CompletedDownloadService.Check()` on a `.tdarr-hold`
-   marker file in the download's own output folder -- see [Import hold](#import-hold) above.
+5. **Sonarr and Radarr only: `04-preimport-validator.patch`** (with `common/PreImportValidator.cs`) makes
+   `CompletedDownloadService.Check()` ask a configured PreImportValidator before a download becomes `ImportPending`,
+   and adds a `MarkAsFailed(trackedDownload, message)` overload so a failed check shows its reason in history --
+   see [Import hold](#import-hold) above.
 6. **Sportarr only: `sportarr/patches/01-tdarr-hold.patch`** is the same idea for Sportarr's own import monitor (its
    only patch). The Sportarr image is built differently: `sportarr/sportarr` is not a LinuxServer image and Sportarr
    compiles into a single `Sportarr.dll`, so that one assembly is rebuilt with upstream's own publish command and
