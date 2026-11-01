@@ -1,10 +1,11 @@
 name: Release
 
-# Builds and publishes bdelima/radarr, bdelima/sonarr and bdelima/lidarr for each upstream release.
+# Builds and publishes bdelima/radarr, bdelima/sonarr, bdelima/lidarr and bdelima/sportarr for each upstream release.
 #
 #   - Every 6 hours (and on demand): find the newest stable upstream release and the exact LinuxServer.io build
 #     of it. If bdelima/<app>:<that -lsN build> is already on Docker Hub, do nothing. That makes a new LinuxServer
 #     rebuild of the same upstream version (a new -lsN) publish too, and everything else a cheap no-op.
+#     (Sportarr has no -lsN: its base is the official sportarr/sportarr:<version>, so the check is the version tag.)
 #   - The image is built, run through tests/start-test.sh, and only then pushed (multi-arch, amd64 and arm64).
 #   - Tags: <version>, <version>-ls<N>, latest.
 #
@@ -22,7 +23,7 @@ on:
       app:
         description: "Which app to build"
         type: choice
-        options: [all, radarr, sonarr, lidarr]
+        options: [all, radarr, sonarr, lidarr, sportarr]
         default: all
       force:
         description: "Rebuild and push even if this -lsN build is already on Docker Hub (e.g. after a patch fix)"
@@ -47,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [radarr, sonarr, lidarr]
+        app: [radarr, sonarr, lidarr, sportarr]
     steps:
       - name: Skip (a different app was requested)
         id: sel

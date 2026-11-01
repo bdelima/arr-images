@@ -31,6 +31,16 @@ applies. Everything below keeps its own license and copyright; nothing here reli
   `CommandController.cs` (so `Lidarr.Api.V1.dll` is rebuilt too). **This is a modified
   version of Lidarr.**
 
+## Sportarr
+
+- **Project:** [Sportarr/Sportarr](https://github.com/Sportarr/Sportarr)
+- **License:** GPL-3.0
+- **How it's used:** the source tag named in the image's `dev.pumapants.upstream-tag` label is cloned at build time
+  and `Sportarr.dll` is rebuilt from it with the patch in `sportarr/patches/` applied, then copied over the official
+  `sportarr/sportarr` image. **This is a modified version of Sportarr.** The modification is limited to
+  `EnhancedDownloadMonitorService.cs` (a `.tdarr-hold` marker file holds a download back from import); it is public
+  in this repository. The rest of the image (web UI, ffmpeg and drivers, entrypoint) is the official image's, unchanged.
+
 ## LinuxServer.io images
 
 - **Projects:** [linuxserver/docker-radarr](https://github.com/linuxserver/docker-radarr),
@@ -44,10 +54,17 @@ applies. Everything below keeps its own license and copyright; nothing here reli
 ## .NET SDK images
 
 - **Project:** [dotnet/dotnet-docker](https://github.com/dotnet/dotnet-docker), the `mcr.microsoft.com/dotnet/sdk`
-  images (SDK 8.0 for Radarr and Lidarr, 6.0 for Sonarr)
+  images (SDK 8.0 for Radarr, Lidarr and Sportarr, 6.0 for Sonarr)
 - **License:** MIT (the .NET SDK and its components carry their own licenses)
 - **How it's used:** build stage only. Nothing from it is in the published images except the compiled managed
   assembly.
+
+## Docker Hub: sportarr/sportarr
+
+- **Project:** [Sportarr/Sportarr](https://github.com/Sportarr/Sportarr), image `sportarr/sportarr`
+- **License:** GPL-3.0 (the project's; the image also carries third-party packages under their own licenses)
+- **How it's used:** the final image stage is `sportarr/sportarr:<version>`, unchanged except for the replaced
+  assembly. The base tag is recorded in the `dev.pumapants.base-tag` label.
 
 ## Corresponding source
 
@@ -56,5 +73,5 @@ commit in its `org.opencontainers.image.revision` label.
 
 ## Trademarks
 
-"Radarr", "Sonarr", "Lidarr" and "LinuxServer.io" belong to their respective owners. This is an unofficial project, not
+"Radarr", "Sonarr", "Lidarr", "Sportarr" and "LinuxServer.io" belong to their respective owners. This is an unofficial project, not
 affiliated with or endorsed by them.

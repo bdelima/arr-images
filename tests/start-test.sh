@@ -13,13 +13,16 @@
 # {"trigger":"scheduled"}, and check the command reports the trigger that was asked for and the look-back
 # window the app logged (see ScheduledTaskIntervalOverrides.PrepareScheduledRequest).
 #
-#   tests/start-test.sh radarr|sonarr|lidarr IMAGE [EXPECTED_VERSION]
+#   tests/start-test.sh radarr|sonarr|lidarr IMAGE [EXPECTED_VERSION]   (sportarr: see start-test-sportarr.sh)
 #
 # With EXPECTED_VERSION (the upstream release the image was built for), also asserts that the running app
 # reports exactly that version, i.e. the overlay still presents itself as the upstream release.
 #
 # Needs: docker, curl, jq. Runs the image on 127.0.0.1 only.
 set -euo pipefail
+
+# Sportarr is not a Servarr app (no scheduled-task API, no properties file): it has its own, smaller test.
+if [ "${1:-}" = sportarr ]; then exec "$(dirname "$0")/start-test-sportarr.sh" "$@"; fi
 
 app="${1:?usage: start-test.sh radarr|sonarr|lidarr IMAGE}"
 image="${2:?usage: start-test.sh radarr|sonarr|lidarr IMAGE}"
