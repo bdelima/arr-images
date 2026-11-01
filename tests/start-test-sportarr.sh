@@ -23,7 +23,7 @@ expected_version="${3:-}"
 port=1867
 work="$(mktemp -d)"
 cname="arrtest-sportarr"
-apikey="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+apikey=""
 
 cleanup() { docker rm -f "$cname" >/dev/null 2>&1 || true; rm -rf "$work"; }
 trap cleanup EXIT
@@ -37,7 +37,6 @@ fail() {
 mkdir -p "$work/cfg"
 echo "== starting $image"
 docker run -d --name "$cname" -e PUID="$(id -u)" -e PGID="$(id -g)" -e TZ=UTC \
-  -e Sportarr__ApiKey="$apikey" \
   -v "$work/cfg:/config" -p "127.0.0.1:${port}:${port}" "$image" >/dev/null
 
 up=false
@@ -47,6 +46,14 @@ for _ in $(seq 1 90); do
 done
 $up || fail "the app did not answer /ping within 180 s"
 echo "   ok   /ping answers"
+
+# The API key is generated on first start and kept in config.xml (an environment variable does not set it).
+for _ in $(seq 1 30); do
+  apikey="$(sed -n 's:.*<ApiKey>\(.*\)</ApiKey>.*:\1:p' "$work/cfg/config.xml" 2>/dev/null | head -n 1 || true)"
+  [ -z "$apikey" ] || break
+  sleep 2
+done
+[ -n "$apikey" ] || fail "no ApiKey in config.xml after 60 s"
 
 status=""
 for _ in $(seq 1 30); do
