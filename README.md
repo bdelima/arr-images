@@ -6,7 +6,8 @@ plain properties file in `/config`.
 Upstream hard-codes most of these intervals (they are compiled into `TaskManager.Handle(ApplicationStartedEvent)`
 and overwritten from the code on every start, so editing the database does not stick). That is a problem on a
 file server whose disks spin down: library-wide tasks such as *Refresh Movies* walk every movie folder on their
-own timer and wake every drive. These images fix that, and nothing else.
+own timer and wake every drive. These images fix that. (Sonarr and Radarr also carry one unrelated fix -- see
+[Import hold](#import-hold) below.)
 
 | Image | Based on |
 |---|---|
@@ -87,6 +88,29 @@ series that are due. These images let an API call ask for that:
 - Radarr and Sonarr need only `Core`. Lidarr's controller forced the trigger to Manual, so its image also rebuilds
   `Lidarr.Api.V1.dll` with that one line removed.
 
+## Import hold
+
+Sonarr and Radarr also carry a second, unrelated patch: a way for an external pre-import process (a hook that
+strips non-English audio/subtitle tracks and embedded images before import, say) to hold a specific download back
+from being imported, without touching the download client at all.
+
+Pausing a torrent, or any other "make the download client say it isn't done yet" trick, does not actually work for
+this: both apps map a paused/stopped/seeding torrent to `DownloadItemStatus.Completed` regardless of client state,
+so a process relying on that is racing the app's own queue refresh, not blocking it -- which cycle wins is purely a
+timing accident. `CompletedDownloadService.Check()` is the one call every tracked download passes through before
+advancing past `Downloading`, independent of which download client it came from, so the gate lives there instead:
+
+- Drop a file named `.tdarr-hold` in the download's own output folder (the same folder `GET /api/v3/queue` reports
+  as that download's `outputPath`) before or as soon as the download completes.
+- `Check()` sees the marker and returns immediately, leaving the download in `Downloading` state. Nothing else
+  about it changes: it stays fully visible in the queue UI, and the download client's own state is untouched.
+- Delete the marker when the external process is done with the files. The very next queue refresh picks the
+  download back up and imports it exactly as if the marker had never been there.
+- With no marker file ever present, nothing changes versus upstream.
+
+This is deliberately a dumb filesystem check rather than a new download state, API, or database field, so it
+can't interact badly with anything else these images -- or upstream -- already do.
+
 ## What is different from the LinuxServer image
 
 One file: `Radarr.Core.dll` / `Sonarr.Core.dll` / `Lidarr.Core.dll`, rebuilt from the upstream source tag with small
@@ -112,6 +136,8 @@ is LinuxServer's, unchanged.
    The patch passes `false` in `RefreshAlbumService` and `RefreshArtistService`. These paths only run for entries with
    no files, so nothing is lost; a delete you do yourself in the UI is unchanged. Radarr and Sonarr mark such items
    as deleted rather than removing them, so they have no equivalent patch.
+5. **Sonarr and Radarr only: `04-tdarr-hold.patch`** gates `CompletedDownloadService.Check()` on a `.tdarr-hold`
+   marker file in the download's own output folder -- see [Import hold](#import-hold) above.
 
 ## How the images are built
 
