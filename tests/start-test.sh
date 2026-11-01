@@ -241,18 +241,29 @@ run_command "{\"name\":\"${refresh}\"}"
 echo "   ok   a plain ${refresh} request still runs"
 
 # ---- 5. the pre-import validator (Sonarr and Radarr) ------------------------------------------------------
-# The app must start with the validator wired in (a dependency-injection problem would stop it here) and pick up
-# the address. Nothing listens on port 9, so this does not exercise a check; that needs a real download.
+# The app must be able to build the download handling with the validator wired in (a dependency-injection problem
+# would show here) and pick up the address. The validator is created when the download handling is first used, so
+# run a download-processing pass and wait for the log line. Nothing listens on port 9, so this does not exercise a
+# check; that needs a real download.
+wait_log() {  # wait_log <fixed string>: the app log, within 30 s
+  for _ in $(seq 1 30); do
+    applog | grep -qF -- "$1" && { echo "   ok   log: $1"; return 0; }
+    sleep 1
+  done
+  fail "app log does not contain: $1"
+}
 if [ "$app" != lidarr ]; then
   printf '# comment
 Url = http://127.0.0.1:9/
 ' > "$work/preimport.properties"
   start validator "" "$work/preimport.properties"
-  expect_log "PreImportValidator: completed downloads are checked with http://127.0.0.1:9/validate before import"
+  run_command '{"name":"ProcessMonitoredDownloads"}'
+  wait_log "PreImportValidator: completed downloads are checked with http://127.0.0.1:9/validate before import"
   printf 'Url=not a url
 ' > "$work/preimport-bad.properties"
   start validator-bad "" "$work/preimport-bad.properties"
-  expect_log "is not an http(s) address; every import will be deferred until it is fixed"
+  run_command '{"name":"ProcessMonitoredDownloads"}'
+  wait_log "is not an http(s) address; every import will be deferred until it is fixed"
 fi
 
 echo "PASS: $app start-test (5 scenarios)"
