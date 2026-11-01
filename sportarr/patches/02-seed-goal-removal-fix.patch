@@ -1,0 +1,31 @@
+diff --git a/src/Services/CompletedDownloadCleanup.cs b/src/Services/CompletedDownloadCleanup.cs
+index 1e892fa..a607a43 100644
+--- a/src/Services/CompletedDownloadCleanup.cs
++++ b/src/Services/CompletedDownloadCleanup.cs
+@@ -156,12 +156,6 @@ await db.DownloadQueue
+                 return false;
+             }
+ 
+-            if (!HasConfiguredSeedGoal(indexer, download.IsPack))
+-            {
+-                logger.LogInformation("[Enhanced Download Monitor] No indexer seed goal is configured, leaving torrent in client: {Title}", download.Title);
+-                return false;
+-            }
+-
+             var status = await GetTorrentStatusForCleanupAsync(download, downloadClientService, statusCategory);
+             if (status == null)
+             {
+@@ -272,6 +266,13 @@ internal async Task TryRemoveCompletedFolderAsync(string? folder, string title,
+     {
+         if (status == null || !status.TorrentIsStopped || status.Progress < 100) return false;
+ 
++        // No seed ratio or seed time configured for this indexer: there is nothing to
++        // wait for, so a stopped, fully-downloaded torrent is immediately eligible.
++        // (Restores the behavior from before the fix for #328: that fix went further
++        // than the actual bug needed -- the bug was removing a torrent that had not
++        // stopped seeding yet, not removing one with no configured seed goal at all.)
++        if (!HasConfiguredSeedGoal(indexer, isPack)) return true;
++
+         var ratioMet = indexer.SeedRatio.GetValueOrDefault() > 0 &&
+             status.Ratio.HasValue && status.Ratio.Value >= indexer.SeedRatio!.Value;
+ 
