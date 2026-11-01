@@ -30,6 +30,7 @@ COPY --from=source /src /src
 
 COPY radarr/patches/ /patches/
 COPY common/ScheduledTaskIntervalOverrides.cs src/NzbDrone.Core/Jobs/ScheduledTaskIntervalOverrides.cs
+COPY common/PreImportValidator.cs src/NzbDrone.Core/Download/PreImportValidator.cs
 
 # git apply --check first: if upstream changed the patched lines, fail here with a clear message instead of
 # building something that silently lacks the override.

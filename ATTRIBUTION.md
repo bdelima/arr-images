@@ -11,10 +11,12 @@ applies. Everything below keeps its own license and copyright; nothing here reli
 - **License:** GPL-3.0
 - **How it's used:** the source tag named in each image's `dev.pumapants.upstream-tag` label is cloned at build time
   and `Radarr.Core.dll` is rebuilt from it with the patches in `radarr/patches/` applied and
-  `common/ScheduledTaskIntervalOverrides.cs` added. **This is a modified version of Radarr.** The modification is
-  limited to `TaskManager.cs` (reads `scheduled-tasks.properties` and applies it to the scheduled task intervals),
-  `MetadataService.cs` (skips an image step when no metadata consumer is enabled), `CommandQueueManager.cs` (honors a
-  requested Scheduled trigger) and the added source file; all are public in this repository.
+  `common/ScheduledTaskIntervalOverrides.cs` and `common/PreImportValidator.cs` added. **This is a modified version
+  of Radarr.** The modification is limited to `TaskManager.cs` (reads `scheduled-tasks.properties` and applies it to
+  the scheduled task intervals), `MetadataService.cs` (skips an image step when no metadata consumer is enabled),
+  `CommandQueueManager.cs` (honors a requested Scheduled trigger), `CompletedDownloadService.cs` and
+  `FailedDownloadService.cs` (ask a configured pre-import validator before importing) and the added source files; all
+  are public in this repository.
 
 ## Sonarr
 
