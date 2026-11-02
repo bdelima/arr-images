@@ -89,7 +89,9 @@ ARG REVISION=unknown
 RUN doc=/root-layer/usr/share/doc/tdarr-vmaf-cuda && mkdir -p "$doc" \
     && cp /src/ffmpeg/COPYING.GPLv3 "$doc/COPYING.ffmpeg-GPLv3" \
     && cp /src/vmaf/LICENSE "$doc/LICENSE.libvmaf" \
-    && cp /src/nv-codec-headers/LICENSE "$doc/LICENSE.nv-codec-headers" \
+    && { lic=$(find /src/nv-codec-headers -maxdepth 1 \( -iname 'LICENSE*' -o -iname 'COPYING*' \) | head -n 1); \
+         if [ -n "$lic" ]; then cp "$lic" "$doc/LICENSE.nv-codec-headers"; \
+         else sed -n '1,/\*\//p' /src/nv-codec-headers/include/ffnvcodec/dynlink_loader.h > "$doc/LICENSE.nv-codec-headers"; fi; } \
     && { eula=$(find /usr/local/cuda/ -maxdepth 2 -iname 'EULA*' | head -n 1); \
          if [ -n "$eula" ]; then cp "$eula" "$doc/EULA.cuda-toolkit.txt"; \
          else echo "NVIDIA CUDA Toolkit EULA: https://docs.nvidia.com/cuda/eula/" > "$doc/EULA.cuda-toolkit.txt"; fi; } \
