@@ -113,5 +113,8 @@ jobs:
       - name: Build the overlay image
         run: docker build -f tdarr-vmaf-cuda/Dockerfile --build-arg VERSION="$(cat tdarr-vmaf-cuda/VERSION)" -t arr-test/tdarr-vmaf-cuda:ci .
 
+      - name: The libcuda stub the smoke test needs
+        run: docker build -f tdarr-vmaf-cuda/Dockerfile --target cuda-stub --output type=local,dest=cuda-stub .
+
       - name: Smoke test
-        run: tdarr-vmaf-cuda/smoke-test.sh arr-test/tdarr-vmaf-cuda:ci
+        run: tdarr-vmaf-cuda/smoke-test.sh arr-test/tdarr-vmaf-cuda:ci cuda-stub

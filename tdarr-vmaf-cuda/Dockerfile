@@ -27,6 +27,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PATH=/usr/local/cuda/bin:$PATH
 WORKDIR /src
 
+# libvmaf's CUDA code calls the driver API through libcuda.so.1 (a normal DT_NEEDED, not dlopen), which only exists on a
+# GPU host (nvidia-container-toolkit injects it). To link against it here, the devel image's stub library is given the
+# soname the linker looks for.
+RUN mkdir /opt/cuda-stubs && ln -s /usr/local/cuda/lib64/stubs/libcuda.so /opt/cuda-stubs/libcuda.so.1
+
 # nv-codec-headers: the CUDA driver API loader. libvmaf's CUDA code and ffmpeg both build against it.
 RUN git clone https://github.com/FFmpeg/nv-codec-headers.git \
     && git -C nv-codec-headers checkout "$NV_CODEC_HEADERS_REF" \
@@ -47,10 +52,23 @@ RUN git clone https://github.com/Netflix/vmaf.git \
 
 # ffmpeg. Decoding and scoring only needs the CUDA filters (scale_cuda and friends), NVDEC and libvmaf; libnpp, x264,
 # x265 and the rest are left out on purpose, so the overlay carries almost no third-party runtime libraries.
-RUN git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg     && git -C ffmpeg checkout "$FFMPEG_REF"
+RUN git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg \
+    && git -C ffmpeg checkout "$FFMPEG_REF"
 # On a configure failure the log is printed, so a broken build can be diagnosed from the CI output alone.
-RUN cd /src/ffmpeg     && { PKG_CONFIG_PATH=/usr/local/lib/tdarr-vmaf-cuda/pkgconfig ./configure            --prefix=/usr/local            --enable-gpl --enable-nonfree            --enable-ffnvcodec --enable-cuda-nvcc --enable-cuvid --enable-nvdec --enable-nvenc            --enable-libvmaf            --nvccflags="-gencode arch=compute_${CUDA_ARCH},code=sm_${CUDA_ARCH} -O2"            --extra-cflags="-I/usr/local/cuda/include"            --extra-ldflags="-L/usr/local/cuda/lib64 -L/usr/local/lib/tdarr-vmaf-cuda"            --disable-doc --disable-ffplay --disable-ffprobe          || { cat /usr/local/lib/tdarr-vmaf-cuda/pkgconfig/libvmaf.pc; ls -l /usr/local/lib/tdarr-vmaf-cuda;               tail -n 60 ffbuild/config.log; exit 1; }; }
-RUN cd /src/ffmpeg     && make -j"$(nproc)"     && make DESTDIR=/root-layer install
+RUN cd /src/ffmpeg \
+    && { PKG_CONFIG_PATH=/usr/local/lib/tdarr-vmaf-cuda/pkgconfig ./configure \
+           --prefix=/usr/local \
+           --enable-gpl --enable-nonfree \
+           --enable-ffnvcodec --enable-cuda-nvcc --enable-cuvid --enable-nvdec --enable-nvenc \
+           --enable-libvmaf \
+           --nvccflags="-gencode arch=compute_${CUDA_ARCH},code=sm_${CUDA_ARCH} -O2" \
+           --extra-cflags="-I/usr/local/cuda/include" \
+           --extra-ldflags="-L/usr/local/cuda/lib64 -L/usr/local/lib/tdarr-vmaf-cuda -Wl,-rpath-link,/opt/cuda-stubs" \
+           --disable-doc --disable-ffplay --disable-ffprobe \
+         || { tail -n 60 ffbuild/config.log; exit 1; }; }
+RUN cd /src/ffmpeg \
+    && make -j"$(nproc)" \
+    && make DESTDIR=/root-layer install
 
 # Only the binary, under a name no Tdarr plugin calls.
 RUN mv /root-layer/usr/local/bin/ffmpeg /root-layer/usr/local/bin/ffmpeg-vmaf-cuda \
@@ -80,6 +98,11 @@ RUN doc=/root-layer/usr/share/doc/tdarr-vmaf-cuda && mkdir -p "$doc" \
          echo "nv-codec-headers $NV_CODEC_HEADERS_REF ($(git -C /src/nv-codec-headers rev-parse HEAD))"; \
          echo "FFmpeg $FFMPEG_REF ($(git -C /src/ffmpeg rev-parse HEAD))"; \
          echo "CUDA architecture sm_$CUDA_ARCH; base image nvidia/cuda:12.4.1-devel-ubuntu22.04"; } > "$doc/BUILD-INFO"
+
+# The devel image's libcuda stub, for the CI smoke test only (a plain Ubuntu has no libcuda.so.1, and the binary will not
+# start without one). Never part of the overlay: `docker build --target cuda-stub --output type=local,dest=<dir> .`
+FROM scratch AS cuda-stub
+COPY --from=buildstage /opt/cuda-stubs/libcuda.so.1 /libcuda.so.1
 
 FROM scratch
 ARG VERSION=unknown

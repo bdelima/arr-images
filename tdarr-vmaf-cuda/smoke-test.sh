@@ -3,10 +3,16 @@
 # 22.04 (the Tdarr node image's base) with nothing but the overlay mounted, links everything it needs, was built with
 # CUDA and libvmaf, and libvmaf (CPU) scores a clip against itself.
 #
-#   tdarr-vmaf-cuda/smoke-test.sh <overlay image>
+# The binary links libcuda.so.1 (libvmaf's CUDA code needs it), which a GPU host provides and a plain Ubuntu does not, so
+# the test is given the CUDA devel image's stub library (see the cuda-stub target in the Dockerfile). A stub only lets
+# the binary start; nothing here can run a CUDA kernel.
+#
+#   tdarr-vmaf-cuda/smoke-test.sh <overlay image> <directory holding the stub libcuda.so.1>
 set -euo pipefail
 
-image=${1:?usage: smoke-test.sh <overlay image>}
+image=${1:?usage: smoke-test.sh <overlay image> <directory holding the stub libcuda.so.1>}
+stub=$(cd "${2:?usage: smoke-test.sh <overlay image> <directory holding the stub libcuda.so.1>}" && pwd)
+[ -s "$stub/libcuda.so.1" ] || { echo "FAIL: no libcuda.so.1 in $stub" >&2; exit 1; }
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
@@ -26,12 +32,12 @@ done
 echo "   ok   files"
 cat "$work/doc/BUILD-INFO"
 
-run() { docker run --rm -v "$work/usr-local:/usr/local:ro" ubuntu:22.04 "$@"; }
+run() { docker run --rm -v "$work/usr-local:/usr/local:ro" -v "$stub:/cuda-stub:ro" -e LD_LIBRARY_PATH=/cuda-stub ubuntu:22.04 "$@"; }
 
 ldd_out=$(run ldd /usr/local/bin/ffmpeg-vmaf-cuda)
 echo "$ldd_out"
 if echo "$ldd_out" | grep -q 'not found'; then fail "ffmpeg-vmaf-cuda has unresolved libraries"; fi
-echo "   ok   every library resolves on a plain ubuntu:22.04"
+echo "   ok   every library resolves on a plain ubuntu:22.04 (given a libcuda.so.1)"
 
 banner=$(run /usr/local/bin/ffmpeg-vmaf-cuda -hide_banner -version)
 for flag in --enable-libvmaf --enable-cuda-nvcc --enable-ffnvcodec --enable-cuvid --enable-nvdec; do

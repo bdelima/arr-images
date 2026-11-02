@@ -206,6 +206,8 @@ and Tdarr's own image is never rebuilt.
 
 The node also needs a working NVIDIA setup (host driver, `nvidia-container-toolkit`, the GPU passed to the container
 with the `video` driver capability), which provides the driver-level libraries this image deliberately does not carry.
+Unlike Tdarr's own ffmpeg, `ffmpeg-vmaf-cuda` links `libcuda.so.1` directly, so it only starts on a node that has the GPU
+attached.
 
 What is in the overlay: the binary, libvmaf and any CUDA runtime library it links in
 `/usr/local/lib/tdarr-vmaf-cuda/` (the binary has an RPATH to it, so no `LD_LIBRARY_PATH` is needed), the VMAF model in

@@ -50,8 +50,17 @@ jobs:
             REVISION=${{ github.sha }}
           tags: arr-test/tdarr-vmaf-cuda:ci
 
+      - name: The libcuda stub the smoke test needs
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: tdarr-vmaf-cuda/Dockerfile
+          target: cuda-stub
+          platforms: linux/amd64
+          outputs: type=local,dest=cuda-stub
+
       - name: Smoke test
-        run: tdarr-vmaf-cuda/smoke-test.sh arr-test/tdarr-vmaf-cuda:ci
+        run: tdarr-vmaf-cuda/smoke-test.sh arr-test/tdarr-vmaf-cuda:ci cuda-stub
 
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         if: github.event.inputs.dry_run != 'true'
