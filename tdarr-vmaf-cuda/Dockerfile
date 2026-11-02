@@ -47,20 +47,10 @@ RUN git clone https://github.com/Netflix/vmaf.git \
 
 # ffmpeg. Decoding and scoring only needs the CUDA filters (scale_cuda and friends), NVDEC and libvmaf; libnpp, x264,
 # x265 and the rest are left out on purpose, so the overlay carries almost no third-party runtime libraries.
-RUN git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg \
-    && git -C ffmpeg checkout "$FFMPEG_REF" \
-    && cd ffmpeg \
-    && PKG_CONFIG_PATH=/usr/local/lib/tdarr-vmaf-cuda/pkgconfig ./configure \
-         --prefix=/usr/local \
-         --enable-gpl --enable-nonfree \
-         --enable-ffnvcodec --enable-cuda-nvcc --enable-cuvid --enable-nvdec --enable-nvenc \
-         --enable-libvmaf \
-         --nvccflags="-gencode arch=compute_${CUDA_ARCH},code=sm_${CUDA_ARCH} -O2" \
-         --extra-cflags="-I/usr/local/cuda/include" \
-         --extra-ldflags="-L/usr/local/cuda/lib64 -L/usr/local/lib/tdarr-vmaf-cuda" \
-         --disable-doc --disable-ffplay --disable-ffprobe \
-    && make -j"$(nproc)" \
-    && make DESTDIR=/root-layer install
+RUN git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg     && git -C ffmpeg checkout "$FFMPEG_REF"
+# On a configure failure the log is printed, so a broken build can be diagnosed from the CI output alone.
+RUN cd /src/ffmpeg     && { PKG_CONFIG_PATH=/usr/local/lib/tdarr-vmaf-cuda/pkgconfig ./configure            --prefix=/usr/local            --enable-gpl --enable-nonfree            --enable-ffnvcodec --enable-cuda-nvcc --enable-cuvid --enable-nvdec --enable-nvenc            --enable-libvmaf            --nvccflags="-gencode arch=compute_${CUDA_ARCH},code=sm_${CUDA_ARCH} -O2"            --extra-cflags="-I/usr/local/cuda/include"            --extra-ldflags="-L/usr/local/cuda/lib64 -L/usr/local/lib/tdarr-vmaf-cuda"            --disable-doc --disable-ffplay --disable-ffprobe          || { cat /usr/local/lib/tdarr-vmaf-cuda/pkgconfig/libvmaf.pc; ls -l /usr/local/lib/tdarr-vmaf-cuda;               tail -n 60 ffbuild/config.log; exit 1; }; }
+RUN cd /src/ffmpeg     && make -j"$(nproc)"     && make DESTDIR=/root-layer install
 
 # Only the binary, under a name no Tdarr plugin calls.
 RUN mv /root-layer/usr/local/bin/ffmpeg /root-layer/usr/local/bin/ffmpeg-vmaf-cuda \
