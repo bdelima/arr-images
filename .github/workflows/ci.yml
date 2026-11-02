@@ -12,6 +12,7 @@ on:
       - 'lidarr/**'
       - 'sportarr/**'
       - 'tdarr-download-validator/**'
+      - 'tdarr-vmaf-cuda/**'
       - 'common/**'
       - 'scripts/**'
       - 'tests/**'
@@ -24,6 +25,7 @@ on:
       - 'lidarr/**'
       - 'sportarr/**'
       - 'tdarr-download-validator/**'
+      - 'tdarr-vmaf-cuda/**'
       - 'common/**'
       - 'scripts/**'
       - 'tests/**'
@@ -96,3 +98,20 @@ jobs:
           # Tdarr is unreachable here: the answer must still be a clean "not ready", not an error
           curl -fsS -X POST -d '{"path":"/downloads/x"}' http://127.0.0.1:8080/validate | tee /dev/stderr | grep -q '"ready": false'
           docker logs validator-ci 2>&1 | tail -5
+
+  vmaf-cuda:
+    # tdarr-vmaf-cuda: the overlay image is built (CUDA compile, no GPU needed) and smoke-tested on a plain Ubuntu 22.04.
+    # Scoring on a GPU cannot be tested here; that is checked by hand on the Tdarr node.
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Free disk space (the CUDA build image is large)
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL
+
+      - name: Build the overlay image
+        run: docker build -f tdarr-vmaf-cuda/Dockerfile --build-arg VERSION="$(cat tdarr-vmaf-cuda/VERSION)" -t arr-test/tdarr-vmaf-cuda:ci .
+
+      - name: Smoke test
+        run: tdarr-vmaf-cuda/smoke-test.sh arr-test/tdarr-vmaf-cuda:ci

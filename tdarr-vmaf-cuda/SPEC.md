@@ -182,3 +182,22 @@ including:
    call.
 
 ~~5. Exact Docker Hub repo name~~ — settled, see above.
+
+## Implementation notes (code session)
+
+Built as `tdarr-vmaf-cuda/Dockerfile` (+ `collect-libs.sh`, `smoke-test.sh`, `VERSION` 0.1.0), with
+`release-tdarr-vmaf-cuda.yml`, a `vmaf-cuda` job in `ci.yml`, and the ATTRIBUTION and README entries. The four open
+decisions above are runtime questions and do not affect the build. Differences from the draft above, and why:
+
+- Tool and source revisions are **pinned** (libvmaf `v3.0.0`, nv-codec-headers `n12.2.72.0`, FFmpeg `n7.1`, CUDA
+  `12.4.1`) instead of `--depth 1` of the default branches: reproducible, and the GPL source for a published image is
+  exactly these revisions. The nv-codec-headers pin also keeps the NVENC API version inside what a pre-570 driver accepts.
+- nv-codec-headers are built **first** (libvmaf's CUDA code loads the driver API through them).
+- `ARG`s are declared in the final stage too (a build `ARG` is not visible after the next `FROM`).
+- `--nvccflags` is set (ffmpeg's default `compute_30` is rejected by CUDA 12); GPU generation is the `CUDA_ARCH` argument (default 75, Turing).
+- `--enable-libnpp`, x264, x265, gnutls and numa are dropped: not needed to decode with NVDEC and score; this removes
+  NPP (a large proprietary library) and nearly all runtime dependencies.
+- libvmaf lives in its own `/usr/local/lib/tdarr-vmaf-cuda/` so it cannot shadow anything the Tdarr image has; the RPATH
+  is set with `patchelf` (the spec's `/usr/local/cuda/lib64` rpath would not have found a `cuda-runtime-libs` copy).
+  `collect-libs.sh` copies whatever `ldd` finds beyond the base system and driver libraries.
+- Licences and `BUILD-INFO` ship inside the image.
