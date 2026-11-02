@@ -24,6 +24,10 @@ before Tdarr's own init runs. That means this repo never has to track or
 rebuild Tdarr's upstream image — it ships a small overlay that reapplies on
 top of whatever Tdarr version is already running.
 
+## Docker Hub repo
+
+**`bdelima/tdarr-vmaf-cuda`** — confirmed, matches the directory name here.
+
 ## What the image contains
 
 - `/usr/local/bin/ffmpeg-vmaf-cuda` — a custom ffmpeg build, **not** at the
@@ -176,5 +180,5 @@ including:
    when CPU-only VMAF looked too slow; with CUDA it may not be needed at all.
 4. **Starting VERSION** — suggest `0.1.0` (not yet built/released), but your
    call.
-5. **Exact Docker Hub repo name** — assumed `bdelima/tdarr-vmaf-cuda` to
-   match the directory name; confirm or rename before the first release.
+
+~~5. Exact Docker Hub repo name~~ — settled, see above.
