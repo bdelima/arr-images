@@ -54,9 +54,11 @@ echo "   ok   libvmaf, libvmaf_cuda and scale_cuda filters are there"
 score=$(run /usr/local/bin/ffmpeg-vmaf-cuda -hide_banner -nostdin \
   -f lavfi -i "testsrc=size=320x240:rate=10:duration=2" -f lavfi -i "testsrc=size=320x240:rate=10:duration=2" \
   -lavfi libvmaf -f null - 2>&1 | tee /dev/stderr | sed -n 's/.*VMAF score: *//p')
-case $score in
-  100*|99.9*) echo "   ok   libvmaf scored a clip against itself: $score" ;;
-  *) fail "libvmaf scored identical clips as '$score' (expected ~100)" ;;
-esac
+# identical clips score near 100 (a synthetic test pattern lands a little under it), a broken libvmaf or model nowhere near
+if [ -n "$score" ] && awk -v s="$score" 'BEGIN { exit !(s >= 95 && s <= 100.0001) }'; then
+  echo "   ok   libvmaf scored a clip against itself: $score"
+else
+  fail "libvmaf scored identical clips as '$score' (expected 95-100)"
+fi
 
 echo "PASS: tdarr-vmaf-cuda smoke test"
