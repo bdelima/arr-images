@@ -44,6 +44,8 @@ jobs:
           context: .
           file: tdarr-vmaf-cuda/Dockerfile
           platforms: linux/amd64
+          cache-from: type=gha,scope=tdarr-vmaf-cuda
+          cache-to: type=gha,scope=tdarr-vmaf-cuda,mode=max
           load: true
           build-args: |
             VERSION=${{ steps.v.outputs.version }}
@@ -57,6 +59,8 @@ jobs:
           file: tdarr-vmaf-cuda/Dockerfile
           target: cuda-stub
           platforms: linux/amd64
+          cache-from: type=gha,scope=tdarr-vmaf-cuda
+          cache-to: type=gha,scope=tdarr-vmaf-cuda,mode=max
           outputs: type=local,dest=cuda-stub
 
       - name: Smoke test
@@ -75,6 +79,8 @@ jobs:
           context: .
           file: tdarr-vmaf-cuda/Dockerfile
           platforms: linux/amd64
+          cache-from: type=gha,scope=tdarr-vmaf-cuda
+          cache-to: type=gha,scope=tdarr-vmaf-cuda,mode=max
           push: true
           build-args: |
             VERSION=${{ steps.v.outputs.version }}
