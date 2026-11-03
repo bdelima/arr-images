@@ -3,6 +3,7 @@ name: CI
 # Builds the overlay images (radarr, sonarr, lidarr, sportarr) from the current upstream releases and runs the start-test against them.
 # Nothing is pushed anywhere and no secrets are used. A new upstream release that changes the patched lines
 # of TaskManager.cs makes this fail, which is the point: it is the early warning.
+# A change to markdown files alone (the '!**/*.md' lines below) does not start a build.
 
 on:
   pull_request:
@@ -17,6 +18,7 @@ on:
       - 'scripts/**'
       - 'tests/**'
       - '.github/workflows/ci.yml'
+      - '!**/*.md'
   push:
     branches: [main]
     paths:
@@ -30,6 +32,7 @@ on:
       - 'scripts/**'
       - 'tests/**'
       - '.github/workflows/ci.yml'
+      - '!**/*.md'
   workflow_dispatch:
 
 permissions:
