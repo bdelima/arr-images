@@ -172,20 +172,23 @@ including:
 ## Open decisions (not mine to make — flagging, not deciding)
 
 1. **VMAF pass/fail threshold.** No data yet; needs real test runs against
-   your library once the image exists.
+   your library once the image exists. **Resolved:** 93 (moderate/starting default) — see [[tdarr-rollout]] / the Downloads Flow artifact.
 2. **Where in the Validator flow this hooks in, and what Node Tag naples
    gets for it** — a new tag distinct from `local`, `encoder`, and
    `healthcheck-full`, since this needs naples specifically *and* GPU access.
+   **Resolved:** no new tag needed — the NVIDIA card lives on naples' existing `local`-tagged node, so `local` already routes correctly.
 3. **Full-frame scoring vs. subsampling** — the subsampling idea came from
    when CPU-only VMAF looked too slow; with CUDA it may not be needed at all.
+   **Resolved:** full-frame (CUDA runs ~20x realtime, subsampling not needed).
 4. **Starting VERSION** — suggest `0.1.0` (not yet built/released), but your
-   call.
+   call. **Resolved:** shipped as `0.1.0`, then bumped to `0.1.1` when the native-10bit CUDA VMAF patch ([SPEC-native-10bit.md](SPEC-native-10bit.md), PR #16) merged.
 
 ~~5. Exact Docker Hub repo name~~ — settled, see above.
 
 ## Implementation notes (code session)
 
-Built as `tdarr-vmaf-cuda/Dockerfile` (+ `collect-libs.sh`, `smoke-test.sh`, `VERSION` 0.1.0), with
+Built as `tdarr-vmaf-cuda/Dockerfile` (+ `collect-libs.sh`, `smoke-test.sh`, `VERSION` 0.1.0 at the time -- now `0.1.1`,
+see above), with
 `release-tdarr-vmaf-cuda.yml`, a `vmaf-cuda` job in `ci.yml`, and the ATTRIBUTION and README entries. The four open
 decisions above are runtime questions and do not affect the build. Differences from the draft above, and why:
 
