@@ -66,7 +66,8 @@ error. The correct operation is a plain `>> 6`.
 
 ## The patch
 
-Three files, pinned refs unchanged (`FFMPEG_REF=n7.1`, `VMAF_REF=v3.0.0`,
+Four files (the fourth, `libavutil/hwcontext_cuda.c`, was added in code review -- see
+"Code review finding" below), pinned refs unchanged (`FFMPEG_REF=n7.1`, `VMAF_REF=v3.0.0`,
 no version bump required on either):
 
 1. **`libavfilter/vf_libvmaf.c`** -- add `AV_PIX_FMT_YUV420P10LE` to the
@@ -154,3 +155,15 @@ GPU path isn't silently scoring something subtly wrong.
   (`NEAREST_KERNEL_RAW`/`BILINEAR_KERNEL_RAW`/`LANCZOS_KERNEL_RAW`) -- not
   done here, since the existing VMAF script only ever uses `scale_cuda`'s
   default (Bicubic) mode.
+
+## Code review finding: the CUDA hwframes allowlist
+
+Reading the FFmpeg n7.1 source (not only the three files above) found a third allowlist: `libavutil/hwcontext_cuda.c`
+`supported_formats[]`, checked by `cuda_frames_init()`. `scale_cuda` allocates its output as a CUDA hwframes context
+with `sw_format = yuv420p10le`; without the entry, `av_hwframe_ctx_init` fails with "Pixel format 'yuv420p10le' is not
+supported" (ENOSYS) and the filter graph never starts. The three-file patch would have compiled and then failed on the
+first real run. The Dockerfile patch now adds the entry (one line; the YUV420P special alignment case there is for
+nvenc and does not apply to yuv420p10le). Still compile-only verified: no GPU in CI.
+
+Also confirmed in review: the patch covers only `scale_cuda`'s default bicubic mode, so `interp_algo=nearest|bilinear|
+lanczos` with `format=yuv420p10le` fails with "Unsupported conversion" (see the open decisions below).

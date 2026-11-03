@@ -79,6 +79,16 @@ new = "    AV_PIX_FMT_YUV444P16,\n    AV_PIX_FMT_YUV420P10LE,\n    AV_PIX_FMT_0R
 assert s.count(old) == 1, "vf_scale_cuda.c: anchor not found or not unique -- FFMPEG_REF probably moved, update this patch"
 p.write_text(s.replace(old, new))
 
+# The CUDA hwframes context has its own allowlist: without this, scale_cuda's output frames for yuv420p10le fail at
+# runtime ("Pixel format 'yuv420p10le' is not supported"). Only YUV420P needs special alignment handling there (for
+# nvenc), so nothing else in that file changes.
+p = pathlib.Path("libavutil/hwcontext_cuda.c")
+s = p.read_text()
+old = "    AV_PIX_FMT_YUV444P16,\n    AV_PIX_FMT_0RGB32,"
+new = "    AV_PIX_FMT_YUV444P16,\n    AV_PIX_FMT_YUV420P10LE,\n    AV_PIX_FMT_0RGB32,"
+assert s.count(old) == 1, "hwcontext_cuda.c: anchor not found or not unique -- FFMPEG_REF probably moved, update this patch"
+p.write_text(s.replace(old, new))
+
 p = pathlib.Path("libavfilter/vf_scale_cuda.cu")
 s = p.read_text()
 
@@ -138,7 +148,7 @@ assert s.count(kernel_anchor) == 1, "vf_scale_cuda.cu: BICUBIC_KERNELS(yuv444p16
 s = s.replace(kernel_anchor, kernel_anchor + "\nBICUBIC_KERNEL_RAW(p010le_yuv420p10le)")
 
 p.write_text(s)
-print("Patched vf_libvmaf.c, vf_scale_cuda.c, vf_scale_cuda.cu for native yuv420p10le CUDA VMAF scoring.")
+print("Patched vf_libvmaf.c, vf_scale_cuda.c, vf_scale_cuda.cu, hwcontext_cuda.c for native yuv420p10le CUDA VMAF scoring.")
 PYEOF
 
 # On a configure failure the log is printed, so a broken build can be diagnosed from the CI output alone.
