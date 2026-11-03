@@ -54,6 +54,103 @@ RUN git clone https://github.com/Netflix/vmaf.git \
 # x265 and the rest are left out on purpose, so the overlay carries almost no third-party runtime libraries.
 RUN git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg \
     && git -C ffmpeg checkout "$FFMPEG_REF"
+
+# Local patch, not upstream FFmpeg/libvmaf: native yuv420p10le (planar 10-bit 4:2:0) support for libvmaf_cuda scoring.
+# Upstream's CUDA VMAF filter only accepts 8-bit yuv420p or 16-bit yuv444p16 (which forces a 4:2:0->4:4:4 chroma
+# upsample -- ~4x the bytes/pixel of the 8-bit path, vs. ~2x for this). This widens two format allowlists by one
+# entry each and adds the one conversion kernel scale_cuda needs to produce yuv420p10le from NVDEC's native p010le
+# output. See tdarr-vmaf-cuda/SPEC-native-10bit.md for the full writeup, including why a plain ">> 6" (not the
+# existing conv_10to16 helper) is the correct bit-shift -- P010LE and YUV420P10LE use different bit justification
+# for the same 10-bit value, confirmed from libavutil/pixfmt.h's own doc comments.
+RUN cd /src/ffmpeg && python3 - <<'PYEOF'
+import pathlib
+
+p = pathlib.Path("libavfilter/vf_libvmaf.c")
+s = p.read_text()
+old = "static const enum AVPixelFormat supported_formats[] = {\n    AV_PIX_FMT_YUV420P,\n    AV_PIX_FMT_YUV444P16,\n};"
+new = "static const enum AVPixelFormat supported_formats[] = {\n    AV_PIX_FMT_YUV420P,\n    AV_PIX_FMT_YUV420P10LE,\n    AV_PIX_FMT_YUV444P16,\n};"
+assert s.count(old) == 1, "vf_libvmaf.c: anchor not found or not unique -- FFMPEG_REF probably moved, update this patch"
+p.write_text(s.replace(old, new))
+
+p = pathlib.Path("libavfilter/vf_scale_cuda.c")
+s = p.read_text()
+old = "    AV_PIX_FMT_YUV444P16,\n    AV_PIX_FMT_0RGB32,"
+new = "    AV_PIX_FMT_YUV444P16,\n    AV_PIX_FMT_YUV420P10LE,\n    AV_PIX_FMT_0RGB32,"
+assert s.count(old) == 1, "vf_scale_cuda.c: anchor not found or not unique -- FFMPEG_REF probably moved, update this patch"
+p.write_text(s.replace(old, new))
+
+# The CUDA hwframes context has its own allowlist: without this, scale_cuda's output frames for yuv420p10le fail at
+# runtime ("Pixel format 'yuv420p10le' is not supported"). Only YUV420P needs special alignment handling there (for
+# nvenc), so nothing else in that file changes.
+p = pathlib.Path("libavutil/hwcontext_cuda.c")
+s = p.read_text()
+old = "    AV_PIX_FMT_YUV444P16,\n    AV_PIX_FMT_0RGB32,"
+new = "    AV_PIX_FMT_YUV444P16,\n    AV_PIX_FMT_YUV420P10LE,\n    AV_PIX_FMT_0RGB32,"
+assert s.count(old) == 1, "hwcontext_cuda.c: anchor not found or not unique -- FFMPEG_REF probably moved, update this patch"
+p.write_text(s.replace(old, new))
+
+p = pathlib.Path("libavfilter/vf_scale_cuda.cu")
+s = p.read_text()
+
+struct_anchor = '''struct Convert_p010le_yuv444p16le
+{
+    static const int in_bit_depth = 10;
+    typedef ushort in_T;
+    typedef ushort2 in_T_uv;
+    typedef ushort out_T;
+    typedef ushort out_T_uv;
+
+    DEF_F(Convert, out_T)
+    {
+        DEFAULT_DST(0) = conv_10to16(SUB_F(y, 0));
+    }
+
+    DEF_F(Convert_uv, out_T_uv)
+    {
+        in_T_uv res = SUB_F(uv, 1);
+        DEFAULT_DST(1) = conv_10to16(res.x);
+        DEFAULT_DST(2) = conv_10to16(res.y);
+    }
+};'''
+assert s.count(struct_anchor) == 1, "vf_scale_cuda.cu: Convert_p010le_yuv444p16le anchor not found or not unique -- FFMPEG_REF probably moved, update this patch"
+
+new_struct = '''
+
+// Added locally: p010le -> yuv420p10le. P010LE stores its 10-bit sample
+// left-justified in the high bits of a 16-bit word (zeros in the low 6
+// bits); YUV420P10LE stores it right-justified in the low 10 bits. A plain
+// ">> 6" is the correct conversion -- NOT conv_10to16, which targets the
+// different (left-justified) P016LE/YUV444P16LE convention.
+struct Convert_p010le_yuv420p10le
+{
+    static const int in_bit_depth = 10;
+    typedef ushort in_T;
+    typedef ushort2 in_T_uv;
+    typedef ushort out_T;
+    typedef ushort out_T_uv;
+
+    DEF_F(Convert, out_T)
+    {
+        DEFAULT_DST(0) = SUB_F(y, 0) >> 6;
+    }
+
+    DEF_F(Convert_uv, out_T_uv)
+    {
+        in_T_uv res = SUB_F(uv, 1);
+        DEFAULT_DST(1) = res.x >> 6;
+        DEFAULT_DST(2) = res.y >> 6;
+    }
+};'''
+s = s.replace(struct_anchor, struct_anchor + new_struct)
+
+kernel_anchor = "BICUBIC_KERNELS(yuv444p16le)"
+assert s.count(kernel_anchor) == 1, "vf_scale_cuda.cu: BICUBIC_KERNELS(yuv444p16le) anchor not found or not unique -- FFMPEG_REF probably moved, update this patch"
+s = s.replace(kernel_anchor, kernel_anchor + "\nBICUBIC_KERNEL_RAW(p010le_yuv420p10le)")
+
+p.write_text(s)
+print("Patched vf_libvmaf.c, vf_scale_cuda.c, vf_scale_cuda.cu, hwcontext_cuda.c for native yuv420p10le CUDA VMAF scoring.")
+PYEOF
+
 # On a configure failure the log is printed, so a broken build can be diagnosed from the CI output alone.
 RUN cd /src/ffmpeg \
     && { PKG_CONFIG_PATH=/usr/local/lib/tdarr-vmaf-cuda/pkgconfig ./configure \
@@ -98,7 +195,7 @@ RUN doc=/root-layer/usr/share/doc/tdarr-vmaf-cuda && mkdir -p "$doc" \
     && { echo "tdarr-vmaf-cuda $VERSION (source: https://github.com/bdelima/arr-images, revision $REVISION)"; \
          echo "libvmaf $VMAF_REF ($(git -C /src/vmaf rev-parse HEAD))"; \
          echo "nv-codec-headers $NV_CODEC_HEADERS_REF ($(git -C /src/nv-codec-headers rev-parse HEAD))"; \
-         echo "FFmpeg $FFMPEG_REF ($(git -C /src/ffmpeg rev-parse HEAD))"; \
+         echo "FFmpeg $FFMPEG_REF ($(git -C /src/ffmpeg rev-parse HEAD)) + local patch: native yuv420p10le CUDA VMAF scoring (see SPEC-native-10bit.md)"; \
          echo "CUDA architecture sm_$CUDA_ARCH; base image nvidia/cuda:12.4.1-devel-ubuntu22.04"; } > "$doc/BUILD-INFO"
 
 # The devel image's libcuda stub, for the CI smoke test only (a plain Ubuntu has no libcuda.so.1, and the binary will not
