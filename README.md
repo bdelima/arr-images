@@ -190,6 +190,39 @@ path instead of individual files -- the on-disk walk above is the fix, and the D
 `Filters at scan level` setting is what keeps non-video files out of Tdarr without any filtering on the validator's
 side.
 
+## Tdarr VMAF scoring (tdarr-vmaf-cuda)
+
+`bdelima/tdarr-vmaf-cuda` is a [`DOCKER_MODS`](https://github.com/linuxserver/docker-mods) overlay for a Tdarr node
+(Tdarr's node image is built on LinuxServer's base). It adds an ffmpeg built with CUDA and
+[libvmaf](https://github.com/Netflix/vmaf) as **`/usr/local/bin/ffmpeg-vmaf-cuda`**, so a Flow step can score a
+transcoded file against its original with `libvmaf_cuda` on an NVIDIA GPU. It does not touch the ffmpeg Tdarr ships,
+and Tdarr's own image is never rebuilt.
+
+```yaml
+  tdarr-node:
+    environment:
+      - DOCKER_MODS=bdelima/tdarr-vmaf-cuda:latest
+```
+
+The node also needs a working NVIDIA setup (host driver, `nvidia-container-toolkit`, the GPU passed to the container
+with the `video` driver capability), which provides the driver-level libraries this image deliberately does not carry.
+Unlike Tdarr's own ffmpeg, `ffmpeg-vmaf-cuda` links `libcuda.so.1` directly, so it only starts on a node that has the GPU
+attached.
+
+What is in the overlay: the binary, libvmaf and any CUDA runtime library it links in
+`/usr/local/lib/tdarr-vmaf-cuda/` (the binary has an RPATH to it, so no `LD_LIBRARY_PATH` is needed), the VMAF model in
+`/usr/local/share/model/`, and the licences plus the exact source revisions in `/usr/share/doc/tdarr-vmaf-cuda/`.
+Decoding goes through NVDEC and scaling through `scale_cuda`; x264, x265 and libnpp are left out on purpose.
+
+It is built for one GPU generation, set by the `CUDA_ARCH` build argument (default `75`, Turing -- the RTX 2060 Super).
+amd64 only. It is published by dispatching [`release-tdarr-vmaf-cuda.yml`](.github/workflows/release-tdarr-vmaf-cuda.yml)
+(it does not follow an upstream release) and built and smoke-tested by [`ci.yml`](.github/workflows/ci.yml). CI has no GPU:
+it checks that the binary starts on a plain Ubuntu 22.04, links everything, reports `--enable-libvmaf`/`--enable-cuda-nvcc`,
+has the `libvmaf_cuda` and `scale_cuda` filters, and that (CPU) libvmaf scores a clip against itself. Scoring on the
+GPU is checked by hand on the node after a release. Versions are `0.x` until that has been done on real files.
+
+Because it is built with `--enable-gpl --enable-nonfree` it is for your own use; see [`ATTRIBUTION.md`](ATTRIBUTION.md).
+
 ## What is different from the LinuxServer image
 
 One file: `Radarr.Core.dll` / `Sonarr.Core.dll` / `Lidarr.Core.dll` (Sportarr: `Sportarr.dll`), rebuilt from the upstream source tag with small

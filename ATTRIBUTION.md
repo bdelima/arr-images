@@ -77,6 +77,33 @@ applies. Everything below keeps its own license and copyright; nothing here reli
 - **How it's used:** `tdarr-download-validator` only talks to a user-run Tdarr server over its HTTP API
   (`/api/v2/cruddb`, `/api/v2/scan-files`). Written from the behaviour observed on the author's own instance.
 
+## tdarr-vmaf-cuda: third-party material in the image
+
+`bdelima/tdarr-vmaf-cuda` is the one image here that ships third-party *binaries* built from other projects' source,
+not an upstream image with a replaced assembly. It is a `FROM scratch` overlay; what is in it:
+
+- **FFmpeg** -- [FFmpeg/FFmpeg](https://github.com/FFmpeg/FFmpeg), pinned tag in the Dockerfile (`FFMPEG_REF`). LGPL
+  or GPL per component; the build uses `--enable-gpl` and `--enable-nonfree` (the latter is required by
+  `--enable-cuda-nvcc`, which compiles the CUDA filters with NVIDIA's compiler). FFmpeg's own documentation says a
+  binary built with `--enable-nonfree` is not redistributable, so treat this image as built for the maintainer's own
+  use; it is not offered as a general-purpose build. The GPL licence text ships in the image
+  (`/usr/share/doc/tdarr-vmaf-cuda/COPYING.ffmpeg-GPLv3`).
+- **libvmaf** -- [Netflix/vmaf](https://github.com/Netflix/vmaf), pinned tag (`VMAF_REF`). BSD-2-Clause-Patent (verify
+  against `/usr/share/doc/tdarr-vmaf-cuda/LICENSE.libvmaf`, copied from the pinned revision). The model file
+  `vmaf_v0.6.1.json` comes from the same repository and licence.
+- **nv-codec-headers** -- [FFmpeg/nv-codec-headers](https://github.com/FFmpeg/nv-codec-headers), pinned tag
+  (`NV_CODEC_HEADERS_REF`). MIT; headers only, built into the binaries (no separate library).
+- **NVIDIA CUDA Toolkit** -- proprietary, governed by NVIDIA's CUDA EULA (copied to
+  `/usr/share/doc/tdarr-vmaf-cuda/EULA.cuda-toolkit.txt`), **not open source**. The build image is
+  `nvidia/cuda:12.4.1-devel-ubuntu22.04`. Only what the EULA lists as redistributable is carried (the CUDA runtime
+  library, if the binaries link it), for use with NVIDIA hardware; `nvcc` and the headers stay in the build stage. The
+  NVIDIA driver libraries (`libcuda`, `libnvcuvid`, ...) are not in the image; the host supplies them through the
+  NVIDIA container toolkit.
+
+Corresponding source for the GPL parts: the exact revisions are recorded inside the image in
+`/usr/share/doc/tdarr-vmaf-cuda/BUILD-INFO`, the build recipe is `tdarr-vmaf-cuda/Dockerfile` in this repository at the
+commit in the image's `org.opencontainers.image.revision` label.
+
 ## Corresponding source
 
 For any published image: the upstream tag in its `dev.pumapants.upstream-tag` label, plus this repository at the
