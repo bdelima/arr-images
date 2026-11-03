@@ -1,6 +1,6 @@
 # tdarr-vmaf-cuda: native yuv420p10le CUDA VMAF scoring
 
-Status: **patch designed and verified against real source text; not yet build-tested on a GPU.**
+Status: **merged and shipped, tdarr-vmaf-cuda 0.1.1 ([PR #16](https://github.com/bdelima/arr-images/pull/16), 2026-11-03).** Verified by actually running the patch script against the real pinned source and diffing the result -- twice: the original 3-file draft, then again after the code-review finding below added a 4th file -- and by CI's real FFmpeg/nvcc compile (the `vmaf-cuda` job), which is green. **Not yet verified:** real VMAF-score correctness on an actual 10-bit/HDR file on the GPU -- CI has no GPU, so a green run confirms the build compiles, not that it scores correctly at runtime. See the test plan below before relying on scores from this path.
 
 ## Problem
 
@@ -111,10 +111,9 @@ real `n7.1`-tagged source of all three files and diffing the result):
 - Brace balance and symbol uniqueness sanity checks pass on the patched
   file (152 open / 152 close braces; `Convert_p010le_yuv420p10le` appears
   exactly once).
+- CI's `vmaf-cuda` job (the real FFmpeg/nvcc compile, all four patched files) is green on the merged `main`.
 
-**Not verified** (no CUDA toolchain or GPU in the sandbox that designed
-this):
-- That `nvcc` actually compiles the new template struct without error.
+**Not verified** (no GPU in CI or in the sandbox that designed this):
 - That the generated `Subsample_Bicubic_p010le_yuv420p10le` /
   `..._uv` kernels produce correct pixel values at runtime (the bit-shift
   direction is grounded in FFmpeg's own documentation, not just inferred).
@@ -150,11 +149,11 @@ GPU path isn't silently scoring something subtly wrong.
   16-bit/4:4:4 alternative exists today (just a `scale_cuda=format=...`
   change, no rebuild) -- this patch buys roughly 2x instead of 4x the
   8-bit cost, at the price of maintaining a source patch against FFmpeg
-  that needs re-verifying on every future `FFMPEG_REF` bump.
+  that needs re-verifying on every future `FFMPEG_REF` bump. **Resolved by merging PR #16:** adopted.
 - Whether to extend the same patch to the other interpolation modes
   (`NEAREST_KERNEL_RAW`/`BILINEAR_KERNEL_RAW`/`LANCZOS_KERNEL_RAW`) -- not
   done here, since the existing VMAF script only ever uses `scale_cuda`'s
-  default (Bicubic) mode.
+  default (Bicubic) mode. Still open.
 
 ## Code review finding: the CUDA hwframes allowlist
 
