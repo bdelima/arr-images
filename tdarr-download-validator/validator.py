@@ -3,7 +3,7 @@
 
 The arr apps (with the preimport-validator patch) call it before importing a completed download:
 
-    POST /validate   {"path": "<file or folder>"}
+    POST /validate   {"path": "<file or folder>", "tag": "<quality tier, optional>"}
     -> 200           {"ready": bool, "failed": bool, "message": str}
 
 It answers from Tdarr's own records and starts Tdarr on a download it has not seen yet:
@@ -29,10 +29,24 @@ still works for a single file, just not for a folder.
 A successful scan-files call answers with a plain-text "OK", not JSON; that response is never parsed, so it is never
 mistaken for a failure.
 
+Quality-tag routing: the arr patches resolve one arr-side tag per series/movie (see PreImportValidator.QualityTag.
+KnownLabels in common/PreImportValidator.cs: "best"/"better"/"balanced"/"smallest") and send it as "tag" in the
+/validate body. TDARR_LIBRARY_MAP maps a tag label to the dbID of the Tdarr library that holds that quality tier, so
+a scan this service triggers goes into the right library instead of always the one fixed TDARR_LIBRARY_ID. A path
+with no tag, an empty map, or a tag that isn't in the map all fall back to TDARR_LIBRARY_ID unchanged -- nothing
+about existing untagged downloads changes. The map only decides which library a *scan* is pointed at; it has no
+effect on the "ready"/"failed"/"processing" answer itself, which is read from Tdarr's records by file path alone,
+independent of library.
+
 Standard library only. Configuration (environment):
 
     TDARR_URL              e.g. http://192.168.0.50:8266 (the Tdarr server port)
-    TDARR_LIBRARY_ID       dbID of the library the downloads belong to
+    TDARR_LIBRARY_ID       dbID of the default library the downloads belong to (used when a request has no tag,
+                           or a tag TDARR_LIBRARY_MAP doesn't cover)
+    TDARR_LIBRARY_MAP      optional JSON object mapping a quality-tag label to a library dbID, e.g.
+                           {"best": "<dbID>", "better": "<dbID>", "balanced": "<dbID>", "smallest": "<dbID>"}.
+                           Only tags worth giving their own entry need one; anything else (no tag, or a tag
+                           not in this map) falls back to TDARR_LIBRARY_ID.
     PORT                   listen port (default 8080)
     TRIGGER_DEDUP_SECONDS  minimum seconds between scan requests for one path (default 60)
     TDARR_TIMEOUT_SECONDS  timeout of each call to Tdarr (default 8; the arr apps give up on us after 10)
@@ -111,24 +125,57 @@ class Tdarr:
             raise TdarrError(f"getAll {collection}: expected a list")
         return [d for d in value if self._doc(d)]
 
-    def scan(self, paths):
+    def scan(self, paths, library_id=None):
         # the response is discarded either way (and is plain text "OK" on success, not JSON) -- _post_raw,
-        # not _post, so a successful scan is never mistaken for an "unparseable response" failure
+        # not _post, so a successful scan is never mistaken for an "unparseable response" failure.
+        # library_id lets a caller target a library other than the default one this instance was built with
+        # (quality-tag routing); omitted, it falls back to self.library_id exactly as before this parameter existed.
         self._post_raw("/api/v2/scan-files", {"scanConfig": {
-            "dbID": self.library_id, "arrayOrPath": list(paths), "mode": "scanFolderWatcher"}})
+            "dbID": library_id or self.library_id, "arrayOrPath": list(paths), "mode": "scanFolderWatcher"}})
 
 
 def _decision(doc):
     return str(doc.get("TranscodeDecisionMaker") or "").strip()
 
 
+def _load_library_map(raw, logger=log):
+    """Parse TDARR_LIBRARY_MAP. Empty/unset -> {}. Invalid JSON or a non-object is logged and treated as {} --
+    the service still starts and falls back to TDARR_LIBRARY_ID for every request, same as if it were unset."""
+    raw = (raw or "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except ValueError as exc:
+        logger.warning("TDARR_LIBRARY_MAP is not valid JSON (%s); every request falls back to TDARR_LIBRARY_ID", exc)
+        return {}
+    if not isinstance(parsed, dict) or not all(isinstance(v, str) for v in parsed.values()):
+        logger.warning("TDARR_LIBRARY_MAP must be a JSON object of tag -> dbID strings; "
+                        "every request falls back to TDARR_LIBRARY_ID")
+        return {}
+    return parsed
+
+
 class Validator:
-    def __init__(self, tdarr, dedup_seconds=60, clock=time.time):
+    def __init__(self, tdarr, dedup_seconds=60, clock=time.time, library_map=None):
         self.tdarr = tdarr
         self.dedup_seconds = dedup_seconds
         self.clock = clock
+        self.library_map = library_map or {}
         self._triggered = {}
         self._lock = threading.Lock()
+
+    def _library_for_tag(self, tag):
+        """The dbID a scan for this request should target: the map entry for `tag`, or the default library when
+        there is no tag, the map is empty, or the tag isn't in it. Never raises, never refuses the request over an
+        unrecognized tag -- an unmapped tag is not an error, just a tag this map doesn't route."""
+        if not tag:
+            return self.tdarr.library_id
+        library_id = self.library_map.get(tag)
+        if library_id is None:
+            log.warning("no TDARR_LIBRARY_MAP entry for tag '%s'; using the default library", tag)
+            return self.tdarr.library_id
+        return library_id
 
     def _records(self, path):
         """Return (staged, files): the Tdarr records for a file, or for the files under a folder."""
@@ -157,7 +204,7 @@ class Validator:
             return sorted(found)
         return [path]
 
-    def _trigger(self, path):
+    def _trigger(self, path, library_id):
         now = self.clock()
         with self._lock:
             last = self._triggered.get(path)
@@ -170,10 +217,10 @@ class Validator:
                     del self._triggered[key]
         targets = self._resolve_scan_targets(path)
         if targets:
-            self.tdarr.scan(targets)
+            self.tdarr.scan(targets, library_id)
         return True
 
-    def validate(self, path):
+    def validate(self, path, tag=None):
         path = _norm(path)
         staged, files = self._records(path)
         if staged:
@@ -185,15 +232,16 @@ class Validator:
                     "message": f"Tdarr: {_decision(first)} ({first['_id']})"}
         pending = [d for d in files if _decision(d).lower() in ("", "queued")]
         if not files or pending:
-            if self._trigger(path):
+            library_id = self._library_for_tag(tag)
+            if self._trigger(path, library_id):
                 return {"ready": False, "message": "triggered"}
             return {"ready": False, "message": "triggered, waiting for Tdarr to pick it up"}
         return {"ready": True, "message": f"done ({len(files)} file(s))"}
 
-    def safe_validate(self, path):
+    def safe_validate(self, path, tag=None):
         """Never raises: a Tdarr problem is 'not ready', logged, so the arr app defers and asks again."""
         try:
-            return self.validate(path)
+            return self.validate(path, tag)
         except TdarrError as exc:
             log.warning("Tdarr call failed for %s: %s", path, exc)
             return {"ready": False, "message": f"Tdarr unreachable or unusable: {exc}"}
@@ -229,15 +277,19 @@ def make_handler(validator):
                 return
             try:
                 length = int(self.headers.get("Content-Length") or 0)
-                path = json.loads(self.rfile.read(length) or b"{}").get("path")
+                parsed = json.loads(self.rfile.read(length) or b"{}")
+                path = parsed.get("path")
+                tag = parsed.get("tag")
             except (ValueError, AttributeError):
-                path = None
+                path, tag = None, None
             if not isinstance(path, str) or not path.strip():
                 self._send({"ready": False, "message": 'bad request: expected {"path": "<path>"}'})
                 return
-            result = validator.safe_validate(path)
+            if tag is not None and not isinstance(tag, str):
+                tag = None
+            result = validator.safe_validate(path, tag)
             level = logging.INFO if result.get("message") != "triggered, waiting for Tdarr to pick it up" else logging.DEBUG
-            log.log(level, "%s -> ready=%s failed=%s %s", path, result["ready"],
+            log.log(level, "%s (tag=%s) -> ready=%s failed=%s %s", path, tag or "-", result["ready"],
                     result.get("failed", False), result.get("message", ""))
             self._send(result)
 
@@ -252,9 +304,11 @@ def main():
     if not url or not library:
         sys.exit("TDARR_URL and TDARR_LIBRARY_ID must be set")
     port = int(os.environ.get("PORT", "8080"))
+    library_map = _load_library_map(os.environ.get("TDARR_LIBRARY_MAP", ""))
     tdarr = Tdarr(url, library, float(os.environ.get("TDARR_TIMEOUT_SECONDS", "8")))
-    validator = Validator(tdarr, float(os.environ.get("TRIGGER_DEDUP_SECONDS", "60")))
-    log.info("listening on :%d, Tdarr at %s, library %s", port, url, library)
+    validator = Validator(tdarr, float(os.environ.get("TRIGGER_DEDUP_SECONDS", "60")), library_map=library_map)
+    log.info("listening on :%d, Tdarr at %s, default library %s, tag map for %s",
+             port, url, library, sorted(library_map) or "(none)")
     ThreadingHTTPServer(("0.0.0.0", port), make_handler(validator)).serve_forever()
 
 

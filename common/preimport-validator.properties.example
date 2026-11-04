@@ -2,11 +2,16 @@
 # and restart the container. Without it, or without a Url, completed downloads are imported exactly as upstream does.
 #
 # Before importing a completed download the app asks this service whether it is ready:
-#     POST <Url>/validate   {"path": "<the download's folder or file>"}
+#     POST <Url>/validate   {"path": "<the download's folder or file>", "tag": "<quality tier, optional>"}
 #     -> {"ready": true|false, "failed": true|false, "message": "..."}
 # ready=true imports. ready=false waits and asks again on the next queue refresh. failed=true marks the download
 # failed (blocklisted; removed from the download client if that client's Remove Failed Downloads is on).
 # An error, a timeout (10 s) or an unreadable answer also waits: the import never proceeds on a missing answer.
+#
+# "tag" (Sonarr/Radarr only) is the one series/movie tag, if any, whose label names a Tdarr quality tier --
+# "best", "better", "balanced" or "smallest" (see PreImportValidator.QualityTag.KnownLabels). It tells the Tdarr
+# service below which quality-tier library to scan this download into (TDARR_LIBRARY_MAP); omitted when the
+# series/movie has none of those tags, in which case the Tdarr service falls back to its own default library.
 #
 # For the Tdarr service in this repository (bdelima/tdarr-download-validator):
 Url=http://tdarr-download-validator:8080
