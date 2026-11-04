@@ -1,0 +1,76 @@
+diff --git a/src/NzbDrone.Core/Download/CompletedDownloadService.cs b/src/NzbDrone.Core/Download/CompletedDownloadService.cs
+index 6ed6428..855e6c3 100644
+--- a/src/NzbDrone.Core/Download/CompletedDownloadService.cs
++++ b/src/NzbDrone.Core/Download/CompletedDownloadService.cs
+@@ -14,6 +14,7 @@
+ using NzbDrone.Core.Movies;
+ using NzbDrone.Core.Parser;
+ using NzbDrone.Core.Parser.Model;
++using NzbDrone.Core.Tags;
+ 
+ namespace NzbDrone.Core.Download
+ {
+@@ -36,6 +37,7 @@ public class CompletedDownloadService : ICompletedDownloadService
+         private readonly IRejectedImportService _rejectedImportService;
+         private readonly IPreImportValidator _preImportValidator;
+         private readonly IFailedDownloadService _failedDownloadService;
++        private readonly ITagService _tagService;
+         private readonly Logger _logger;
+ 
+         public CompletedDownloadService(IEventAggregator eventAggregator,
+@@ -48,6 +50,7 @@ public class CompletedDownloadService : ICompletedDownloadService
+                                         IRejectedImportService rejectedImportService,
+                                         IPreImportValidator preImportValidator,
+                                         IFailedDownloadService failedDownloadService,
++                                        ITagService tagService,
+                                         Logger logger)
+         {
+             _eventAggregator = eventAggregator;
+@@ -60,9 +63,37 @@ public class CompletedDownloadService : ICompletedDownloadService
+             _rejectedImportService = rejectedImportService;
+             _preImportValidator = preImportValidator;
+             _failedDownloadService = failedDownloadService;
++            _tagService = tagService;
+             _logger = logger;
+         }
+ 
++        // arr-images: the one arr-side tag on the movie that names a Tdarr quality tier, so the
++        // PreImportValidator can tell the sidecar which quality-tier library to scan this download into
++        // (see tdarr-download-validator's TDARR_LIBRARY_MAP). Multiple quality tags on one movie is a
++        // configuration mistake, not a crash: the lowest-sorting label wins and the rest are logged.
++        // No matching tag (the common case for anything not using tiered libraries) returns null, and the
++        // validator falls back to its own default library.
++        private string ResolveQualityTag(TrackedDownload trackedDownload, HashSet<int> tagIds)
++        {
++            if (tagIds == null || tagIds.Count == 0)
++            {
++                return null;
++            }
++
++            var matches = _tagService.GetTags(tagIds)
++                                      .Where(t => QualityTag.KnownLabels.Contains(t.Label))
++                                      .OrderBy(t => t.Label)
++                                      .ToList();
++
++            if (matches.Count > 1)
++            {
++                _logger.Warn("'{0}' has more than one quality tag ({1}); using '{2}'",
++                    trackedDownload.DownloadItem.Title, string.Join(", ", matches.Select(t => t.Label)), matches[0].Label);
++            }
++
++            return matches.Count > 0 ? matches[0].Label : null;
++        }
++
+         public void Check(TrackedDownload trackedDownload)
+         {
+             if (trackedDownload.DownloadItem.Status != DownloadItemStatus.Completed)
+@@ -128,7 +159,8 @@ public void Check(TrackedDownload trackedDownload)
+             // Remove Failed Downloads is on). With no validator configured nothing here runs.
+             if (_preImportValidator.IsConfigured)
+             {
+-                var preImport = _preImportValidator.Check(trackedDownload.ImportItem.OutputPath.FullPath);
++                var qualityTag = ResolveQualityTag(trackedDownload, movie.Tags);
++                var preImport = _preImportValidator.Check(trackedDownload.ImportItem.OutputPath.FullPath, qualityTag);
+ 
+                 if (preImport.Status == PreImportStatus.Failed)
+                 {
