@@ -29,15 +29,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /src
 RUN mkdir -p /root-layer/usr/local/bin
 
+# Every download below retries (--retry-all-errors): GitHub's release-asset and raw hosts intermittently answer 504,
+# which would otherwise fail a build that has nothing wrong with it.
+
 # quietvoid's release assets are named by Rust target triple; amd64 is x86_64-unknown-linux-musl. Each tarball holds just
 # the one binary.
 RUN triple=x86_64-unknown-linux-musl \
-    && curl -fsSL -o dovi_tool.tar.gz \
+    && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o dovi_tool.tar.gz \
          "https://github.com/quietvoid/dovi_tool/releases/download/${DOVI_TOOL_REF}/dovi_tool-${DOVI_TOOL_REF}-${triple}.tar.gz" \
     && echo "${DOVI_TOOL_SHA256}  dovi_tool.tar.gz" | sha256sum -c - \
     && tar -xzf dovi_tool.tar.gz \
     && install -m 0755 dovi_tool /root-layer/usr/local/bin/dovi_tool \
-    && curl -fsSL -o hdr10plus_tool.tar.gz \
+    && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o hdr10plus_tool.tar.gz \
          "https://github.com/quietvoid/hdr10plus_tool/releases/download/${HDR10PLUS_TOOL_REF}/hdr10plus_tool-${HDR10PLUS_TOOL_REF}-${triple}.tar.gz" \
     && echo "${HDR10PLUS_TOOL_SHA256}  hdr10plus_tool.tar.gz" | sha256sum -c - \
     && tar -xzf hdr10plus_tool.tar.gz \
@@ -51,8 +54,8 @@ RUN [ "$(/root-layer/usr/local/bin/dovi_tool --version)" = "dovi_tool ${DOVI_TOO
 ARG VERSION=unknown
 ARG REVISION=unknown
 RUN doc=/root-layer/usr/share/doc/tdarr-dovi-tool && mkdir -p "$doc" \
-    && curl -fsSL -o "$doc/LICENSE.dovi_tool" "https://raw.githubusercontent.com/quietvoid/dovi_tool/${DOVI_TOOL_REF}/LICENSE" \
-    && curl -fsSL -o "$doc/LICENSE.hdr10plus_tool" "https://raw.githubusercontent.com/quietvoid/hdr10plus_tool/${HDR10PLUS_TOOL_REF}/LICENSE" \
+    && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$doc/LICENSE.dovi_tool" "https://raw.githubusercontent.com/quietvoid/dovi_tool/${DOVI_TOOL_REF}/LICENSE" \
+    && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$doc/LICENSE.hdr10plus_tool" "https://raw.githubusercontent.com/quietvoid/hdr10plus_tool/${HDR10PLUS_TOOL_REF}/LICENSE" \
     && { echo "tdarr-dovi-tool $VERSION (source: https://github.com/bdelima/arr-images, revision $REVISION)"; \
          echo "dovi_tool $DOVI_TOOL_REF (https://github.com/quietvoid/dovi_tool/releases/tag/$DOVI_TOOL_REF), prebuilt amd64, MIT"; \
          echo "hdr10plus_tool $HDR10PLUS_TOOL_REF (https://github.com/quietvoid/hdr10plus_tool/releases/tag/$HDR10PLUS_TOOL_REF), prebuilt amd64, MIT"; \
