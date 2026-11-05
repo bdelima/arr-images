@@ -8,7 +8,7 @@
 # failed (blocklisted; removed from the download client if that client's Remove Failed Downloads is on).
 # An error, a timeout (10 s) or an unreadable answer also waits: the import never proceeds on a missing answer.
 #
-# "tag" (Sonarr/Radarr only) is the one series/movie tag, if any, whose label names a Tdarr quality tier --
+# "tag" is the one series/movie (Sportarr: league) tag, if any, whose label names a Tdarr quality tier --
 # "best", "better", "balanced" or "smallest" (see PreImportValidator.QualityTag.KnownLabels). It tells the Tdarr
 # service below which quality-tier library to scan this download into (TDARR_LIBRARY_MAP); omitted when the
 # series/movie has none of those tags, in which case the Tdarr service falls back to its own default library.

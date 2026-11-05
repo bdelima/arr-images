@@ -139,8 +139,12 @@ top of that method. It works like the above, with these differences:
   import failure**, the completed-download guard (which otherwise never deletes the data of a download that finished,
   to protect a seeding torrent from a hit-and-run) is bypassed for this one trigger.
 - Downloads Sportarr finds on its own in a client ("external" downloads) take a different path and are not gated.
-- Sportarr does not yet resolve or send a quality tag -- its event/tournament model hasn't been checked against the
-  tag vocabulary above, so it always validates untagged. Quality-tier routing for Sportarr downloads is still open.
+- **Quality-tag routing:** Sportarr keeps tags on the *league*, not on each event, so the tag it sends is the one
+  quality tag (same `best`/`better`/`balanced`/`smallest` vocabulary, matched without regard to case) on the league the
+  download's event belongs to -- every event in a league gets the same tier. It can be set from the league's tag selector
+  in the web UI. No league tag, no such event/league, or a lookup error validates untagged (the validator's default
+  library); it never blocks an import. More than one quality tag on a league uses the lowest-sorting label and logs a
+  warning.
 
 ## Import validator (tdarr-download-validator)
 
@@ -298,7 +302,7 @@ is LinuxServer's, unchanged.
    and adds a `MarkAsFailed(trackedDownload, message)` overload so a failed check shows its reason in history --
    see [Import hold](#import-hold) above.
 6. **Sportarr only: `sportarr/patches/01-preimport-validator.patch`** (with `sportarr/PreImportValidator.cs`) is the
-   same idea for Sportarr's own import monitor (its only patch). The Sportarr image is built differently: `sportarr/sportarr` is not a LinuxServer image and Sportarr
+   same idea for Sportarr's own import monitor (`sportarr/patches/02-quality-tag-forwarding.patch` adds the league's quality tag). The Sportarr image is built differently: `sportarr/sportarr` is not a LinuxServer image and Sportarr
    compiles into a single `Sportarr.dll`, so that one assembly is rebuilt with upstream's own publish command and
    copied over the official image.
 7. **Sonarr and Radarr only: `05-quality-tag-forwarding.patch`** adds `ITagService` to `CompletedDownloadService`'s
