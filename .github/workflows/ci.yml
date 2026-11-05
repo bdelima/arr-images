@@ -14,6 +14,7 @@ on:
       - 'sportarr/**'
       - 'tdarr-download-validator/**'
       - 'tdarr-vmaf-cuda/**'
+      - 'tdarr-dovi-tool/**'
       - 'common/**'
       - 'scripts/**'
       - 'tests/**'
@@ -28,6 +29,7 @@ on:
       - 'sportarr/**'
       - 'tdarr-download-validator/**'
       - 'tdarr-vmaf-cuda/**'
+      - 'tdarr-dovi-tool/**'
       - 'common/**'
       - 'scripts/**'
       - 'tests/**'
@@ -121,3 +123,16 @@ jobs:
 
       - name: Smoke test
         run: tdarr-vmaf-cuda/smoke-test.sh arr-test/tdarr-vmaf-cuda:ci cuda-stub
+
+  dovi-tool:
+    # tdarr-dovi-tool: the overlay image is built (a pinned, checksummed download, nothing compiled) and smoke-tested on a
+    # plain Debian. There is no DoVi/HDR10+ sample file here; see tdarr-dovi-tool/smoke-test.sh.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Build the overlay image
+        run: docker build -f tdarr-dovi-tool/Dockerfile --build-arg VERSION="$(cat tdarr-dovi-tool/VERSION)" -t arr-test/tdarr-dovi-tool:ci .
+
+      - name: Smoke test
+        run: tdarr-dovi-tool/smoke-test.sh arr-test/tdarr-dovi-tool:ci
