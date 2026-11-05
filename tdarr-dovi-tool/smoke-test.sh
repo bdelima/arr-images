@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# (ci filter probe: comment-only change)
 # What can be checked without real DoVi/HDR10+ media: the overlay's files are where they should be, both binaries start
 # on a plain Debian with nothing but the overlay mounted (they are static, so no library is needed), each reports the
 # exact version this build pinned, and each --help lists the subcommands the DoVi/HDR flow depends on
