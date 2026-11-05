@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -22,14 +23,6 @@ namespace NzbDrone.Core.Download
         public string Message { get; set; }
     }
 
-    // arr-images: the quality-tier tag labels recognized for routing a download to the matching Tdarr
-    // library. Must match the tier names configured on the Tdarr side (see tdarr-download-validator's
-    // TDARR_LIBRARY_MAP) -- a tag label outside this list is just an ordinary tag and is never sent.
-    public static class QualityTag
-    {
-        public static readonly string[] KnownLabels = { "best", "better", "balanced", "smallest" };
-    }
-
     // Asks an external service whether a completed download may be imported yet, so a pre-import process (stripping
     // unwanted audio/subtitle tracks, say) can finish first. The app does not know what the service checks.
     //
@@ -39,19 +32,19 @@ namespace NzbDrone.Core.Download
     // Without a Url nothing happens: IsConfigured is false and the caller imports exactly as upstream does.
     // The file is read once, when the application starts.
     //
-    // Per check: POST {Url}/validate with {"path": "<the download's folder or file>"} and, when the caller
-    // resolved one, {"tag": "<quality-tier label>"} (see QualityTag.KnownLabels -- an arr-tag on the series/movie
-    // that names a Tdarr quality-tier library, so the validator can scan this download into the right one; omitted
-    // when there is no such tag). 10 second timeout. The answer is read from the JSON body only: {"ready": bool,
-    // "failed": bool, "message": string}. "failed": true is PreImportStatus.Failed, "ready": true is Ready,
-    // anything else is NotReady. A timeout, an HTTP error status or a body that cannot be read is also NotReady
-    // (logged as a warning), never Ready: the import is deferred and the next queue refresh asks again.
+    // Per check: POST {Url}/validate with {"path": "<the download's folder or file>"} and, when the caller has any,
+    // {"tags": ["<every tag label on the series/movie>", ...]} -- unfiltered: which of them (if any) names a quality
+    // tier is the validator's business (the Tdarr service's TDARR_LIBRARY_MAP), not this app's. 10 second timeout.
+    // The answer is read from the JSON body only: {"ready": bool, "failed": bool, "message": string}. "failed": true
+    // is PreImportStatus.Failed, "ready": true is Ready, anything else is NotReady. A timeout, an HTTP error status or
+    // a body that cannot be read is also NotReady (logged as a warning), never Ready: the import is deferred and the
+    // next queue refresh asks again.
     //
     // Added by bdelima/arr-images; not part of upstream.
     public interface IPreImportValidator
     {
         bool IsConfigured { get; }
-        PreImportResult Check(string path, string qualityTag = null);
+        PreImportResult Check(string path, IEnumerable<string> tags = null);
     }
 
     public class PreImportValidator : IPreImportValidator
@@ -78,15 +71,17 @@ namespace NzbDrone.Core.Download
 
         public bool IsConfigured => _validateUrl != null;
 
-        public PreImportResult Check(string path, string qualityTag = null)
+        public PreImportResult Check(string path, IEnumerable<string> tags = null)
         {
             try
             {
-                var payload = new Dictionary<string, string> { { "path", path } };
+                var payload = new Dictionary<string, object> { { "path", path } };
 
-                if (!string.IsNullOrEmpty(qualityTag))
+                var tagList = tags?.Where(t => !string.IsNullOrEmpty(t)).ToList();
+
+                if (tagList != null && tagList.Count > 0)
                 {
-                    payload["tag"] = qualityTag;
+                    payload["tags"] = tagList;
                 }
 
                 var body = JsonSerializer.Serialize(payload);

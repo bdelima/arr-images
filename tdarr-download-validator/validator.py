@@ -3,7 +3,7 @@
 
 The arr apps (with the preimport-validator patch) call it before importing a completed download:
 
-    POST /validate   {"path": "<file or folder>", "tag": "<quality tier, optional>"}
+    POST /validate   {"path": "<file or folder>", "tags": ["<every tag the series/movie/league has>", ...]}
     -> 200           {"ready": bool, "failed": bool, "message": str}
 
 It answers from Tdarr's own records and starts Tdarr on a download it has not seen yet:
@@ -29,24 +29,27 @@ still works for a single file, just not for a folder.
 A successful scan-files call answers with a plain-text "OK", not JSON; that response is never parsed, so it is never
 mistaken for a failure.
 
-Quality-tag routing: the arr patches resolve one arr-side tag per series/movie (see PreImportValidator.QualityTag.
-KnownLabels in common/PreImportValidator.cs: "best"/"better"/"balanced"/"smallest") and send it as "tag" in the
-/validate body. TDARR_LIBRARY_MAP maps a tag label to the dbID of the Tdarr library that holds that quality tier, so
-a scan this service triggers goes into the right library instead of always the one fixed TDARR_LIBRARY_ID. A path
-with no tag, an empty map, or a tag that isn't in the map all fall back to TDARR_LIBRARY_ID unchanged -- nothing
-about existing untagged downloads changes. The map only decides which library a *scan* is pointed at; it has no
-effect on the "ready"/"failed"/"processing" answer itself, which is read from Tdarr's records by file path alone,
-independent of library.
+Quality-tag routing: the arr apps send every tag their series/movie/league has, unfiltered, as "tags" in the
+/validate body; they know nothing about which tags mean a quality tier. TDARR_LIBRARY_MAP is the only definition of
+that: it maps a tag label to the dbID of the Tdarr library that holds that quality tier, so a scan this service
+triggers goes into the right library instead of always the one fixed TDARR_LIBRARY_ID. Adding or renaming a tier is
+one edit to TDARR_LIBRARY_MAP; nothing in the arr apps changes. Matching is case-insensitive on both sides (the
+map's keys and the incoming tags are lowercased before comparing). No tags, an empty map, or no tag that is in the map all
+fall back to TDARR_LIBRARY_ID unchanged; if more than one tag is in the map, the lowest-sorting one wins and the rest
+are logged. The older singular "tag": "<label>" field is still accepted when "tags" is absent or malformed (a
+migration aid for arr images that have not been rebuilt yet). The map only decides which library a *scan* is pointed
+at; it has no effect on the "ready"/"failed"/"processing" answer itself, which is read from Tdarr's records by file
+path alone, independent of library.
 
 Standard library only. Configuration (environment):
 
     TDARR_URL              e.g. http://192.168.0.50:8266 (the Tdarr server port)
-    TDARR_LIBRARY_ID       dbID of the default library the downloads belong to (used when a request has no tag,
-                           or a tag TDARR_LIBRARY_MAP doesn't cover)
-    TDARR_LIBRARY_MAP      optional JSON object mapping a quality-tag label to a library dbID, e.g.
+    TDARR_LIBRARY_ID       dbID of the default library the downloads belong to (used when a request has no tags,
+                           or none that TDARR_LIBRARY_MAP covers)
+    TDARR_LIBRARY_MAP      optional JSON object mapping a quality-tier tag label to a library dbID, e.g.
                            {"best": "<dbID>", "better": "<dbID>", "balanced": "<dbID>", "smallest": "<dbID>"}.
-                           Only tags worth giving their own entry need one; anything else (no tag, or a tag
-                           not in this map) falls back to TDARR_LIBRARY_ID.
+                           The only definition of what a quality tier is; keys are case-insensitive. Anything else
+                           (no tags, or no tag in this map) falls back to TDARR_LIBRARY_ID.
     PORT                   listen port (default 8080)
     TRIGGER_DEDUP_SECONDS  minimum seconds between scan requests for one path (default 60)
     TDARR_TIMEOUT_SECONDS  timeout of each call to Tdarr (default 8; the arr apps give up on us after 10)
@@ -161,21 +164,27 @@ class Validator:
         self.tdarr = tdarr
         self.dedup_seconds = dedup_seconds
         self.clock = clock
-        self.library_map = library_map or {}
+        # keys are matched case-insensitively: "Better" in TDARR_LIBRARY_MAP and "better" on a series are the same tier
+        self.library_map = {k.strip().lower(): v for k, v in (library_map or {}).items()}
         self._triggered = {}
         self._lock = threading.Lock()
 
-    def _library_for_tag(self, tag):
-        """The dbID a scan for this request should target: the map entry for `tag`, or the default library when
-        there is no tag, the map is empty, or the tag isn't in it. Never raises, never refuses the request over an
-        unrecognized tag -- an unmapped tag is not an error, just a tag this map doesn't route."""
-        if not tag:
+    def _library_for_tags(self, tags):
+        """The dbID a scan for this request should target. Matching is case-insensitive against
+        TDARR_LIBRARY_MAP's own keys (lowercased once, when the Validator is built), which are the *only* definition
+        of what a quality tier is -- there is no separate allowlist anywhere else in this system. More than one
+        incoming tag matching different map entries is a configuration mistake, not an error: the lowest-sorting
+        matching tag wins and the rest are logged. No tags, no matches, or an empty map all fall back to the
+        default library."""
+        if not tags:
             return self.tdarr.library_id
-        library_id = self.library_map.get(tag)
-        if library_id is None:
-            log.warning("no TDARR_LIBRARY_MAP entry for tag '%s'; using the default library", tag)
+        matches = sorted({t for t in (tag.strip().lower() for tag in tags) if t in self.library_map})
+        if not matches:
             return self.tdarr.library_id
-        return library_id
+        if len(matches) > 1:
+            log.warning("multiple tags match TDARR_LIBRARY_MAP entries (%s); using '%s'",
+                        ", ".join(matches), matches[0])
+        return self.library_map[matches[0]]
 
     def _records(self, path):
         """Return (staged, files): the Tdarr records for a file, or for the files under a folder."""
@@ -220,7 +229,7 @@ class Validator:
             self.tdarr.scan(targets, library_id)
         return True
 
-    def validate(self, path, tag=None):
+    def validate(self, path, tags=None):
         path = _norm(path)
         staged, files = self._records(path)
         if staged:
@@ -232,16 +241,16 @@ class Validator:
                     "message": f"Tdarr: {_decision(first)} ({first['_id']})"}
         pending = [d for d in files if _decision(d).lower() in ("", "queued")]
         if not files or pending:
-            library_id = self._library_for_tag(tag)
+            library_id = self._library_for_tags(tags)
             if self._trigger(path, library_id):
                 return {"ready": False, "message": "triggered"}
             return {"ready": False, "message": "triggered, waiting for Tdarr to pick it up"}
         return {"ready": True, "message": f"done ({len(files)} file(s))"}
 
-    def safe_validate(self, path, tag=None):
+    def safe_validate(self, path, tags=None):
         """Never raises: a Tdarr problem is 'not ready', logged, so the arr app defers and asks again."""
         try:
-            return self.validate(path, tag)
+            return self.validate(path, tags)
         except TdarrError as exc:
             log.warning("Tdarr call failed for %s: %s", path, exc)
             return {"ready": False, "message": f"Tdarr unreachable or unusable: {exc}"}
@@ -279,17 +288,22 @@ def make_handler(validator):
                 length = int(self.headers.get("Content-Length") or 0)
                 parsed = json.loads(self.rfile.read(length) or b"{}")
                 path = parsed.get("path")
-                tag = parsed.get("tag")
+                tags = parsed.get("tags")
+                legacy_tag = parsed.get("tag")
             except (ValueError, AttributeError):
-                path, tag = None, None
+                path, tags, legacy_tag = None, None, None
             if not isinstance(path, str) or not path.strip():
                 self._send({"ready": False, "message": 'bad request: expected {"path": "<path>"}'})
                 return
-            if tag is not None and not isinstance(tag, str):
-                tag = None
-            result = validator.safe_validate(path, tag)
+            # a malformed "tags" (not a list of strings) is treated as absent, not a bad request; the older singular
+            # "tag" string is the fallback while arr images that still send it are around
+            if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+                tags = None
+            if tags is None and isinstance(legacy_tag, str) and legacy_tag:
+                tags = [legacy_tag]
+            result = validator.safe_validate(path, tags)
             level = logging.INFO if result.get("message") != "triggered, waiting for Tdarr to pick it up" else logging.DEBUG
-            log.log(level, "%s (tag=%s) -> ready=%s failed=%s %s", path, tag or "-", result["ready"],
+            log.log(level, "%s (tags=%s) -> ready=%s failed=%s %s", path, tags or [], result["ready"],
                     result.get("failed", False), result.get("message", ""))
             self._send(result)
 

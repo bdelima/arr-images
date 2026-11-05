@@ -85,8 +85,8 @@ class ValidatorTests(unittest.TestCase):
     def tearDown(self):
         self.tdarr.close()
 
-    def check(self, path, tag=None):
-        return self.validator.safe_validate(path, tag)
+    def check(self, path, tags=None):
+        return self.validator.safe_validate(path, tags)
 
     def test_unknown_file_is_triggered_once_per_minute(self):
         r = self.check("/downloads/a/ep.mkv")
@@ -170,7 +170,7 @@ class ValidatorTests(unittest.TestCase):
 
 
 class QualityTagRoutingTests(unittest.TestCase):
-    """Scans for an unknown download should land in the library TDARR_LIBRARY_MAP names for its tag."""
+    """Scans for an unknown download should land in the library TDARR_LIBRARY_MAP names for one of its tags."""
 
     def setUp(self):
         self.tdarr = FakeTdarr()
@@ -183,38 +183,68 @@ class QualityTagRoutingTests(unittest.TestCase):
         self.tdarr.close()
 
     def test_mapped_tag_routes_the_scan_to_its_library(self):
-        r = self.validator.safe_validate("/downloads/a/ep.mkv", "balanced")
+        r = self.validator.safe_validate("/downloads/a/ep.mkv", ["balanced"])
         self.assertEqual(r["message"], "triggered")
         self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-balanced")
 
-    def test_no_tag_uses_the_default_library(self):
+    def test_one_map_match_among_unrelated_tags_routes_correctly(self):
+        self.validator.safe_validate("/downloads/a/ep.mkv", ["drama", "balanced", "hd"])
+        self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-balanced")
+
+    def test_two_map_matches_use_the_lowest_sorting_one_and_log_it(self):
+        with self.assertLogs("tdarr-download-validator", level="WARNING") as logs:
+            self.validator.safe_validate("/downloads/a/ep.mkv", ["smallest", "drama", "better"])
+        self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-better")
+        self.assertIn("better, smallest", logs.output[0])
+
+    def test_the_same_tag_twice_is_not_a_conflict(self):
+        self.validator.safe_validate("/downloads/a/ep.mkv", ["balanced", "Balanced"])
+        self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-balanced")
+
+    def test_matching_is_case_insensitive_and_ignores_surrounding_space(self):
+        self.validator.safe_validate("/downloads/a/ep.mkv", [" Balanced "])
+        self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-balanced")
+
+    def test_map_keys_are_case_insensitive_too(self):
+        v = validator.Validator(validator.Tdarr(self.tdarr.url, "lib-default", 2),
+                                library_map={" Balanced ": "lib-balanced"})
+        v.safe_validate("/downloads/a/ep.mkv", ["balanced"])
+        self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-balanced")
+
+    def test_a_new_tier_needs_only_a_map_entry(self):
+        v = validator.Validator(validator.Tdarr(self.tdarr.url, "lib-default", 2),
+                                library_map={"archive": "lib-archive"})
+        v.safe_validate("/downloads/a/ep.mkv", ["archive"])
+        self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-archive")
+
+    def test_no_tags_uses_the_default_library(self):
         self.validator.safe_validate("/downloads/a/ep.mkv")
         self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-default")
 
-    def test_empty_string_tag_uses_the_default_library(self):
-        self.validator.safe_validate("/downloads/a/ep.mkv", "")
+    def test_empty_list_uses_the_default_library(self):
+        self.validator.safe_validate("/downloads/a/ep.mkv", [])
         self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-default")
 
-    def test_unmapped_tag_falls_back_to_the_default_library_without_failing(self):
-        r = self.validator.safe_validate("/downloads/a/ep.mkv", "ultra-quality")
+    def test_tags_that_are_not_in_the_map_fall_back_to_the_default_library_without_failing(self):
+        r = self.validator.safe_validate("/downloads/a/ep.mkv", ["ultra-quality", "drama"])
         self.assertEqual(r["message"], "triggered")
         self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-default")
 
-    def test_tag_has_no_effect_on_a_file_tdarr_already_finished(self):
+    def test_tags_have_no_effect_on_a_file_tdarr_already_finished(self):
         # routing only ever decides where a *scan* goes; a file Tdarr already has a decision for answers
-        # ready/failed the same way regardless of what tag comes in on this call
+        # ready/failed the same way regardless of what tags come in on this call
         self.tdarr.file("/downloads/a/ep.mkv", "Transcode success")
-        r = self.validator.safe_validate("/downloads/a/ep.mkv", "balanced")
+        r = self.validator.safe_validate("/downloads/a/ep.mkv", ["balanced"])
         self.assertTrue(r["ready"])
         self.assertEqual(self.tdarr.scans, [])
 
     def test_dedup_is_per_path_not_per_tag(self):
-        # the first call (no tag yet) already triggers a default-library scan; a second call a moment later
-        # that now carries a tag is still inside the dedup window, so no second scan goes out for it -- a
+        # the first call (no tags yet) already triggers a default-library scan; a second call a moment later
+        # that now carries tags is still inside the dedup window, so no second scan goes out for it -- a
         # known limitation of keying dedup by path alone, not by (path, library)
         self.validator.safe_validate("/downloads/a/ep.mkv")
         self.now += 5
-        self.validator.safe_validate("/downloads/a/ep.mkv", "balanced")
+        self.validator.safe_validate("/downloads/a/ep.mkv", ["balanced"])
         self.assertEqual(len(self.tdarr.scans), 1)
         self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-default")
 
@@ -317,12 +347,35 @@ class HttpTests(unittest.TestCase):
         status, body = self.post(b'{"path": "/downloads/a/ep.mkv"}')
         self.assertEqual((status, body["ready"]), (200, True))
 
-    def test_tag_in_the_body_routes_the_scan(self):
+    def test_tags_in_the_body_route_the_scan(self):
+        status, body = self.post(b'{"path": "/downloads/a/ep.mkv", "tags": ["drama", "Balanced"]}')
+        self.assertEqual((status, body["message"]), (200, "triggered"))
+        self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-balanced")
+
+    def test_the_legacy_singular_tag_still_routes_the_scan(self):
         status, body = self.post(b'{"path": "/downloads/a/ep.mkv", "tag": "balanced"}')
         self.assertEqual((status, body["message"]), (200, "triggered"))
         self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-balanced")
 
-    def test_non_string_tag_in_the_body_is_ignored_not_a_bad_request(self):
+    def test_tags_win_over_the_legacy_tag_when_both_are_sent(self):
+        self.post(b'{"path": "/downloads/a/ep.mkv", "tags": ["drama"], "tag": "balanced"}')
+        self.assertEqual(self.tdarr.scans[0]["dbID"], "lib1")
+
+    def test_a_bare_string_for_tags_is_malformed_and_falls_back_not_a_bad_request(self):
+        status, body = self.post(b'{"path": "/downloads/a/ep.mkv", "tags": "balanced"}')
+        self.assertEqual((status, body["message"]), (200, "triggered"))
+        self.assertEqual(self.tdarr.scans[0]["dbID"], "lib1")
+
+    def test_a_malformed_tags_falls_back_to_the_legacy_tag(self):
+        self.post(b'{"path": "/downloads/a/ep.mkv", "tags": "nope", "tag": "balanced"}')
+        self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-balanced")
+
+    def test_a_non_string_inside_tags_makes_the_whole_list_malformed(self):
+        status, body = self.post(b'{"path": "/downloads/a/ep.mkv", "tags": ["balanced", 5]}')
+        self.assertEqual(status, 200)
+        self.assertEqual(self.tdarr.scans[0]["dbID"], "lib1")
+
+    def test_non_string_legacy_tag_is_ignored_not_a_bad_request(self):
         status, body = self.post(b'{"path": "/downloads/a/ep.mkv", "tag": 5}')
         self.assertEqual(status, 200)
         self.assertEqual(self.tdarr.scans[0]["dbID"], "lib1")

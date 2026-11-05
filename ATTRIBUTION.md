@@ -41,7 +41,7 @@ applies. Everything below keeps its own license and copyright; nothing here reli
   and `Sportarr.dll` is rebuilt from it with the patches in `sportarr/patches/` applied and `sportarr/PreImportValidator.cs`
   added, then copied over the official
   `sportarr/sportarr` image. **This is a modified version of Sportarr.** The modification is limited to
-  `EnhancedDownloadMonitorService.cs` (asks a configured pre-import validator, passing along the league's quality tag, before importing a completed download)
+  `EnhancedDownloadMonitorService.cs` (asks a configured pre-import validator, passing along the league's tags, before importing a completed download)
   and the added source file; both are public
   in this repository. The rest of the image (web UI, ffmpeg and drivers, entrypoint) is the official image's, unchanged.
 
