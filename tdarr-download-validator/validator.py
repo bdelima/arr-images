@@ -172,9 +172,10 @@ class Validator:
     def _library_for_tags(self, tags):
         """The dbID a scan for this request should target. Matching is case-insensitive against
         TDARR_LIBRARY_MAP's own keys (lowercased once, when the Validator is built), which are the *only* definition
-        of what a quality tier is -- there is no separate allowlist anywhere else in this system. More than one incoming tag matching different map entries is a configuration mistake, not
-        an error: the lowest-sorting matching tag wins and the rest are logged. No tags, no matches, or an empty
-        map all fall back to the default library."""
+        of what a quality tier is -- there is no separate allowlist anywhere else in this system. More than one
+        incoming tag matching different map entries is a configuration mistake, not an error: the lowest-sorting
+        matching tag wins and the rest are logged. No tags, no matches, or an empty map all fall back to the
+        default library."""
         if not tags:
             return self.tdarr.library_id
         matches = sorted({t for t in (tag.strip().lower() for tag in tags) if t in self.library_map})
