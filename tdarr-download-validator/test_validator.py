@@ -205,11 +205,11 @@ class QualityTagRoutingTests(unittest.TestCase):
         self.validator.safe_validate("/downloads/a/ep.mkv", [" Balanced "])
         self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-balanced")
 
-    def test_map_keys_are_matched_as_written_so_must_be_lowercase(self):
+    def test_map_keys_are_case_insensitive_too(self):
         v = validator.Validator(validator.Tdarr(self.tdarr.url, "lib-default", 2),
-                                library_map={"Balanced": "lib-balanced"})
+                                library_map={" Balanced ": "lib-balanced"})
         v.safe_validate("/downloads/a/ep.mkv", ["balanced"])
-        self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-default")
+        self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-balanced")
 
     def test_a_new_tier_needs_only_a_map_entry(self):
         v = validator.Validator(validator.Tdarr(self.tdarr.url, "lib-default", 2),

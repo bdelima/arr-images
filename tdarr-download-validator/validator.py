@@ -33,8 +33,8 @@ Quality-tag routing: the arr apps send every tag their series/movie/league has, 
 /validate body; they know nothing about which tags mean a quality tier. TDARR_LIBRARY_MAP is the only definition of
 that: it maps a tag label to the dbID of the Tdarr library that holds that quality tier, so a scan this service
 triggers goes into the right library instead of always the one fixed TDARR_LIBRARY_ID. Adding or renaming a tier is
-one edit to TDARR_LIBRARY_MAP; nothing in the arr apps changes. Matching is case-insensitive, but the map's keys must
-be lowercase (an incoming tag is lowercased before lookup). No tags, an empty map, or no tag that is in the map all
+one edit to TDARR_LIBRARY_MAP; nothing in the arr apps changes. Matching is case-insensitive on both sides (the
+map's keys and the incoming tags are lowercased before comparing). No tags, an empty map, or no tag that is in the map all
 fall back to TDARR_LIBRARY_ID unchanged; if more than one tag is in the map, the lowest-sorting one wins and the rest
 are logged. The older singular "tag": "<label>" field is still accepted when "tags" is absent or malformed (a
 migration aid for arr images that have not been rebuilt yet). The map only decides which library a *scan* is pointed
@@ -48,7 +48,7 @@ Standard library only. Configuration (environment):
                            or none that TDARR_LIBRARY_MAP covers)
     TDARR_LIBRARY_MAP      optional JSON object mapping a quality-tier tag label to a library dbID, e.g.
                            {"best": "<dbID>", "better": "<dbID>", "balanced": "<dbID>", "smallest": "<dbID>"}.
-                           The only definition of what a quality tier is; keys must be lowercase. Anything else
+                           The only definition of what a quality tier is; keys are case-insensitive. Anything else
                            (no tags, or no tag in this map) falls back to TDARR_LIBRARY_ID.
     PORT                   listen port (default 8080)
     TRIGGER_DEDUP_SECONDS  minimum seconds between scan requests for one path (default 60)
@@ -164,15 +164,15 @@ class Validator:
         self.tdarr = tdarr
         self.dedup_seconds = dedup_seconds
         self.clock = clock
-        self.library_map = library_map or {}
+        # keys are matched case-insensitively: "Better" in TDARR_LIBRARY_MAP and "better" on a series are the same tier
+        self.library_map = {k.strip().lower(): v for k, v in (library_map or {}).items()}
         self._triggered = {}
         self._lock = threading.Lock()
 
     def _library_for_tags(self, tags):
         """The dbID a scan for this request should target. Matching is case-insensitive against
-        TDARR_LIBRARY_MAP's own keys, which are the *only* definition of what a quality tier is -- there is no
-        separate allowlist anywhere else in this system. Map keys must be lowercase (an incoming tag is lowercased
-        before lookup). More than one incoming tag matching different map entries is a configuration mistake, not
+        TDARR_LIBRARY_MAP's own keys (lowercased once, when the Validator is built), which are the *only* definition
+        of what a quality tier is -- there is no separate allowlist anywhere else in this system. More than one incoming tag matching different map entries is a configuration mistake, not
         an error: the lowest-sorting matching tag wins and the rest are logged. No tags, no matches, or an empty
         map all fall back to the default library."""
         if not tags:

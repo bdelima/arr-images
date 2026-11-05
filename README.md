@@ -176,8 +176,8 @@ file, but a no-op for a folder, since `scanFolderWatcher` silently ignores a pat
 the dbID of the Tdarr library that holds that quality tier; the arr apps send every tag the series/movie/league has
 (`"tags"`, see above) and know nothing about which ones matter. A scan a request triggers goes to the library of the
 tag that is in the map, instead of always `TDARR_LIBRARY_ID`. **Adding or renaming a tier is one edit to this variable
-on this one container -- nothing in any arr app changes.** Matching is case-insensitive, but **the map's keys must be
-lowercase** (an incoming tag is lowercased before lookup, so a key of `"Better"` would never match). If more than one
+on this one container -- nothing in any arr app changes.** Matching is case-insensitive on both sides (a key of `"Better"` matches a
+`better` tag, and the reverse). If more than one
 tag is in the map the lowest-sorting one wins and the rest are logged. No tags, an unset/empty map, or no tag the map
 covers all fall back to `TDARR_LIBRARY_ID` unchanged -- nothing about an existing single-library setup changes by
 leaving this unset. The map only decides which library a *scan* is pointed at; the `ready`/`failed`/`processing`
@@ -189,7 +189,7 @@ the arr images can be updated in either order; it is a migration aid and will go
 |---|---|
 | `TDARR_URL` | Tdarr server, e.g. `http://192.168.0.50:8266` |
 | `TDARR_LIBRARY_ID` | dbID of the default library the downloads belong to |
-| `TDARR_LIBRARY_MAP` | optional JSON object mapping a quality-tier tag label (**lowercase**) to a library dbID, e.g. `{"better": "<dbID>", "balanced": "<dbID>", "smallest": "<dbID>"}` |
+| `TDARR_LIBRARY_MAP` | optional JSON object mapping a quality-tier tag label (case-insensitive) to a library dbID, e.g. `{"better": "<dbID>", "balanced": "<dbID>", "smallest": "<dbID>"}` |
 | `PORT` | listen port, default `8080` |
 | `TRIGGER_DEDUP_SECONDS` | minimum seconds between scan requests for one path, default `60` |
 
