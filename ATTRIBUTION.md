@@ -104,6 +104,21 @@ Corresponding source for the GPL parts: the exact revisions are recorded inside 
 `/usr/share/doc/tdarr-vmaf-cuda/BUILD-INFO`, the build recipe is `tdarr-vmaf-cuda/Dockerfile` in this repository at the
 commit in the image's `org.opencontainers.image.revision` label.
 
+## tdarr-dovi-tool: third-party material in the image
+
+`bdelima/tdarr-dovi-tool` ships two prebuilt third-party binaries, unmodified, at their official release versions. It is
+a `FROM scratch` overlay; nothing is compiled by this repository.
+
+- **dovi_tool** -- [quietvoid/dovi_tool](https://github.com/quietvoid/dovi_tool), pinned release (`DOVI_TOOL_REF` in the
+  Dockerfile). MIT (verify against `/usr/share/doc/tdarr-dovi-tool/LICENSE.dovi_tool`, copied from the pinned tag).
+- **hdr10plus_tool** -- [quietvoid/hdr10plus_tool](https://github.com/quietvoid/hdr10plus_tool), pinned release
+  (`HDR10PLUS_TOOL_REF`). MIT (verify against `/usr/share/doc/tdarr-dovi-tool/LICENSE.hdr10plus_tool`).
+
+The release tarballs are downloaded from the projects' GitHub Releases and checked against SHA-256 values pinned in the
+Dockerfile. Corresponding source: the release tag of each tool, recorded inside the image in
+`/usr/share/doc/tdarr-dovi-tool/BUILD-INFO`, plus this repository at the commit in the image's
+`org.opencontainers.image.revision` label.
+
 ## Corresponding source
 
 For any published image: the upstream tag in its `dev.pumapants.upstream-tag` label, plus this repository at the
