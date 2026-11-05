@@ -223,6 +223,34 @@ GPU is checked by hand on the node after a release. Versions are `0.x` until tha
 
 Because it is built with `--enable-gpl --enable-nonfree` it is for your own use; see [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
+## DoVi/HDR10+ toolkit (tdarr-dovi-tool)
+
+`bdelima/tdarr-dovi-tool` is a [`DOCKER_MODS`](https://github.com/linuxserver/docker-mods) overlay for a Tdarr node. It
+adds [`dovi_tool`](https://github.com/quietvoid/dovi_tool) and
+[`hdr10plus_tool`](https://github.com/quietvoid/hdr10plus_tool) -- both prebuilt, unmodified upstream release binaries,
+MIT-licensed -- as `/usr/local/bin/dovi_tool` and `/usr/local/bin/hdr10plus_tool`, so a Flow step can extract and
+re-inject Dolby Vision RPU or HDR10+ dynamic metadata around a re-encode (`dovi_tool` also does the `demux`/`mux` a
+dual-layer Profile 7 stream needs). Neither tool touches the ffmpeg Tdarr ships, and Tdarr's own image is never rebuilt.
+
+```yaml
+  tdarr-node:
+    environment:
+      - DOCKER_MODS=bdelima/tdarr-dovi-tool:latest
+```
+
+Several overlays on one node are separated by `|`, for example
+`DOCKER_MODS=bdelima/tdarr-vmaf-cuda:latest|bdelima/tdarr-dovi-tool:latest`.
+
+Both tools are fully static binaries with no runtime library dependencies, so the overlay is just the two binaries and
+their licences plus the exact releases in `/usr/share/doc/tdarr-dovi-tool/`. The Dockerfile pins both release tags and
+the SHA-256 of every tarball it downloads. `amd64` and `arm64`. It is published by dispatching
+[`release-tdarr-dovi-tool.yml`](.github/workflows/release-tdarr-dovi-tool.yml) (it does not follow an upstream release)
+and built and smoke-tested by [`ci.yml`](.github/workflows/ci.yml). CI has no DoVi/HDR10+ sample file to test against:
+it checks that both binaries run standalone on a plain Debian, report the exact pinned version, and list the
+subcommands the flow depends on (`extract-rpu`/`inject-rpu`/`demux`/`mux`, `extract`/`inject`). A real
+extract/re-encode/inject round trip, and playback on a device, are checked by hand once a flow uses the image. Versions
+are `0.x` until that has been done on real files.
+
 ## What is different from the LinuxServer image
 
 One file: `Radarr.Core.dll` / `Sonarr.Core.dll` / `Lidarr.Core.dll` (Sportarr: `Sportarr.dll`), rebuilt from the upstream source tag with small
