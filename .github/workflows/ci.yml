@@ -3,7 +3,9 @@ name: CI
 # Builds the overlay images (radarr, sonarr, lidarr, sportarr) from the current upstream releases and runs the start-test against them.
 # Nothing is pushed anywhere and no secrets are used. A new upstream release that changes the patched lines
 # of TaskManager.cs makes this fail, which is the point: it is the early warning.
-# A change to markdown files alone (the '!**/*.md' lines below) does not start a build.
+# A change to markdown files alone (the '!**/*.md' lines below) does not start a build. Within a change, only the
+# jobs it can affect run: scripts/ci-changes.sh maps the changed files to jobs (the `changes` job below), and a manual
+# run or a commit range that cannot be compared builds everything.
 
 on:
   pull_request:
@@ -41,12 +43,37 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.c.outputs.apps }}
+      validator: ${{ steps.c.outputs.validator }}
+      vmaf: ${{ steps.c.outputs.vmaf }}
+      dovi: ${{ steps.c.outputs.dovi }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: The decision script's own tests
+        run: tests/test-ci-changes.sh
+
+      - name: Which jobs this change needs
+        id: c
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: scripts/ci-changes.sh | tee -a "$GITHUB_OUTPUT"
+
   build-and-test:
+    needs: changes
+    if: needs.changes.outputs.apps != '[]'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        app: [radarr, sonarr, lidarr, sportarr]
+        app: ${{ fromJSON(needs.changes.outputs.apps) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -85,6 +112,8 @@ jobs:
 
   validator:
     # tdarr-download-validator: unit tests against a fake Tdarr, then the image itself is built and answers /health.
+    needs: changes
+    if: needs.changes.outputs.validator == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -107,6 +136,8 @@ jobs:
   vmaf-cuda:
     # tdarr-vmaf-cuda: the overlay image is built (CUDA compile, no GPU needed) and smoke-tested on a plain Ubuntu 22.04.
     # Scoring on a GPU cannot be tested here; that is checked by hand on the Tdarr node.
+    needs: changes
+    if: needs.changes.outputs.vmaf == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -127,6 +158,8 @@ jobs:
   dovi-tool:
     # tdarr-dovi-tool: the overlay image is built (a pinned, checksummed download, nothing compiled) and smoke-tested on a
     # plain Debian. There is no DoVi/HDR10+ sample file here; see tdarr-dovi-tool/smoke-test.sh.
+    needs: changes
+    if: needs.changes.outputs.dovi == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
