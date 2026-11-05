@@ -243,7 +243,7 @@ Several overlays on one node are separated by `|`, for example
 
 Both tools are fully static binaries with no runtime library dependencies, so the overlay is just the two binaries and
 their licences plus the exact releases in `/usr/share/doc/tdarr-dovi-tool/`. The Dockerfile pins both release tags and
-the SHA-256 of every tarball it downloads. `amd64` and `arm64`. It is published by dispatching
+the SHA-256 of both tarballs it downloads. `amd64` only. It is published by dispatching
 [`release-tdarr-dovi-tool.yml`](.github/workflows/release-tdarr-dovi-tool.yml) (it does not follow an upstream release)
 and built and smoke-tested by [`ci.yml`](.github/workflows/ci.yml). CI has no DoVi/HDR10+ sample file to test against:
 it checks that both binaries run standalone on a plain Debian, report the exact pinned version, and list the

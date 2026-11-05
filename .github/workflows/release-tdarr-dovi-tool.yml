@@ -4,9 +4,8 @@ name: Release tdarr-dovi-tool
 # hdr10plus_tool. Like the validator it does not follow an upstream release, so it is published on demand only: dispatch
 # it after changing tdarr-dovi-tool/ (and bump tdarr-dovi-tool/VERSION). Merging a pull request does not publish anything.
 #
-# linux/amd64 and linux/arm64 (neither tool needs a GPU; both are static prebuilt binaries). Same `release` Environment as
-# release.yml (main branch only, holds the Docker Hub secrets). The smoke test runs against the amd64 build; the arm64
-# binary is only run once, by the Dockerfile's own version check under QEMU.
+# linux/amd64 only (every Tdarr node here is x86_64; both tools are static prebuilt binaries). Same `release` Environment
+# as release.yml (main branch only, holds the Docker Hub secrets).
 
 on:
   workflow_dispatch:
@@ -33,8 +32,6 @@ jobs:
         id: v
         run: echo "version=$(tr -d '[:space:]' < tdarr-dovi-tool/VERSION)" >> "$GITHUB_OUTPUT"
 
-      # the Dockerfile runs each tool (--version) while building, so the arm64 build needs emulation on this amd64 runner
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build (amd64, loaded locally)
@@ -52,29 +49,19 @@ jobs:
       - name: Smoke test
         run: tdarr-dovi-tool/smoke-test.sh arr-test/tdarr-dovi-tool:ci
 
-      - name: Build (arm64, not pushed; runs the version check under emulation)
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: tdarr-dovi-tool/Dockerfile
-          platforms: linux/arm64
-          build-args: |
-            VERSION=${{ steps.v.outputs.version }}
-            REVISION=${{ github.sha }}
-
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         if: github.event.inputs.dry_run != 'true'
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Push (amd64 + arm64)
+      - name: Push (amd64)
         if: github.event.inputs.dry_run != 'true'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: tdarr-dovi-tool/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           build-args: |
             VERSION=${{ steps.v.outputs.version }}
