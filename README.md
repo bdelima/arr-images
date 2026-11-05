@@ -119,6 +119,12 @@ download client it came from, so the gate lives there.
   (logged as a warning). The import never goes ahead on a missing answer, and there is no time limit; if the
   validator is down, imports wait.
 - The old `.tdarr-hold` marker is no longer looked for anywhere.
+- **Quality-tag routing:** before calling, Sonarr/Radarr resolve the one tag on the series/movie (if any) whose
+  label is in `PreImportValidator.QualityTag.KnownLabels` (`best`/`better`/`balanced`/`smallest`) and send it as
+  `"tag"` in the `/validate` body -- `{"path": "...", "tag": "balanced"}`. More than one such tag on the same
+  series/movie is a configuration mistake, not a crash: the lowest-sorting label is used and the rest are logged.
+  This is purely informational as far as Sonarr/Radarr are concerned; see [Import validator](#import-validator-tdarr-download-validator)
+  below for what the validator does with it.
 
 **Sportarr** has no `CompletedDownloadService`; its own `EnhancedDownloadMonitorService.HandleCompletedDownload` is the
 one place both a freshly completed download and an `ImportPending` retry pass through, so the same check sits at the
@@ -133,6 +139,12 @@ top of that method. It works like the above, with these differences:
   import failure**, the completed-download guard (which otherwise never deletes the data of a download that finished,
   to protect a seeding torrent from a hit-and-run) is bypassed for this one trigger.
 - Downloads Sportarr finds on its own in a client ("external" downloads) take a different path and are not gated.
+- **Quality-tag routing:** Sportarr keeps tags on the *league*, not on each event, so the tag it sends is the one
+  quality tag (same `best`/`better`/`balanced`/`smallest` vocabulary, matched without regard to case) on the league the
+  download's event belongs to -- every event in a league gets the same tier. It can be set from the league's tag selector
+  in the web UI. No league tag, no such event/league, or a lookup error validates untagged (the validator's default
+  library); it never blocks an import. More than one quality tag on a league uses the lowest-sorting label and logs a
+  warning.
 
 ## Import validator (tdarr-download-validator)
 
@@ -144,7 +156,7 @@ the Sonarr, Radarr and Sportarr images call it (see above).
 Remove the "run on completion" hooks from qBittorrent and NZBGet once the apps point at the validator.
 
 ```
-POST /validate   {"path": "/downloads/Some.Show.S01E01"}     (a folder, or a single file)
+POST /validate   {"path": "/downloads/Some.Show.S01E01", "tag": "balanced"}     (a folder, or a single file; tag optional)
 -> 200           {"ready": false, "failed": false, "message": "triggered"}
 ```
 
@@ -163,10 +175,18 @@ drops anything outside its configured extensions. Without that mount, or if the 
 falls back to asking Tdarr about the bare path as given, same as before this walk was added -- correct for a single
 file, but a no-op for a folder, since `scanFolderWatcher` silently ignores a path that isn't an individual file.
 
+**Quality-tag routing:** `TDARR_LIBRARY_MAP` maps a quality-tag label (as sent by Sonarr/Radarr, see above) to the
+dbID of the Tdarr library that holds that quality tier, so the scan a request triggers lands in the right library
+instead of always `TDARR_LIBRARY_ID`. No tag, an unset/empty map, or a tag the map doesn't cover all fall back to
+`TDARR_LIBRARY_ID` unchanged -- nothing about an existing single-library setup changes by leaving this unset. The
+map only decides which library a *scan* is pointed at; the `ready`/`failed`/`processing` answer is read from
+Tdarr's records by file path alone, independent of library, so it is unaffected either way.
+
 | Variable | |
 |---|---|
 | `TDARR_URL` | Tdarr server, e.g. `http://192.168.0.50:8266` |
-| `TDARR_LIBRARY_ID` | dbID of the library the downloads belong to |
+| `TDARR_LIBRARY_ID` | dbID of the default library the downloads belong to |
+| `TDARR_LIBRARY_MAP` | optional JSON object mapping a quality-tag label to a library dbID, e.g. `{"better": "<dbID>", "balanced": "<dbID>", "smallest": "<dbID>"}` |
 | `PORT` | listen port, default `8080` |
 | `TRIGGER_DEDUP_SECONDS` | minimum seconds between scan requests for one path, default `60` |
 
@@ -179,7 +199,8 @@ file, but a no-op for a folder, since `scanFolderWatcher` silently ignores a pat
       - /path/to/downloads:/downloads:ro   # same path the arr apps and Tdarr use, read-only
     environment:
       - TDARR_URL=http://tdarr:8266
-      - TDARR_LIBRARY_ID=<your Downloads library id>
+      - TDARR_LIBRARY_ID=<your default/Downloads library id>
+      - TDARR_LIBRARY_MAP={"better": "<better library id>", "balanced": "<balanced library id>", "smallest": "<smallest library id>"}
 ```
 
 It is published by dispatching [`release-validator.yml`](.github/workflows/release-validator.yml) (it does not follow
@@ -281,9 +302,13 @@ is LinuxServer's, unchanged.
    and adds a `MarkAsFailed(trackedDownload, message)` overload so a failed check shows its reason in history --
    see [Import hold](#import-hold) above.
 6. **Sportarr only: `sportarr/patches/01-preimport-validator.patch`** (with `sportarr/PreImportValidator.cs`) is the
-   same idea for Sportarr's own import monitor (its only patch). The Sportarr image is built differently: `sportarr/sportarr` is not a LinuxServer image and Sportarr
+   same idea for Sportarr's own import monitor (`sportarr/patches/02-quality-tag-forwarding.patch` adds the league's quality tag). The Sportarr image is built differently: `sportarr/sportarr` is not a LinuxServer image and Sportarr
    compiles into a single `Sportarr.dll`, so that one assembly is rebuilt with upstream's own publish command and
    copied over the official image.
+7. **Sonarr and Radarr only: `05-quality-tag-forwarding.patch`** adds `ITagService` to `CompletedDownloadService`'s
+   constructor and resolves the one series/movie tag (if any) whose label is in `PreImportValidator.QualityTag.
+   KnownLabels`, sending it to the PreImportValidator as `"tag"` -- see the quality-tag routing notes under
+   [Import hold](#import-hold) and [Import validator](#import-validator-tdarr-download-validator) above.
 
 ## How the images are built
 

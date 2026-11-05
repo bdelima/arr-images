@@ -1,0 +1,70 @@
+diff --git a/src/Services/EnhancedDownloadMonitorService.cs b/src/Services/EnhancedDownloadMonitorService.cs
+index e94874c..7c8c504 100644
+--- a/src/Services/EnhancedDownloadMonitorService.cs
++++ b/src/Services/EnhancedDownloadMonitorService.cs
+@@ -864,6 +864,55 @@ private async Task<string> ResolveDownloadPathAsync(DownloadQueueItem download,
+         return path;
+     }
+ 
++    // arr-images: the one quality-tier tag (see QualityTag.KnownLabels) on the download's league, so the
++    // PreImportValidator can tell the Tdarr service which quality-tier library to scan this download into. Sportarr
++    // keeps tags on the League (League.Tags), not on each Event, so this goes download -> event -> league; and it has
++    // no tag service, only the Tag table. More than one quality tag on one league is a configuration mistake, not a
++    // crash: the lowest-sorting label wins and the conflict is logged. Never throws and never blocks an import: no db,
++    // no such event or league, no matching tag, or a lookup error all return null, which the validator treats as
++    // "no tag" (its default library), the same as a league that has none.
++    private async Task<string?> ResolveQualityTagAsync(DownloadQueueItem download, SportarrDbContext? db)
++    {
++        if (db == null)
++        {
++            return null;
++        }
++
++        try
++        {
++            var league = await db.Events.AsNoTracking()
++                .Where(e => e.Id == download.EventId && e.League != null)
++                .Select(e => e.League)
++                .FirstOrDefaultAsync();
++            if (league == null || league.Tags.Count == 0)
++            {
++                return null;
++            }
++
++            // Labels are matched without regard to case ("Better" and "better" are the same tier) and sent in lower case.
++            var labels = (await db.Tags.AsNoTracking().ToListAsync())
++                .Where(t => league.Tags.Contains(t.Id))
++                .Select(t => t.Label.Trim().ToLowerInvariant())
++                .Where(label => QualityTag.KnownLabels.Contains(label))
++                .Distinct()
++                .OrderBy(label => label, StringComparer.Ordinal)
++                .ToList();
++
++            if (labels.Count > 1)
++            {
++                _logger.LogWarning("[Enhanced Download Monitor] League '{League}' has more than one quality tag ({Labels}); using '{Used}'",
++                    league.Name, string.Join(", ", labels), labels[0]);
++            }
++
++            return labels.Count > 0 ? labels[0] : null;
++        }
++        catch (Exception ex)
++        {
++            _logger.LogWarning(ex, "[Enhanced Download Monitor] Could not resolve the quality tag for '{Title}'; validating without one", download.Title);
++            return null;
++        }
++    }
++
+     private async Task HandleCompletedDownload(
+         DownloadQueueItem download,
+         DownloadClientService downloadClientService,
+@@ -881,7 +930,8 @@ private async Task HandleCompletedDownload(
+             PreImportResult preImport;
+             try
+             {
+-                preImport = await preImportValidator.CheckAsync(await ResolveDownloadPathAsync(download, db));
++                var qualityTag = await ResolveQualityTagAsync(download, db);
++                preImport = await preImportValidator.CheckAsync(await ResolveDownloadPathAsync(download, db), qualityTag);
+             }
+             catch (Exception ex)
+             {
