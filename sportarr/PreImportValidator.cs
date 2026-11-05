@@ -13,17 +13,6 @@ public enum PreImportStatus
 public sealed record PreImportResult(PreImportStatus Status, string? Message);
 
 /// <summary>
-/// The quality-tier tag labels recognized for routing a download to the matching Tdarr library. Same list as
-/// QualityTag.KnownLabels in common/PreImportValidator.cs (Sonarr and Radarr), which Sportarr cannot share because
-/// it has its own validator class; keep the two in step. A tag label outside this list is just an ordinary tag and
-/// is never sent.
-/// </summary>
-public static class QualityTag
-{
-    public static readonly string[] KnownLabels = { "best", "better", "balanced", "smallest" };
-}
-
-/// <summary>
 /// Asks an external service whether a completed download may be imported yet, so a pre-import process
 /// (stripping unwanted audio/subtitle tracks, say) can finish first. Sportarr does not know what the
 /// service checks.
@@ -34,9 +23,10 @@ public static class QualityTag
 /// Without a Url nothing happens: IsConfigured is false and imports go ahead exactly as upstream does.
 /// The file is read once, when the validator is first needed.
 ///
-/// Per check: POST {Url}/validate with {"path": "..."} and, when the caller resolved one, {"tag": "<quality-tier
-/// label>"} (see QualityTag.KnownLabels; omitted when there is none), 10 second timeout. The answer is read from the JSON
-/// body only: {"ready": bool, "failed": bool, "message": string}. "failed": true is Failed, "ready": true is
+/// Per check: POST {Url}/validate with {"path": "..."} and, when the caller has any, {"tags": ["<every tag label on
+/// the league>", ...]} -- unfiltered: which of them (if any) names a quality tier is the validator's business (the Tdarr
+/// service's TDARR_LIBRARY_MAP), not Sportarr's. 10 second timeout. The answer is read from the JSON body only:
+/// {"ready": bool, "failed": bool, "message": string}. "failed": true is Failed, "ready": true is
 /// Ready, anything else is NotReady. A timeout, an HTTP error status or an unreadable body is also NotReady
 /// (logged as a warning), never Ready: the import is deferred and asked again on the next poll.
 ///
@@ -65,14 +55,16 @@ public sealed class PreImportValidator
 
     public bool IsConfigured => _validateUrl != null;
 
-    public async Task<PreImportResult> CheckAsync(string path, string? qualityTag = null)
+    public async Task<PreImportResult> CheckAsync(string path, IEnumerable<string>? tags = null)
     {
         try
         {
-            var payload = new Dictionary<string, string> { ["path"] = path };
-            if (!string.IsNullOrEmpty(qualityTag))
+            var payload = new Dictionary<string, object> { ["path"] = path };
+
+            var tagList = tags?.Where(t => !string.IsNullOrEmpty(t)).ToList();
+            if (tagList is { Count: > 0 })
             {
-                payload["tag"] = qualityTag;
+                payload["tags"] = tagList;
             }
 
             using var request = new HttpRequestMessage(HttpMethod.Post, _validateUrl)

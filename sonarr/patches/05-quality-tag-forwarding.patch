@@ -1,5 +1,5 @@
 diff --git a/src/NzbDrone.Core/Download/CompletedDownloadService.cs b/src/NzbDrone.Core/Download/CompletedDownloadService.cs
-index 1458fa2..6b10321 100644
+index 1458fa2..05b230c 100644
 --- a/src/NzbDrone.Core/Download/CompletedDownloadService.cs
 +++ b/src/NzbDrone.Core/Download/CompletedDownloadService.cs
 @@ -13,6 +13,7 @@
@@ -18,7 +18,7 @@ index 1458fa2..6b10321 100644
          private readonly Logger _logger;
  
          public CompletedDownloadService(IEventAggregator eventAggregator,
-@@ -52,6 +54,7 @@ public class CompletedDownloadService : ICompletedDownloadService
+@@ -52,6 +54,7 @@ public CompletedDownloadService(IEventAggregator eventAggregator,
                                          IRejectedImportService rejectedImportService,
                                          IPreImportValidator preImportValidator,
                                          IFailedDownloadService failedDownloadService,
@@ -26,7 +26,7 @@ index 1458fa2..6b10321 100644
                                          Logger logger)
          {
              _eventAggregator = eventAggregator;
-@@ -66,9 +69,37 @@ public class CompletedDownloadService : ICompletedDownloadService
+@@ -66,9 +69,23 @@ public CompletedDownloadService(IEventAggregator eventAggregator,
              _rejectedImportService = rejectedImportService;
              _preImportValidator = preImportValidator;
              _failedDownloadService = failedDownloadService;
@@ -34,43 +34,29 @@ index 1458fa2..6b10321 100644
              _logger = logger;
          }
  
-+        // arr-images: the one arr-side tag on the series that names a Tdarr quality tier, so the
-+        // PreImportValidator can tell the sidecar which quality-tier library to scan this download into
-+        // (see tdarr-download-validator's TDARR_LIBRARY_MAP). Multiple quality tags on one series is a
-+        // configuration mistake, not a crash: the lowest-sorting label wins and the rest are logged.
-+        // No matching tag (the common case for anything not using tiered libraries) returns null, and the
-+        // validator falls back to its own default library.
-+        private string ResolveQualityTag(TrackedDownload trackedDownload, HashSet<int> tagIds)
++        // arr-images: resolves every arr-side tag label on the series to a plain list, unfiltered -- the
++        // sidecar's own TDARR_LIBRARY_MAP decides which of them (if any) names a quality tier, so this patch
++        // no longer needs to know the tier vocabulary at all.
++        private List<string> ResolveTagLabels(HashSet<int> tagIds)
 +        {
 +            if (tagIds == null || tagIds.Count == 0)
 +            {
 +                return null;
 +            }
 +
-+            var matches = _tagService.GetTags(tagIds)
-+                                      .Where(t => QualityTag.KnownLabels.Contains(t.Label))
-+                                      .OrderBy(t => t.Label)
-+                                      .ToList();
-+
-+            if (matches.Count > 1)
-+            {
-+                _logger.Warn("'{0}' has more than one quality tag ({1}); using '{2}'",
-+                    trackedDownload.DownloadItem.Title, string.Join(", ", matches.Select(t => t.Label)), matches[0].Label);
-+            }
-+
-+            return matches.Count > 0 ? matches[0].Label : null;
++            return _tagService.GetTags(tagIds).Select(t => t.Label).ToList();
 +        }
 +
          public void Check(TrackedDownload trackedDownload)
          {
              if (trackedDownload.DownloadItem.Status != DownloadItemStatus.Completed)
-@@ -134,7 +165,8 @@ public void Check(TrackedDownload trackedDownload)
+@@ -134,7 +151,8 @@ public void Check(TrackedDownload trackedDownload)
              // Remove Failed Downloads is on). With no validator configured nothing here runs.
              if (_preImportValidator.IsConfigured)
              {
 -                var preImport = _preImportValidator.Check(trackedDownload.ImportItem.OutputPath.FullPath);
-+                var qualityTag = ResolveQualityTag(trackedDownload, series.Tags);
-+                var preImport = _preImportValidator.Check(trackedDownload.ImportItem.OutputPath.FullPath, qualityTag);
++                var tags = ResolveTagLabels(series.Tags);
++                var preImport = _preImportValidator.Check(trackedDownload.ImportItem.OutputPath.FullPath, tags);
  
                  if (preImport.Status == PreImportStatus.Failed)
                  {
