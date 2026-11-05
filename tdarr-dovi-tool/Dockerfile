@@ -44,12 +44,12 @@ RUN case "$TARGETARCH" in \
     && curl -fsSL -o dovi_tool.tar.gz \
          "https://github.com/quietvoid/dovi_tool/releases/download/${DOVI_TOOL_REF}/dovi_tool-${DOVI_TOOL_REF}-${triple}.tar.gz" \
     && echo "${dovi_sha}  dovi_tool.tar.gz" | sha256sum -c - \
-    && tar -xzf dovi_tool.tar.gz dovi_tool \
+    && tar -xzf dovi_tool.tar.gz \
     && install -m 0755 dovi_tool /root-layer/usr/local/bin/dovi_tool \
     && curl -fsSL -o hdr10plus_tool.tar.gz \
          "https://github.com/quietvoid/hdr10plus_tool/releases/download/${HDR10PLUS_TOOL_REF}/hdr10plus_tool-${HDR10PLUS_TOOL_REF}-${triple}.tar.gz" \
     && echo "${hdr_sha}  hdr10plus_tool.tar.gz" | sha256sum -c - \
-    && tar -xzf hdr10plus_tool.tar.gz hdr10plus_tool \
+    && tar -xzf hdr10plus_tool.tar.gz \
     && install -m 0755 hdr10plus_tool /root-layer/usr/local/bin/hdr10plus_tool
 
 # Fail the build rather than ship a binary that does not run or is not the pinned version. For arm64 this executes the
