@@ -1,0 +1,31 @@
+name: Probe tdarr node image
+
+# Throwaway: reports what the stock Tdarr node image ships (mkvmerge, ffmpeg filters, Vulkan). Not merged.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/probe-tdarr-image.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull and inspect ghcr.io/haveagitgat/tdarr_node:latest
+        run: |
+          docker pull -q ghcr.io/haveagitgat/tdarr_node:latest
+          docker run --rm --entrypoint sh ghcr.io/haveagitgat/tdarr_node:latest -c '
+            echo "== env"; env | grep -E "NVIDIA|VK_|LIBVA" 
+            echo "== os"; grep PRETTY /etc/os-release
+            echo "== mkvmerge"; command -v mkvmerge; mkvmerge --version
+            echo "== ffmpeg binaries"; ls -l /usr/local/bin | grep -i ffmpeg; readlink -f /usr/local/bin/ffmpeg
+            for f in /usr/local/bin/ffmpeg /usr/local/bin/tdarr-ffmpeg; do echo "== $f"; $f -hide_banner -version | head -3; done
+            F=/usr/local/bin/tdarr-ffmpeg
+            echo "== configure flags of interest"; $F -hide_banner -version | tr " " "\n" | grep -E "placebo|vulkan|shaderc|glslang|libvmaf|cuda|nvdec|nvenc|ffnvcodec|nonfree|libdovi" 
+            echo "== filters"; $F -hide_banner -filters | grep -E " (libplacebo|tonemap_cuda|tonemap_vaapi|tonemapx|scale_cuda|libvmaf|libvmaf_cuda|hwupload|hwmap|scale_vulkan|overlay_vulkan)( |$)"
+            echo "== hwaccels"; $F -hide_banner -hwaccels
+            echo "== vulkan packages"; dpkg -l | grep -i -E "vulkan|shaderc|libplacebo|libdovi|mesa-vulkan" | awk "{print \$2, \$3}"
+            echo "== icd dirs"; ls -l /usr/share/vulkan/icd.d /etc/vulkan/icd.d 2>&1
+          '
