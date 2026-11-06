@@ -93,39 +93,187 @@ series that are due. These images let an API call ask for that:
 ## Import hold
 
 Sonarr and Radarr also carry a second, unrelated patch, and `bdelima/sportarr` exists only for it: a way for an
-external pre-import process (a hook that strips non-English audio/subtitle tracks and embedded images before
-import, say) to hold a specific download back from being imported, without touching the download client at all.
+external pre-import process (stripping non-English audio/subtitle tracks and embedded images before import, say)
+to hold a download back from being imported, without touching the download client at all.
 
 Pausing a torrent, or any other "make the download client say it isn't done yet" trick, does not actually work for
 this: both apps map a paused/stopped/seeding torrent to `DownloadItemStatus.Completed` regardless of client state,
-so a process relying on that is racing the app's own queue refresh, not blocking it -- which cycle wins is purely a
-timing accident. `CompletedDownloadService.Check()` is the one call every tracked download passes through before
-advancing past `Downloading`, independent of which download client it came from, so the gate lives there instead:
+so a process relying on that is racing the app's own queue refresh, not blocking it. `CompletedDownloadService.Check()`
+is the one call every tracked download passes through before it becomes `ImportPending`, independent of which
+download client it came from, so the gate lives there.
 
-- Drop a file named `.tdarr-hold` in the download's own output folder (the same folder `GET /api/v3/queue` reports
-  as that download's `outputPath`) before or as soon as the download completes.
-- `Check()` sees the marker and returns immediately, leaving the download in `Downloading` state. Nothing else
-  about it changes: it stays fully visible in the queue UI, and the download client's own state is untouched.
-- Delete the marker when the external process is done with the files. The very next queue refresh picks the
-  download back up and imports it exactly as if the marker had never been there.
-- With no marker file ever present, nothing changes versus upstream.
+**Sonarr and Radarr** ask a **PreImportValidator** (a small HTTP service; see the next section) at the last step of
+`Check()`, after the app has matched the download and found its folder, and before it would mark the download
+`ImportPending`:
 
-This is deliberately a dumb filesystem check rather than a new download state, API, or database field, so it
-can't interact badly with anything else these images -- or upstream -- already do.
+- Configure it with `/config/preimport-validator.properties` containing `Url=http://<validator>:<port>` (an example is
+  in [`common/preimport-validator.properties.example`](common/preimport-validator.properties.example)); restart to
+  apply. **Without a Url nothing changes versus upstream.**
+- The app sends `POST <Url>/validate` with `{"path": "<the download's output folder or file>"}` (10 second timeout)
+  and reads only the JSON body: `{"ready": bool, "failed": bool, "message": string}`.
+- `ready: true` -> the download goes on to import as it always does. `ready: false` -> it stays in `Downloading`
+  (still visible in the queue) and is asked again on the next queue refresh.
+- `failed: true` -> the download is marked failed: blocklisted, a replacement is searched for as for any failed
+  download, and it is removed from the download client **if that client's "Remove Failed Downloads" is on**.
+- **Fail-closed:** a timeout, an HTTP error status, an unreadable answer or a mistyped Url all count as "not ready"
+  (logged as a warning). The import never goes ahead on a missing answer, and there is no time limit; if the
+  validator is down, imports wait.
+- The old `.tdarr-hold` marker is no longer looked for anywhere.
+- **Quality-tag routing:** before calling, Sonarr/Radarr add every tag the series/movie has, unfiltered, as `"tags"`
+  in the `/validate` body -- `{"path": "...", "tags": ["balanced", "drama"]}` (left out when there are none). They do
+  not know which tags mean a quality tier; that is defined only by the validator's `TDARR_LIBRARY_MAP` (see
+  [Import validator](#import-validator-tdarr-download-validator) below), so adding or renaming a tier never needs a
+  rebuilt image. Every tag on the series/movie therefore reaches the validator on every check.
 
 **Sportarr** has no `CompletedDownloadService`; its own `EnhancedDownloadMonitorService.HandleCompletedDownload` is the
-one place both a freshly completed download and an `ImportPending` retry pass through, so the check sits at the top
-of that method. Differences from Sonarr and Radarr:
+one place both a freshly completed download and an `ImportPending` retry pass through, so the same check sits at the
+top of that method. It works like the above, with these differences:
 
-- The path is the one the download client reported, **translated with Sportarr's Remote Path Mappings** (the same
-  translation the import itself uses) before the marker is looked for. A client container that sees `/downloads`
-  where Sportarr sees something else would otherwise hide the marker.
-- A multi-file download is a folder: the marker is `<folder>/.tdarr-hold`. A **single-file** download has a file as
-  its output, so the marker is `<file>.tdarr-hold` next to it (a marker in the shared parent folder would hold every
-  download in it).
-- A held download changes no state and does not use up an import retry.
-- If looking for the marker fails for any reason, Sportarr warns in its log and imports as usual.
+- Configure it with `preimport-validator.properties` in Sportarr's data folder (`/config` in the image), same format.
+- The path sent is the one the download client reported, **translated with Sportarr's Remote Path Mappings** (the
+  same translation the import itself uses). A multi-file download is a folder, a single-file download is the file.
+- A download that is not ready is left exactly as it is: no state change, no import retry used up.
+- `failed: true` pins the download to Failed, so Sportarr's usual failed-download handling runs: blocklist, re-search
+  if enabled, and removal from the client if the client's "Remove Failed Downloads" is on. **Unlike any other
+  import failure**, the completed-download guard (which otherwise never deletes the data of a download that finished,
+  to protect a seeding torrent from a hit-and-run) is bypassed for this one trigger.
 - Downloads Sportarr finds on its own in a client ("external" downloads) take a different path and are not gated.
+- **Quality-tag routing:** Sportarr keeps tags on the *league*, not on each event, so the `"tags"` it sends are every tag
+  on the league the download's event belongs to (unfiltered, as above) -- every event in a league gets the same tier.
+  They can be set from the league's tag selector in the web UI. No league tags, no such event/league, or a lookup error
+  sends no tags (the validator's default library); it never blocks an import.
+
+## Import validator (tdarr-download-validator)
+
+`bdelima/tdarr-download-validator` is a small service the arr images can ask "is this download ready to import?"
+before they import it. It answers from [Tdarr](https://github.com/HaveAGitGat/Tdarr)'s own records and starts Tdarr on
+a download it has not seen (walking the download's folder on disk to tell Tdarr about the files in it -- see below),
+so nothing has to be wired into the download client. This replaces the hook script that wrote `.tdarr-hold` markers:
+the Sonarr, Radarr and Sportarr images call it (see above).
+Remove the "run on completion" hooks from qBittorrent and NZBGet once the apps point at the validator.
+
+```
+POST /validate   {"path": "/downloads/Some.Show.S01E01", "tags": ["balanced", "drama"]}     (a folder, or a single file; tags optional)
+-> 200           {"ready": false, "failed": false, "message": "triggered"}
+```
+
+Per call, in order: a file under the path is in Tdarr's staged collection (a Flow is running) → `processing`; Tdarr
+decided on a file and the decision contains "error" → `failed: true`; Tdarr has no decision yet (never seen,
+`Queued`, or blank) → ask Tdarr to scan it (at most once a minute per path) and answer `triggered`; otherwise
+`ready: true`. Tdarr being unreachable is "not ready", never "failed". Tdarr keeps its records per file, so for a
+folder the answer covers every file Tdarr knows under it.
+
+Tdarr's scan API (`scanFolderWatcher`) only accepts individual file paths, never a folder, so to trigger a scan on a
+multi-file download the validator walks that folder **on disk** itself and hands Tdarr the files it finds there --
+it needs read access to the same downloads tree the arr apps and Tdarr use, at the same path (mount it read-only).
+Every file found is sent, including non-video extras (`.nfo`, `.txt`, subtitles, release notes): nothing is
+filtered here, since the Tdarr library's own scan-level filter (**Filters → Container types to scan for**) already
+drops anything outside its configured extensions. Without that mount, or if the path isn't there, the validator
+falls back to asking Tdarr about the bare path as given, same as before this walk was added -- correct for a single
+file, but a no-op for a folder, since `scanFolderWatcher` silently ignores a path that isn't an individual file.
+
+**Quality-tag routing:** `TDARR_LIBRARY_MAP` is the only definition of what a quality tier is. It maps a tag label to
+the dbID of the Tdarr library that holds that quality tier; the arr apps send every tag the series/movie/league has
+(`"tags"`, see above) and know nothing about which ones matter. A scan a request triggers goes to the library of the
+tag that is in the map, instead of always `TDARR_LIBRARY_ID`. **Adding or renaming a tier is one edit to this variable
+on this one container -- nothing in any arr app changes.** Matching is case-insensitive on both sides (a key of `"Better"` matches a
+`better` tag, and the reverse). If more than one
+tag is in the map the lowest-sorting one wins and the rest are logged. No tags, an unset/empty map, or no tag the map
+covers all fall back to `TDARR_LIBRARY_ID` unchanged -- nothing about an existing single-library setup changes by
+leaving this unset. The map only decides which library a *scan* is pointed at; the `ready`/`failed`/`processing`
+answer is read from Tdarr's records by file path alone, independent of library, so it is unaffected either way. The
+older singular `"tag": "<label>"` field is still accepted when `"tags"` is absent or malformed, so the validator and
+the arr images can be updated in either order; it is a migration aid and will go.
+
+| Variable | |
+|---|---|
+| `TDARR_URL` | Tdarr server, e.g. `http://192.168.0.50:8266` |
+| `TDARR_LIBRARY_ID` | dbID of the default library the downloads belong to |
+| `TDARR_LIBRARY_MAP` | optional JSON object mapping a quality-tier tag label (case-insensitive) to a library dbID, e.g. `{"better": "<dbID>", "balanced": "<dbID>", "smallest": "<dbID>"}` |
+| `PORT` | listen port, default `8080` |
+| `TRIGGER_DEDUP_SECONDS` | minimum seconds between scan requests for one path, default `60` |
+
+```yaml
+  tdarr-download-validator:
+    image: bdelima/tdarr-download-validator:latest
+    container_name: tdarr-download-validator
+    restart: unless-stopped
+    volumes:
+      - /path/to/downloads:/downloads:ro   # same path the arr apps and Tdarr use, read-only
+    environment:
+      - TDARR_URL=http://tdarr:8266
+      - TDARR_LIBRARY_ID=<your default/Downloads library id>
+      - TDARR_LIBRARY_MAP={"better": "<better library id>", "balanced": "<balanced library id>", "smallest": "<smallest library id>"}
+```
+
+It is published by dispatching [`release-validator.yml`](.github/workflows/release-validator.yml) (it does not follow
+an upstream release), and tested by [`ci.yml`](.github/workflows/ci.yml) against a fake Tdarr. The Tdarr calls were
+written from the records observed on a live instance; live testing on 2026-11-01 confirmed `cruddb`/`getAll` behaves
+as expected, but also found that `scan-files` with `scanFolderWatcher` silently does nothing when given a folder
+path instead of individual files -- the on-disk walk above is the fix, and the Downloads library's own
+`Filters at scan level` setting is what keeps non-video files out of Tdarr without any filtering on the validator's
+side.
+
+## Tdarr VMAF scoring (tdarr-vmaf-cuda)
+
+`bdelima/tdarr-vmaf-cuda` is a [`DOCKER_MODS`](https://github.com/linuxserver/docker-mods) overlay for a Tdarr node
+(Tdarr's node image is built on LinuxServer's base). It adds an ffmpeg built with CUDA and
+[libvmaf](https://github.com/Netflix/vmaf) as **`/usr/local/bin/ffmpeg-vmaf-cuda`**, so a Flow step can score a
+transcoded file against its original with `libvmaf_cuda` on an NVIDIA GPU. It does not touch the ffmpeg Tdarr ships,
+and Tdarr's own image is never rebuilt.
+
+```yaml
+  tdarr-node:
+    environment:
+      - DOCKER_MODS=bdelima/tdarr-vmaf-cuda:latest
+```
+
+The node also needs a working NVIDIA setup (host driver, `nvidia-container-toolkit`, the GPU passed to the container
+with the `video` driver capability), which provides the driver-level libraries this image deliberately does not carry.
+Unlike Tdarr's own ffmpeg, `ffmpeg-vmaf-cuda` links `libcuda.so.1` directly, so it only starts on a node that has the GPU
+attached.
+
+What is in the overlay: the binary, libvmaf and any CUDA runtime library it links in
+`/usr/local/lib/tdarr-vmaf-cuda/` (the binary has an RPATH to it, so no `LD_LIBRARY_PATH` is needed), the VMAF model in
+`/usr/local/share/model/`, and the licences plus the exact source revisions in `/usr/share/doc/tdarr-vmaf-cuda/`.
+Decoding goes through NVDEC and scaling through `scale_cuda`; x264, x265 and libnpp are left out on purpose.
+
+It is built for one GPU generation, set by the `CUDA_ARCH` build argument (default `75`, Turing -- the RTX 2060 Super).
+amd64 only. It is published by dispatching [`release-tdarr-vmaf-cuda.yml`](.github/workflows/release-tdarr-vmaf-cuda.yml)
+(it does not follow an upstream release) and built and smoke-tested by [`ci.yml`](.github/workflows/ci.yml). CI has no GPU:
+it checks that the binary starts on a plain Ubuntu 22.04, links everything, reports `--enable-libvmaf`/`--enable-cuda-nvcc`,
+has the `libvmaf_cuda` and `scale_cuda` filters, and that (CPU) libvmaf scores a clip against itself. Scoring on the
+GPU is checked by hand on the node after a release. Versions are `0.x` until that has been done on real files.
+
+Because it is built with `--enable-gpl --enable-nonfree` it is for your own use; see [`ATTRIBUTION.md`](ATTRIBUTION.md).
+
+## DoVi/HDR10+ toolkit (tdarr-dovi-tool)
+
+`bdelima/tdarr-dovi-tool` is a [`DOCKER_MODS`](https://github.com/linuxserver/docker-mods) overlay for a Tdarr node. It
+adds [`dovi_tool`](https://github.com/quietvoid/dovi_tool) and
+[`hdr10plus_tool`](https://github.com/quietvoid/hdr10plus_tool) -- both prebuilt, unmodified upstream release binaries,
+MIT-licensed -- as `/usr/local/bin/dovi_tool` and `/usr/local/bin/hdr10plus_tool`, so a Flow step can extract and
+re-inject Dolby Vision RPU or HDR10+ dynamic metadata around a re-encode (`dovi_tool` also does the `demux`/`mux` a
+dual-layer Profile 7 stream needs). Neither tool touches the ffmpeg Tdarr ships, and Tdarr's own image is never rebuilt.
+
+```yaml
+  tdarr-node:
+    environment:
+      - DOCKER_MODS=bdelima/tdarr-dovi-tool:latest
+```
+
+Several overlays on one node are separated by `|`, for example
+`DOCKER_MODS=bdelima/tdarr-vmaf-cuda:latest|bdelima/tdarr-dovi-tool:latest`.
+
+Both tools are fully static binaries with no runtime library dependencies, so the overlay is just the two binaries and
+their licences plus the exact releases in `/usr/share/doc/tdarr-dovi-tool/`. The Dockerfile pins both release tags and
+the SHA-256 of both tarballs it downloads. `amd64` only. It is published by dispatching
+[`release-tdarr-dovi-tool.yml`](.github/workflows/release-tdarr-dovi-tool.yml) (it does not follow an upstream release)
+and built and smoke-tested by [`ci.yml`](.github/workflows/ci.yml). CI has no DoVi/HDR10+ sample file to test against:
+it checks that both binaries run standalone on a plain Debian, report the exact pinned version, and list the
+subcommands the flow depends on (`extract-rpu`/`inject-rpu`/`demux`/`mux`, `extract`/`inject`). A real
+extract/re-encode/inject round trip, and playback on a device, are checked by hand once a flow uses the image. Versions
+are `0.x` until that has been done on real files.
 
 ## What is different from the LinuxServer image
 
@@ -152,12 +300,18 @@ is LinuxServer's, unchanged.
    The patch passes `false` in `RefreshAlbumService` and `RefreshArtistService`. These paths only run for entries with
    no files, so nothing is lost; a delete you do yourself in the UI is unchanged. Radarr and Sonarr mark such items
    as deleted rather than removing them, so they have no equivalent patch.
-5. **Sonarr and Radarr only: `04-tdarr-hold.patch`** gates `CompletedDownloadService.Check()` on a `.tdarr-hold`
-   marker file in the download's own output folder -- see [Import hold](#import-hold) above.
-6. **Sportarr only: `sportarr/patches/01-tdarr-hold.patch`** is the same idea for Sportarr's own import monitor (its
-   only patch). The Sportarr image is built differently: `sportarr/sportarr` is not a LinuxServer image and Sportarr
+5. **Sonarr and Radarr only: `04-preimport-validator.patch`** (with `common/PreImportValidator.cs`) makes
+   `CompletedDownloadService.Check()` ask a configured PreImportValidator before a download becomes `ImportPending`,
+   and adds a `MarkAsFailed(trackedDownload, message)` overload so a failed check shows its reason in history --
+   see [Import hold](#import-hold) above.
+6. **Sportarr only: `sportarr/patches/01-preimport-validator.patch`** (with `sportarr/PreImportValidator.cs`) is the
+   same idea for Sportarr's own import monitor (`sportarr/patches/02-quality-tag-forwarding.patch` adds the league's tags). The Sportarr image is built differently: `sportarr/sportarr` is not a LinuxServer image and Sportarr
    compiles into a single `Sportarr.dll`, so that one assembly is rebuilt with upstream's own publish command and
    copied over the official image.
+7. **Sonarr and Radarr only: `05-quality-tag-forwarding.patch`** adds `ITagService` to `CompletedDownloadService`'s
+   constructor and resolves every tag label on the series/movie, sending the whole list to the PreImportValidator as
+   `"tags"` -- see the quality-tag routing notes under [Import hold](#import-hold) and
+   [Import validator](#import-validator-tdarr-download-validator) above.
 
 ## How the images are built
 

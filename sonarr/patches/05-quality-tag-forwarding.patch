@@ -1,0 +1,62 @@
+diff --git a/src/NzbDrone.Core/Download/CompletedDownloadService.cs b/src/NzbDrone.Core/Download/CompletedDownloadService.cs
+index 1458fa2..05b230c 100644
+--- a/src/NzbDrone.Core/Download/CompletedDownloadService.cs
++++ b/src/NzbDrone.Core/Download/CompletedDownloadService.cs
+@@ -13,6 +13,7 @@
+ using NzbDrone.Core.Messaging.Events;
+ using NzbDrone.Core.Parser;
+ using NzbDrone.Core.Parser.Model;
++using NzbDrone.Core.Tags;
+ using NzbDrone.Core.Tv;
+ 
+ namespace NzbDrone.Core.Download
+@@ -38,6 +39,7 @@ public class CompletedDownloadService : ICompletedDownloadService
+         private readonly IRejectedImportService _rejectedImportService;
+         private readonly IPreImportValidator _preImportValidator;
+         private readonly IFailedDownloadService _failedDownloadService;
++        private readonly ITagService _tagService;
+         private readonly Logger _logger;
+ 
+         public CompletedDownloadService(IEventAggregator eventAggregator,
+@@ -52,6 +54,7 @@ public CompletedDownloadService(IEventAggregator eventAggregator,
+                                         IRejectedImportService rejectedImportService,
+                                         IPreImportValidator preImportValidator,
+                                         IFailedDownloadService failedDownloadService,
++                                        ITagService tagService,
+                                         Logger logger)
+         {
+             _eventAggregator = eventAggregator;
+@@ -66,9 +69,23 @@ public CompletedDownloadService(IEventAggregator eventAggregator,
+             _rejectedImportService = rejectedImportService;
+             _preImportValidator = preImportValidator;
+             _failedDownloadService = failedDownloadService;
++            _tagService = tagService;
+             _logger = logger;
+         }
+ 
++        // arr-images: resolves every arr-side tag label on the series to a plain list, unfiltered -- the
++        // sidecar's own TDARR_LIBRARY_MAP decides which of them (if any) names a quality tier, so this patch
++        // no longer needs to know the tier vocabulary at all.
++        private List<string> ResolveTagLabels(HashSet<int> tagIds)
++        {
++            if (tagIds == null || tagIds.Count == 0)
++            {
++                return null;
++            }
++
++            return _tagService.GetTags(tagIds).Select(t => t.Label).ToList();
++        }
++
+         public void Check(TrackedDownload trackedDownload)
+         {
+             if (trackedDownload.DownloadItem.Status != DownloadItemStatus.Completed)
+@@ -134,7 +151,8 @@ public void Check(TrackedDownload trackedDownload)
+             // Remove Failed Downloads is on). With no validator configured nothing here runs.
+             if (_preImportValidator.IsConfigured)
+             {
+-                var preImport = _preImportValidator.Check(trackedDownload.ImportItem.OutputPath.FullPath);
++                var tags = ResolveTagLabels(series.Tags);
++                var preImport = _preImportValidator.Check(trackedDownload.ImportItem.OutputPath.FullPath, tags);
+ 
+                 if (preImport.Status == PreImportStatus.Failed)
+                 {

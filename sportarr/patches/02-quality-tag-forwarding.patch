@@ -1,0 +1,56 @@
+diff --git a/src/Services/EnhancedDownloadMonitorService.cs b/src/Services/EnhancedDownloadMonitorService.cs
+index e94874c..b9111e1 100644
+--- a/src/Services/EnhancedDownloadMonitorService.cs
++++ b/src/Services/EnhancedDownloadMonitorService.cs
+@@ -864,6 +864,41 @@ private async Task<string> ResolveDownloadPathAsync(DownloadQueueItem download,
+         return path;
+     }
+ 
++    // arr-images: resolves every tag label on the download's league to a plain list, unfiltered -- the sidecar's own
++    // TDARR_LIBRARY_MAP decides which of them (if any) names a quality tier. Sportarr keeps tags on the League
++    // (League.Tags), not on each Event, so this goes download -> event -> league; it has no tag service, only the Tag
++    // table. Never throws and never blocks an import: no db, no such event or league, or a lookup error all return
++    // null, which the validator treats as "no tags" (its default library) -- same as a league that genuinely has none.
++    private async Task<List<string>?> ResolveLeagueTagLabelsAsync(DownloadQueueItem download, SportarrDbContext? db)
++    {
++        if (db == null)
++        {
++            return null;
++        }
++
++        try
++        {
++            var league = await db.Events.AsNoTracking()
++                .Where(e => e.Id == download.EventId && e.League != null)
++                .Select(e => e.League)
++                .FirstOrDefaultAsync();
++            if (league == null || league.Tags.Count == 0)
++            {
++                return null;
++            }
++
++            return (await db.Tags.AsNoTracking().ToListAsync())
++                .Where(t => league.Tags.Contains(t.Id))
++                .Select(t => t.Label)
++                .ToList();
++        }
++        catch (Exception ex)
++        {
++            _logger.LogWarning(ex, "[Enhanced Download Monitor] Could not resolve league tags for '{Title}'; validating without any", download.Title);
++            return null;
++        }
++    }
++
+     private async Task HandleCompletedDownload(
+         DownloadQueueItem download,
+         DownloadClientService downloadClientService,
+@@ -881,7 +916,8 @@ private async Task HandleCompletedDownload(
+             PreImportResult preImport;
+             try
+             {
+-                preImport = await preImportValidator.CheckAsync(await ResolveDownloadPathAsync(download, db));
++                var tags = await ResolveLeagueTagLabelsAsync(download, db);
++                preImport = await preImportValidator.CheckAsync(await ResolveDownloadPathAsync(download, db), tags);
+             }
+             catch (Exception ex)
+             {

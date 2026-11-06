@@ -6,7 +6,7 @@
 # Checks, against the built image:
 #   1. the app starts and answers /ping
 #   2. through its own API it reports the upstream release version (the overlay still presents itself as upstream)
-#   3. the rebuilt Sportarr.dll in the image contains the import-hold patch (its log message is in the assembly),
+#   3. the rebuilt Sportarr.dll in the image contains the pre-import validator patch (its log message is in the assembly),
 #      so a build that silently lost the patch cannot pass
 #
 # What it does not do: exercise a queued download. The hold itself needs a download client with a finished
@@ -73,13 +73,13 @@ if [ -n "$expected_version" ]; then
 fi
 
 docker cp "$cname:/app/Sportarr.dll" "$work/Sportarr.dll" >/dev/null || fail "could not copy /app/Sportarr.dll out of the image"
-python3 - "$work/Sportarr.dll" <<'PYEOF' || fail "the import-hold patch is not in the shipped Sportarr.dll"
+python3 - "$work/Sportarr.dll" <<'PYEOF' || fail "the pre-import validator patch is not in the shipped Sportarr.dll"
 import sys
 data = open(sys.argv[1], "rb").read()
 # C# string literals are stored as UTF-16 in the assembly's #US heap
-needle = "Tdarr hold marker present".encode("utf-16-le")
+needle = "Pre-import check not ready for".encode("utf-16-le")
 sys.exit(0 if needle in data else 1)
 PYEOF
-echo "   ok   the import-hold patch is in /app/Sportarr.dll"
+echo "   ok   the pre-import validator patch is in /app/Sportarr.dll"
 
 echo "PASS: sportarr start-test"

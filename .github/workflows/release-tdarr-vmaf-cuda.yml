@@ -1,0 +1,90 @@
+name: Release tdarr-vmaf-cuda
+
+# Builds and publishes bdelima/tdarr-vmaf-cuda, a DOCKER_MODS overlay for a Tdarr node. Like the validator it does not
+# follow an upstream release, so it is published on demand only: dispatch it after changing tdarr-vmaf-cuda/ (and bump
+# tdarr-vmaf-cuda/VERSION). Merging a pull request does not publish anything.
+#
+# amd64 only: it needs an NVIDIA GPU. Same `release` Environment as release.yml (main branch only, holds the Docker Hub
+# secrets). CI has no GPU, so the smoke test checks the binary and libvmaf (CPU) only; scoring on the GPU is checked
+# by hand on the Tdarr node after a release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and test only; do not push"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: release
+    concurrency:
+      group: release-tdarr-vmaf-cuda
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Free disk space (the CUDA build image is large)
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL
+
+      - name: Version
+        id: v
+        run: echo "version=$(tr -d '[:space:]' < tdarr-vmaf-cuda/VERSION)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build (amd64, loaded locally)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: tdarr-vmaf-cuda/Dockerfile
+          platforms: linux/amd64
+          cache-from: type=gha,scope=tdarr-vmaf-cuda
+          cache-to: type=gha,scope=tdarr-vmaf-cuda,mode=max
+          load: true
+          build-args: |
+            VERSION=${{ steps.v.outputs.version }}
+            REVISION=${{ github.sha }}
+          tags: arr-test/tdarr-vmaf-cuda:ci
+
+      - name: The libcuda stub the smoke test needs
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: tdarr-vmaf-cuda/Dockerfile
+          target: cuda-stub
+          platforms: linux/amd64
+          cache-from: type=gha,scope=tdarr-vmaf-cuda
+          cache-to: type=gha,scope=tdarr-vmaf-cuda,mode=max
+          outputs: type=local,dest=cuda-stub
+
+      - name: Smoke test
+        run: tdarr-vmaf-cuda/smoke-test.sh arr-test/tdarr-vmaf-cuda:ci cuda-stub
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        if: github.event.inputs.dry_run != 'true'
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push (amd64)
+        if: github.event.inputs.dry_run != 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: tdarr-vmaf-cuda/Dockerfile
+          platforms: linux/amd64
+          cache-from: type=gha,scope=tdarr-vmaf-cuda
+          cache-to: type=gha,scope=tdarr-vmaf-cuda,mode=max
+          push: true
+          build-args: |
+            VERSION=${{ steps.v.outputs.version }}
+            REVISION=${{ github.sha }}
+          tags: |
+            bdelima/tdarr-vmaf-cuda:${{ steps.v.outputs.version }}
+            bdelima/tdarr-vmaf-cuda:latest
