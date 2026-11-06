@@ -305,7 +305,10 @@ is LinuxServer's, unchanged.
    and adds a `MarkAsFailed(trackedDownload, message)` overload so a failed check shows its reason in history --
    see [Import hold](#import-hold) above.
 6. **Sportarr only: `sportarr/patches/01-preimport-validator.patch`** (with `sportarr/PreImportValidator.cs`) is the
-   same idea for Sportarr's own import monitor (`sportarr/patches/02-quality-tag-forwarding.patch` adds the league's tags). The Sportarr image is built differently: `sportarr/sportarr` is not a LinuxServer image and Sportarr
+   same idea for Sportarr's own import monitor (`sportarr/patches/02-quality-tag-forwarding.patch` adds the league's tags;
+   `sportarr/patches/03-seed-goal-removal-fix.patch` lets a finished, stopped torrent on an indexer with no seed goal
+   configured in Sportarr be removed, instead of staying in the client forever: seed limits are enforced by the torrent
+   client, which only reports the torrent stopped once its own limits are met). The Sportarr image is built differently: `sportarr/sportarr` is not a LinuxServer image and Sportarr
    compiles into a single `Sportarr.dll`, so that one assembly is rebuilt with upstream's own publish command and
    copied over the official image.
 7. **Sonarr and Radarr only: `05-quality-tag-forwarding.patch`** adds `ITagService` to `CompletedDownloadService`'s
