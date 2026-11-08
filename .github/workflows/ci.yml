@@ -17,6 +17,7 @@ on:
       - 'tdarr-download-validator/**'
       - 'tdarr-vmaf-cuda/**'
       - 'tdarr-dovi-tool/**'
+      - 'tdarr-flow-plugins/**'
       - 'common/**'
       - 'scripts/**'
       - 'tests/**'
@@ -32,6 +33,7 @@ on:
       - 'tdarr-download-validator/**'
       - 'tdarr-vmaf-cuda/**'
       - 'tdarr-dovi-tool/**'
+      - 'tdarr-flow-plugins/**'
       - 'common/**'
       - 'scripts/**'
       - 'tests/**'
@@ -50,6 +52,7 @@ jobs:
       validator: ${{ steps.c.outputs.validator }}
       vmaf: ${{ steps.c.outputs.vmaf }}
       dovi: ${{ steps.c.outputs.dovi }}
+      flowplugins: ${{ steps.c.outputs.flowplugins }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
