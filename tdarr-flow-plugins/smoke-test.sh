@@ -25,7 +25,8 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 # 1. exactly the expected trees: the image holds the repo's root/ tree plus the docs, nothing else
 expected=$(cd tdarr-flow-plugins/root && find . -type f -o -type l | sort)
-actual=$(cd "$work" && find defaults etc -type f | sed 's|^|./|' | sort)
+# docker adds hostname, hosts and resolv.conf to every container's /etc; they are not the image's
+actual=$(cd "$work" && find defaults etc -type f | sed 's|^|./|' | grep -vxE './etc/(hostname|hosts|resolv.conf)' | sort)
 [ "$expected" = "$actual" ] || { diff <(echo "$expected") <(echo "$actual") >&2 || true; fail "the image's files differ from tdarr-flow-plugins/root"; }
 extra=$(cd "$work" && find . -mindepth 1 -maxdepth 1 | sort | tr '\n' ' ')
 [ "$extra" = "./defaults ./doc ./etc " ] || fail "unexpected top-level content: $extra"
