@@ -1,7 +1,7 @@
 'use strict';
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
-// Exported verbatim from the live Tdarr flow "Validator" (original flow _id: Yaax7LBej) on 2026-11-08.
+// Live Tdarr flow "Validator" (original flow _id: Yaax7LBej), exported 2026-11-08, plus a Tag Output Metadata node (id tagOutMeta) in front of Replace Original File.
 // Template details() carry no _id; goToFlow nodes inside these flows reference other flows by their
 // original _id, so a flow created from this file only works if Tdarr keeps those IDs (unverified).
 Object.defineProperty(exports, '__esModule', { value: true });
@@ -172,6 +172,18 @@ const details = () => ({
         "position": {
           "x": 600,
           "y": 552
+        }
+      },
+      {
+        "name": "Tag Output Metadata",
+        "sourceRepo": "Local",
+        "pluginName": "tagOutputMetadata",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "tagOutMeta",
+        "position": {
+          "x": 960,
+          "y": 700
         }
       },
       {
@@ -407,28 +419,28 @@ const details = () => ({
       {
         "source": "vmafCheck1",
         "sourceHandle": "1",
-        "target": "1g5GNL1MP",
+        "target": "tagOutMeta",
         "targetHandle": null,
         "id": "vmafPassEdge"
       },
       {
         "source": "vmafCheck1_10bit",
         "sourceHandle": "1",
-        "target": "1g5GNL1MP",
+        "target": "tagOutMeta",
         "targetHandle": null,
         "id": "vmaf10bitPassEdge"
       },
       {
         "source": "vmafCheck4k",
         "sourceHandle": "1",
-        "target": "1g5GNL1MP",
+        "target": "tagOutMeta",
         "targetHandle": null,
         "id": "vmaf4kPassEdge"
       },
       {
         "source": "vmafCheck4k_10bit",
         "sourceHandle": "1",
-        "target": "1g5GNL1MP",
+        "target": "tagOutMeta",
         "targetHandle": null,
         "id": "vmaf4k10bitPassEdge"
       },
@@ -498,7 +510,7 @@ const details = () => ({
       {
         "source": "reqLocalPT",
         "sourceHandle": "1",
-        "target": "1g5GNL1MP",
+        "target": "tagOutMeta",
         "targetHandle": null,
         "id": "reqLocalToReplace"
       },
@@ -508,6 +520,13 @@ const details = () => ({
         "target": "01GZNv02y",
         "targetHandle": null,
         "id": "0ds-weFG1"
+      },
+      {
+        "source": "tagOutMeta",
+        "sourceHandle": "1",
+        "target": "1g5GNL1MP",
+        "targetHandle": null,
+        "id": "tagMetaToReplace"
       }
     ]
   });

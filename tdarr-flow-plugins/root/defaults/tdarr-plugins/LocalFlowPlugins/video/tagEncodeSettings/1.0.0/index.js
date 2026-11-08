@@ -2,7 +2,9 @@ const { checkFfmpegCommandInit } = require('../../../../FlowHelpers/1.0.0/interf
 
 const details = () => ({
   name: 'Tag Encode Settings',
-  description: 'Reads the real encoder args Set Video Encoder just configured and burns them into a -metadata flag',
+  description: 'Reads the real encoder args Set Video Encoder just configured and stores them as '
+    + 'a Flow Variable (tdarrEncodeParams) for Tag Output Metadata to burn in later - no longer '
+    + 'writes to the file directly.',
   style: { borderColor: '#6efefc' },
   tags: 'video',
   isStartPlugin: false,
@@ -30,7 +32,10 @@ const plugin = async (args) => {
   }
 
   if (parts.length > 0) {
-    stream.outputArgs.push('-metadata:s:v:0', `TDARR_ENCODE_PARAMS=${parts.join(',')}`);
+    if (!args.variables.user) {
+      args.variables.user = {};
+    }
+    args.variables.user.tdarrEncodeParams = parts.join(',');
   }
 
   return {
