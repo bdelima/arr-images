@@ -11,9 +11,14 @@
 set -euo pipefail
 
 image=${1:?usage: smoke-test.sh <overlay image>}
+fail() { echo "FAIL: $*" >&2; exit 1; }
 cd "$(dirname "$0")/.."
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+
+# the release version the image was built with; the build stamps it into each flow template's name
+version=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$image")
+[ -n "$version" ] || fail "the image has no org.opencontainers.image.version label"
 
 cid=$(docker create "$image" /bin/true)
 docker cp "$cid:/defaults" "$work/defaults"
@@ -21,7 +26,6 @@ docker cp "$cid:/etc" "$work/etc"
 docker cp "$cid:/usr/share/doc/tdarr-flow-plugins" "$work/doc"
 docker rm "$cid" >/dev/null
 
-fail() { echo "FAIL: $*" >&2; exit 1; }
 
 # 1. exactly the expected trees: the image holds the repo's root/ tree plus the docs, nothing else
 expected=$(cd tdarr-flow-plugins/root && find . -type f -o -type l | sort)
@@ -33,10 +37,18 @@ extra=$(cd "$work" && find . -mindepth 1 -maxdepth 1 | sort | tr '\n' ' ')
 for f in BUILD-INFO LICENSE; do [ -s "$work/doc/$f" ] || fail "missing from the image: /usr/share/doc/tdarr-flow-plugins/$f"; done
 echo "   ok   the image holds exactly the expected files"
 
-# 2. byte-identical to the source, and valid JavaScript
+# 2. byte-identical to the source (the flow templates are identical except for the version in the flow's name), and valid JavaScript
 count=0
 while IFS= read -r f; do
-  cmp -s "tdarr-flow-plugins/root/$f" "$work/$f" || fail "$f differs from the repo source"
+  case "$f" in
+    defaults/tdarr-plugins/LocalFlowTemplates/*)
+      sed "s/^    \"name\": \"\(.*\)\",\$/    \"name\": \"\1 ($version)\",/" "tdarr-flow-plugins/root/$f" | cmp -s - "$work/$f" \
+        || fail "$f differs from the repo source apart from the version in its name"
+      # a template with no flow-level name line would pass the comparison above unchanged, so check the name itself
+      grep -E '^    "name": ' "$work/$f" | grep -qF " ($version)\"," || fail "$f: the flow name does not carry the version ($version)"
+      ;;
+    *) cmp -s "tdarr-flow-plugins/root/$f" "$work/$f" || fail "$f differs from the repo source" ;;
+  esac
   count=$((count + 1))
 done < <(cd tdarr-flow-plugins/root && find defaults -type f | sort)
 [ "$count" -ge 11 ] || fail "only $count plugin/template files shipped (expected at least 6 plugins and 5 templates)"
@@ -46,7 +58,7 @@ done
 ls "$work"/defaults/tdarr-plugins/LocalFlowTemplates/video/*.js >/dev/null 2>&1 || fail "no flow templates shipped"
 docker run --rm -v "$work/defaults:/d:ro" node:20-slim sh -c 'for f in $(find /d -name "*.js"); do node --check "$f" || exit 1; done' \
   || fail "a shipped file does not pass node --check"
-echo "   ok   $count files, byte-identical to the repo and valid JavaScript"
+echo "   ok   $count files, byte-identical to the repo (template names stamped $version) and valid JavaScript"
 
 # 3. the s6 service, as LinuxServer's mod loader expects it
 s6=$work/etc/s6-overlay/s6-rc.d
