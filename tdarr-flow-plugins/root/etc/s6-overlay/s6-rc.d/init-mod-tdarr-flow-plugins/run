@@ -1,0 +1,73 @@
+#!/usr/bin/with-contenv bash
+# tdarr-flow-plugins: runs once at every container start, before the Tdarr services start (a oneshot after init-mods).
+# Copies the plugin and template files this image carries in /defaults/tdarr-plugins/ into the server's plugin folder.
+# A host bind mount hides anything an image puts at that path, so the files are staged under /defaults and copied.
+#
+# Rule, per file: missing -> install it; identical -> leave it; different -> replace it and say so in the log (the
+# repo is the truth; a host edit that gets replaced is never silent). Nothing else in the plugin folder is touched or
+# deleted. Files and any folders it has to create belong to PUID:PGID (when set), mode 664 / 775.
+#
+# The paths and ids can be overridden for testing (see smoke-test.sh):
+#   TDARR_FLOW_PLUGINS_SRC   default /defaults/tdarr-plugins
+#   TDARR_FLOW_PLUGINS_DEST  default /app/server/Tdarr/Plugins/FlowPlugins
+set -u
+
+SRC=${TDARR_FLOW_PLUGINS_SRC:-/defaults/tdarr-plugins}
+DEST=${TDARR_FLOW_PLUGINS_DEST:-/app/server/Tdarr/Plugins/FlowPlugins}
+TAG='[mod-tdarr-flow-plugins]'
+
+say() { echo "$TAG $*"; }
+
+if [ ! -d "$SRC" ]; then
+  say "ERROR: $SRC is missing from the image; nothing copied"
+  exit 0 # a broken mod must never stop the container from starting
+fi
+
+owner_args=()
+if [ -n "${PUID:-}" ] && [ -n "${PGID:-}" ]; then owner_args=(-o "$PUID" -g "$PGID"); fi
+
+# make every missing folder from $DEST down to the file's folder, owned like the files
+make_dirs() {
+  local rel=$1 path=$DEST part
+  [ -d "$path" ] || install -d -m 0775 "${owner_args[@]}" "$path" || return 1
+  local IFS=/
+  for part in $rel; do
+    path=$path/$part
+    [ -d "$path" ] || install -d -m 0775 "${owner_args[@]}" "$path" || return 1
+  done
+}
+
+installed=0 replaced=0 unchanged=0 failed=0
+while IFS= read -r -d '' file; do
+  rel=${file#"$SRC"/}
+  target=$DEST/$rel
+  if [ -f "$target" ] && cmp -s "$file" "$target"; then
+    unchanged=$((unchanged + 1))
+    continue
+  fi
+  if [ -e "$target" ] && [ ! -f "$target" ]; then
+    say "ERROR: $target exists and is not a file; skipped"
+    failed=$((failed + 1))
+    continue
+  fi
+  action=installed
+  [ -f "$target" ] && action=replaced
+  if make_dirs "$(dirname "$rel")" \
+     && install -m 0664 "${owner_args[@]}" "$file" "$target.tmp-mod" \
+     && mv -f "$target.tmp-mod" "$target"; then
+    if [ "$action" = replaced ]; then
+      say "replaced $rel (it differed from the one in the image)"
+      replaced=$((replaced + 1))
+    else
+      say "installed $rel"
+      installed=$((installed + 1))
+    fi
+  else
+    rm -f "$target.tmp-mod"
+    say "ERROR: could not write $target"
+    failed=$((failed + 1))
+  fi
+done < <(find "$SRC" -type f -print0 | sort -z)
+
+say "done: $installed installed, $replaced replaced, $unchanged unchanged, $failed failed (into $DEST)"
+exit 0

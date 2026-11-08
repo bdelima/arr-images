@@ -17,6 +17,7 @@ on:
       - 'tdarr-download-validator/**'
       - 'tdarr-vmaf-cuda/**'
       - 'tdarr-dovi-tool/**'
+      - 'tdarr-flow-plugins/**'
       - 'common/**'
       - 'scripts/**'
       - 'tests/**'
@@ -32,6 +33,7 @@ on:
       - 'tdarr-download-validator/**'
       - 'tdarr-vmaf-cuda/**'
       - 'tdarr-dovi-tool/**'
+      - 'tdarr-flow-plugins/**'
       - 'common/**'
       - 'scripts/**'
       - 'tests/**'
@@ -50,6 +52,7 @@ jobs:
       validator: ${{ steps.c.outputs.validator }}
       vmaf: ${{ steps.c.outputs.vmaf }}
       dovi: ${{ steps.c.outputs.dovi }}
+      flowplugins: ${{ steps.c.outputs.flowplugins }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -169,3 +172,19 @@ jobs:
 
       - name: Smoke test
         run: tdarr-dovi-tool/smoke-test.sh arr-test/tdarr-dovi-tool:ci
+
+  flow-plugins:
+    # tdarr-flow-plugins: the overlay image is built (files only, nothing compiled) and smoke-tested: its contents match the
+    # repo byte for byte, pass node --check, and the start-up script's copy rule is exercised in a container. A real Tdarr
+    # server is needed to prove the plugins load; see the README.
+    needs: changes
+    if: needs.changes.outputs.flowplugins == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Build the overlay image
+        run: docker build -f tdarr-flow-plugins/Dockerfile --build-arg VERSION="$(cat tdarr-flow-plugins/VERSION)" -t arr-test/tdarr-flow-plugins:ci .
+
+      - name: Smoke test
+        run: tdarr-flow-plugins/smoke-test.sh arr-test/tdarr-flow-plugins:ci

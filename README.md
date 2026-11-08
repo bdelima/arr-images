@@ -275,6 +275,49 @@ subcommands the flow depends on (`extract-rpu`/`inject-rpu`/`demux`/`mux`, `extr
 extract/re-encode/inject round trip, and playback on a device, are checked by hand once a flow uses the image. Versions
 are `0.x` until that has been done on real files.
 
+## Tdarr flow plugins (tdarr-flow-plugins)
+
+`bdelima/tdarr-flow-plugins` is a [`DOCKER_MODS`](https://github.com/linuxserver/docker-mods) overlay for the Tdarr **server**
+container. It replaces hand-copying files onto the server: at every container start it puts four Local Flow Plugins
+(`classifySource`, `setMaxBitrate`, `tagEncodeSettings` v1, `tagOutputMetadata`) and the flow template files for the Downloads
+Flow (Controller, Converter, Validator, Stream Cleanup, Clean-only passthrough) into the server's plugin folder. The files in
+[`tdarr-flow-plugins/root`](tdarr-flow-plugins/root) are the source of truth and are shipped as they are.
+
+```yaml
+  tdarr:
+    environment:
+      - DOCKER_MODS=bdelima/tdarr-flow-plugins:latest
+    volumes:
+      - /opt/tdarr/server:/app/server
+```
+
+Several overlays are separated by `|`. Put it on the server container only; remote nodes get the plugins from the server.
+
+- **How it works.** A host bind mount of `/app/server` hides anything an image puts there, so the image stages the files under
+  `/defaults/tdarr-plugins` and an s6 oneshot (`init-mod-tdarr-flow-plugins`, which runs before the Tdarr services) copies them
+  to `/app/server/Tdarr/Plugins/FlowPlugins/` (`LocalFlowPlugins/video/<name>/1.0.0/index.js` and `LocalFlowTemplates/video/`).
+  The plugins `require()` Tdarr's helpers by relative path, so each file must land at exactly that depth.
+- **Copy rule, per file.** Missing: installed. Identical: left alone. Different: replaced, and the log says so
+  (`[mod-tdarr-flow-plugins] replaced ... (it differed from the one in the image)`), so a host edit is never lost silently.
+  Nothing else in the plugin folder is touched or deleted. Files are owned by `PUID:PGID` (when set), mode 664, new folders 775.
+  The script never stops the container from starting; a failure is a log line. A new plugin file needs the server restarted to load, which a container restart does anyway.
+- **Not in the image:** the five flows themselves (they live in Tdarr's database; import them with Add Flow > Import JSON Flow
+  Template) and any Tdarr settings.
+- **Templates are unverified.** The `goToFlow` nodes reference other flows by their original ids. Pasting an export keeps them;
+  whether a flow created from a template file keeps them has not been confirmed. Check on a scratch server before relying on it.
+- **Tests.** [`ci.yml`](.github/workflows/ci.yml) builds the image and runs [`smoke-test.sh`](tdarr-flow-plugins/smoke-test.sh):
+  exactly the expected files, byte-identical to the repo, `node --check`, the s6 files, and the start-up script's copy rule
+  (install / unchanged / replace-and-log / put back / twice is a no-op / owner and mode) in a container. CI has no Tdarr server,
+  so that Tdarr loads the plugins and that the service runs before the server starts are checked by hand (below).
+- **Check by hand after the first release.** (1) Add `DOCKER_MODS` to a scratch Tdarr server container with its own empty server
+  folder, never the live `/opt/tdarr/server`; check the files appear with the right owner and mode and Tdarr lists the plugins.
+  (2) Add it to the live server container, restart it, and run one real file through the Converter flow.
+
+amd64 only. Published by dispatching
+[`release-tdarr-flow-plugins.yml`](.github/workflows/release-tdarr-flow-plugins.yml) (it does not follow an upstream release);
+merging a pull request publishes nothing. Versions are `0.x` until the checks above have been done. The first publish may need
+the Docker Hub token's repository scope widened for the new image name.
+
 ## What is different from the LinuxServer image
 
 One file: `Radarr.Core.dll` / `Sonarr.Core.dll` / `Lidarr.Core.dll` (Sportarr: `Sportarr.dll`), rebuilt from the upstream source tag with small

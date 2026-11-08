@@ -4,3 +4,5 @@
 *.cs text eol=lf
 Dockerfile text eol=lf
 *.properties.example text eol=lf
+# the tdarr-flow-plugins overlay: s6 files and the shipped plugin files must be LF everywhere (they are copied byte for byte)
+tdarr-flow-plugins/root/** text eol=lf
