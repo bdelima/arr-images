@@ -278,7 +278,7 @@ are `0.x` until that has been done on real files.
 ## Tdarr flow plugins (tdarr-flow-plugins)
 
 `bdelima/tdarr-flow-plugins` is a [`DOCKER_MODS`](https://github.com/linuxserver/docker-mods) overlay for the Tdarr **server**
-container. It replaces hand-copying files onto the server: at every container start it puts four Local Flow Plugins
+container. It replaces hand-copying files onto the server: at every container start it puts six Local Flow Plugins
 (`classifySource`, `setMaxBitrate`, `tagEncodeSettings` v1, `tagOutputMetadata`) and the flow template files for the Downloads
 Flow (Controller, Converter, Validator, Stream Cleanup, Clean-only passthrough) into the server's plugin folder. The files in
 [`tdarr-flow-plugins/root`](tdarr-flow-plugins/root) are the source of truth and are shipped as they are.
