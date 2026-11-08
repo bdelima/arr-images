@@ -68,6 +68,24 @@ const details = () => ({
         }
       },
       {
+        "name": "Check Source Efficiency",
+        "sourceRepo": "Local",
+        "pluginName": "checkSourceEfficiency",
+        "version": "1.0.0",
+        "inputsDB": {
+          "enabled": "true",
+          "minBpp": "0.08",
+          "legacyMinBpp": "0.04",
+          "assumedAudioKbps": "256"
+        },
+        "fpEnabled": true,
+        "id": "chkSrcEff",
+        "position": {
+          "x": 804,
+          "y": 0
+        }
+      },
+      {
         "name": "Go To Converter Flow",
         "sourceRepo": "Community",
         "pluginName": "goToFlow",
@@ -204,7 +222,7 @@ const details = () => ({
       {
         "source": "classifySrc",
         "sourceHandle": "1",
-        "target": "V0fhZ7bDk",
+        "target": "chkSrcEff",
         "targetHandle": null,
         "id": "h264NotHdrToConverter"
       },
@@ -246,7 +264,7 @@ const details = () => ({
       {
         "source": "classifySrc",
         "sourceHandle": "7",
-        "target": "V0fhZ7bDk",
+        "target": "chkSrcEff",
         "targetHandle": null,
         "id": "legacyNotHdrToConverter"
       },
@@ -284,6 +302,20 @@ const details = () => ({
         "target": "JUvzFjlQc",
         "targetHandle": null,
         "id": "forceToClean"
+      },
+      {
+        "source": "chkSrcEff",
+        "sourceHandle": "1",
+        "target": "V0fhZ7bDk",
+        "targetHandle": null,
+        "id": "effToConverter"
+      },
+      {
+        "source": "chkSrcEff",
+        "sourceHandle": "2",
+        "target": "JUvzFjlQc",
+        "targetHandle": null,
+        "id": "effToClean"
       },
       {
         "source": "retFromConv",
