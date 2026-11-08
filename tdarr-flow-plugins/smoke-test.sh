@@ -39,8 +39,8 @@ while IFS= read -r f; do
   cmp -s "tdarr-flow-plugins/root/$f" "$work/$f" || fail "$f differs from the repo source"
   count=$((count + 1))
 done < <(cd tdarr-flow-plugins/root && find defaults -type f | sort)
-[ "$count" -ge 9 ] || fail "only $count plugin/template files shipped (expected at least 4 plugins and 5 templates)"
-for p in classifySource setMaxBitrate tagEncodeSettings tagOutputMetadata; do
+[ "$count" -ge 11 ] || fail "only $count plugin/template files shipped (expected at least 6 plugins and 5 templates)"
+for p in classifySource setMaxBitrate tagEncodeSettings tagOutputMetadata checkSourceEfficiency setSourceRelativeBitrate; do
   [ -s "$work/defaults/tdarr-plugins/LocalFlowPlugins/video/$p/1.0.0/index.js" ] || fail "plugin $p is missing at LocalFlowPlugins/video/$p/1.0.0/index.js"
 done
 ls "$work"/defaults/tdarr-plugins/LocalFlowTemplates/video/*.js >/dev/null 2>&1 || fail "no flow templates shipped"

@@ -1,7 +1,7 @@
 const details = () => ({
   name: 'Tag Output Metadata',
   description: 'Writes every accumulated output tag (encode params, quality tier, '
-    + 'classifySource verdict, pipeline version, VMAF score) in one mkvpropedit --tags '
+    + 'classifySource verdict, pipeline version, source bits per pixel, size ratio, VMAF score) in one mkvpropedit --tags '
     + 'global call. Must be the ONLY node that writes global tags (mkvpropedit --tags '
     + 'replaces rather than merges) and must run after Stream Cleanup has already '
     + 'stripped existing tags via -map_metadata -1.',
@@ -38,11 +38,23 @@ const plugin = async (args) => {
 
   const v = args.variables.user || {};
 
+  // Output size as a percentage of the original, from the files themselves (both exist at this point).
+  let sizeRatio;
+  try {
+    const newBytes = fs.statSync(args.inputFileObj._id).size;
+    const oldBytes = fs.statSync(args.originalLibraryFile._id).size;
+    if (newBytes > 0 && oldBytes > 0) sizeRatio = `${((newBytes / oldBytes) * 100).toFixed(1)}%`;
+  } catch (e) {
+    args.jobLog(`Tag Output Metadata: could not work out the size ratio: ${e.message}`);
+  }
+
   const tagList = [
     ['TDARR_ENCODE_PARAMS', v.tdarrEncodeParams],
     ['TDARR_QUALITY_TIER', v.tdarrQualityTier],
     ['TDARR_SOURCE_CLASS', v.tdarrSourceClass],
     ['TDARR_PIPELINE_VERSION', args.inputs.pipelineVersion],
+    ['TDARR_SOURCE_BPP', v.tdarrSourceBpp],
+    ['TDARR_SIZE_RATIO', sizeRatio],
     ['TDARR_VMAF_SCORE', (v.vmafMean !== undefined)
       ? `mean=${v.vmafMean};min=${v.vmafMin};p1=${v.vmafP1}`
       : undefined],

@@ -148,6 +148,26 @@ const details = () => ({
         }
       },
       {
+        "name": "Set Source-Relative Bitrate",
+        "sourceRepo": "Local",
+        "pluginName": "setSourceRelativeBitrate",
+        "version": "1.0.0",
+        "inputsDB": {
+          "enabled": "true",
+          "targetPercent": "70",
+          "ceilingPercent": "100",
+          "bufsizeMultiplier": "2",
+          "minTargetKbps": "300",
+          "assumedAudioKbps": "256"
+        },
+        "fpEnabled": true,
+        "id": "srcRelCap",
+        "position": {
+          "x": 456,
+          "y": 540
+        }
+      },
+      {
         "name": "Tag Encode Settings",
         "sourceRepo": "Local",
         "pluginName": "tagEncodeSettings",
@@ -291,9 +311,16 @@ const details = () => ({
       {
         "source": "FAc9QeWJK",
         "sourceHandle": "1",
-        "target": "d7QK1TBlh",
+        "target": "srcRelCap",
         "targetHandle": null,
         "id": "F8KgIMdGM"
+      },
+      {
+        "source": "srcRelCap",
+        "sourceHandle": "1",
+        "target": "d7QK1TBlh",
+        "targetHandle": null,
+        "id": "capToTag"
       },
       {
         "source": "d7QK1TBlh",

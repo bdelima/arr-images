@@ -29,6 +29,8 @@ const plugin = async (args) => {
     if (/^-c:/.test(flag)) parts.push(`encoder=${val}`);
     if (flag === '-global_quality' || flag === '-qp' || flag === '-crf') parts.push(`quality=${val}`);
     if (flag === '-preset') parts.push(`preset=${val}`);
+    if (flag === '-b:v') parts.push(`bitrate=${val}`);
+    if (flag === '-maxrate') parts.push(`maxrate=${val}`);
   }
 
   if (parts.length > 0) {
