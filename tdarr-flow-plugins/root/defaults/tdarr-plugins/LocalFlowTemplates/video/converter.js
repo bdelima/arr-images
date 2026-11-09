@@ -1,12 +1,14 @@
 'use strict';
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
-// Exported verbatim from the live Tdarr flow "264 to 265 Converter" (original flow _id: YEZ9GlGHp) on 2026-11-08.
-// Template details() carry no _id; goToFlow nodes inside these flows reference other flows by their
-// original _id, so a flow created from this file only works if Tdarr keeps those IDs (unverified).
+// Exported verbatim from the live Tdarr flow "264 to 265 Converter" (originally _id YEZ9GlGHp, now 20ZN6oc41) on 2026-11-08.
+// details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
+// it by id. Whether Tdarr keeps an _id given here when a flow is created from this file (Add Flow > Local) is unverified;
+// to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
+    "_id": "20ZN6oc41",
     "name": "264 to 265 Converter",
     "description": "264 to 265 Converter",
     "tags": "",
@@ -254,7 +256,7 @@ const details = () => ({
         "pluginName": "goToFlow",
         "version": "2.0.0",
         "inputsDB": {
-          "flowId": "WReQY_XGS",
+          "flowId": "HWxfel7zZ",
           "pluginId": "retFromConv"
         },
         "fpEnabled": true,
