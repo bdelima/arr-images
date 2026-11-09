@@ -266,6 +266,32 @@ const plugin = async (args) => {
     updateWorker: args.updateWorker,
     args,
   });
+
+  // Tdarr's CLI helper only reads progress from ffmpeg, HandBrake and a few other encoders (it goes by the program
+  // name), so mkvmerge showed no percentage and the step looked hung. mkvmerge prints "Progress: N%" while it works;
+  // pass that on to the worker. This relies on the helper calling its parseOutput member for each chunk of output and
+  // having an updateETA member for the ETA (read on Tdarr master, not checked against the installed version). If the
+  // helper has no such members the percentage is still sent without an ETA, or nothing happens; the remux itself is
+  // never affected.
+  const originalParse = cli.parseOutput;
+  let lastPercent = -1;
+  cli.parseOutput = (data) => {
+    try {
+      if (typeof originalParse === 'function') originalParse(data);
+      const found = [...String(data).matchAll(/Progress:\s*(\d{1,3})%/g)];
+      if (found.length === 0) return;
+      const percentage = Math.min(100, Number(found[found.length - 1][1]));
+      if (percentage <= lastPercent) return;
+      lastPercent = percentage;
+      if (percentage > 0 && typeof args.updateWorker === 'function') {
+        args.updateWorker({ percentage });
+        if (typeof cli.updateETA === 'function') Promise.resolve(cli.updateETA(percentage)).catch(() => {});
+      }
+    } catch (e) {
+      // progress is cosmetic: never let it break the remux
+    }
+  };
+
   const res = await cli.runCli();
 
   try {
