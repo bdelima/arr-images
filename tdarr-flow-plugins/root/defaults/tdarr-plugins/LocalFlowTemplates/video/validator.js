@@ -2,11 +2,13 @@
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
 // Live Tdarr flow "Validator" (original flow _id: Yaax7LBej), exported 2026-11-08, plus a Tag Output Metadata node (id tagOutMeta) in front of Replace Original File.
-// Template details() carry no _id; goToFlow nodes inside these flows reference other flows by their
-// original _id, so a flow created from this file only works if Tdarr keeps those IDs (unverified).
+// details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
+// it by id. Whether Tdarr keeps an _id given here when a flow is created from this file (Add Flow > Local) is unverified;
+// to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
+    "_id": "Yaax7LBej",
     "name": "Validator",
     "description": "Validator",
     "tags": "",
