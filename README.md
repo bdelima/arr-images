@@ -159,9 +159,12 @@ POST /validate   {"path": "/downloads/Some.Show.S01E01", "tags": ["balanced", "d
 
 Per call, in order: a file under the path is in Tdarr's staged collection (a Flow is running) → `processing`; Tdarr
 decided on a file and the decision contains "error" → `failed: true`; Tdarr has no decision yet (never seen,
-`Queued`, or blank) → ask Tdarr to scan it (at most once a minute per path) and answer `triggered`; otherwise
+`Queued`, or blank) → ask Tdarr to scan it (at most once a minute per path) and answer `triggered`; a finished
+record that no longer matches the file on disk (see below) → remove it and scan the file; otherwise
 `ready: true`. Tdarr being unreachable is "not ready", never "failed". Tdarr keeps its records per file, so for a
 folder the answer covers every file Tdarr knows under it.
+
+**Stale records.** A finished Tdarr record is compared with the file on disk (size and modification time from the record's `statSync`). If they differ, the record belongs to an older file at the same path (a re-download of a release): it is removed from Tdarr's file database and the file is scanned like an unseen one. Records with no stored size/time, files not visible to the validator, and records with no decision yet are left as they are. A path is not cleaned again for an hour.
 
 Tdarr's scan API (`scanFolderWatcher`) only accepts individual file paths, never a folder, so to trigger a scan on a
 multi-file download the validator walks that folder **on disk** itself and hands Tdarr the files it finds there --
