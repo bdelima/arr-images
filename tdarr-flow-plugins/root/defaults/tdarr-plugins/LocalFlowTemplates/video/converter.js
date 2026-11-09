@@ -4,7 +4,7 @@
 // Exported verbatim from the live Tdarr flow "264 to 265 Converter" (originally _id YEZ9GlGHp, now 20ZN6oc41) on 2026-11-08, then changed so that every remux step is the mkvmerge Execute plugin (mkvmergeExecute) instead of ffmpeg: the
 // Remove video streams node is gone (audioSubs mode leaves video out) and Entry goes straight to the audio+subs step.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
-// it by id. Whether Tdarr keeps an _id given here when a flow is created from this file (Add Flow > Local) is unverified;
+// it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;

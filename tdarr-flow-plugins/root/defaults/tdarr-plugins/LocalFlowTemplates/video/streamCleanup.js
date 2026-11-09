@@ -3,7 +3,7 @@
 /* eslint-disable import/prefer-default-export */
 // Live Tdarr flow "Stream Cleanup" (original flow _id: StreamCleanup_PENDING), exported 2026-11-08, plus a Require English Audio check (id scRequireEng) and a Fail Flow node (id scFailNoEng) in front of Begin Command, and a Remove Untagged Audio step (id scRemoveUntagged) after Remove non-english audio. It only decides which streams stay (the command is run by the mkvmerge Execute node in the Clean and Converter flows); the old Remove title metadata and Set Container nodes are gone because mkvmerge removes the title and global tags and always writes mkv.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
-// it by id. Whether Tdarr keeps an _id given here when a flow is created from this file (Add Flow > Local) is unverified;
+// it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
