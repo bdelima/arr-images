@@ -218,6 +218,51 @@ const details = () => ({
           "x": 1212,
           "y": -240
         }
+      },
+      {
+        "name": "Mark step: controller start",
+        "sourceRepo": "Local",
+        "pluginName": "markStep",
+        "version": "1.0.0",
+        "inputsDB": {
+          "label": "controller-start"
+        },
+        "fpEnabled": true,
+        "id": "ctrlMarkStart",
+        "position": {
+          "x": 672,
+          "y": -288
+        }
+      },
+      {
+        "name": "Mark step: landed on local",
+        "sourceRepo": "Local",
+        "pluginName": "markStep",
+        "version": "1.0.0",
+        "inputsDB": {
+          "label": "controller-local"
+        },
+        "fpEnabled": true,
+        "id": "ctrlMarkLocal",
+        "position": {
+          "x": 672,
+          "y": -240
+        }
+      },
+      {
+        "name": "Mark step: quick health check done",
+        "sourceRepo": "Local",
+        "pluginName": "markStep",
+        "version": "1.0.0",
+        "inputsDB": {
+          "label": "controller-hc-done"
+        },
+        "fpEnabled": true,
+        "id": "ctrlMarkHc",
+        "position": {
+          "x": 672,
+          "y": -192
+        }
       }
     ],
     "flowEdges": [
@@ -336,7 +381,7 @@ const details = () => ({
       {
         "source": "Pu7lH9MsN",
         "sourceHandle": "1",
-        "target": "ctrlGoToCleanup",
+        "target": "ctrlMarkHc",
         "targetHandle": null,
         "id": "ctrlE1"
       },
@@ -350,16 +395,37 @@ const details = () => ({
       {
         "source": "6sLbd7Q3m",
         "sourceHandle": "1",
-        "target": "ctrlReqLocal",
+        "target": "ctrlMarkStart",
         "targetHandle": null,
         "id": "ctrlE3"
       },
       {
         "source": "ctrlReqLocal",
         "sourceHandle": "1",
-        "target": "Pu7lH9MsN",
+        "target": "ctrlMarkLocal",
         "targetHandle": null,
         "id": "ctrlE4"
+      },
+      {
+        "source": "ctrlMarkStart",
+        "sourceHandle": "1",
+        "target": "ctrlReqLocal",
+        "targetHandle": null,
+        "id": "ctrlE3b"
+      },
+      {
+        "source": "ctrlMarkLocal",
+        "sourceHandle": "1",
+        "target": "Pu7lH9MsN",
+        "targetHandle": null,
+        "id": "ctrlE4b"
+      },
+      {
+        "source": "ctrlMarkHc",
+        "sourceHandle": "1",
+        "target": "ctrlGoToCleanup",
+        "targetHandle": null,
+        "id": "ctrlE1b"
       }
     ]
   });
