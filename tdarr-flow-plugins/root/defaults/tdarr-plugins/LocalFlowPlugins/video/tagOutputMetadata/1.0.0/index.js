@@ -4,7 +4,7 @@ const details = () => ({
     + 'classifySource verdict, pipeline version, source bits per pixel, size ratio, VMAF score) in one mkvpropedit --tags '
     + 'global call. Must be the ONLY node that writes global tags (mkvpropedit --tags '
     + 'replaces rather than merges) and must run after Stream Cleanup has already '
-    + 'stripped existing tags via -map_metadata -1.',
+    + 'removed the existing global tags (mkvmerge --no-global-tags).',
   style: {
     borderColor: 'green',
   },

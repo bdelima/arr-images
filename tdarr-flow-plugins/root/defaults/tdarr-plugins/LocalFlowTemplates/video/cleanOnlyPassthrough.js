@@ -1,9 +1,9 @@
 'use strict';
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
-// Exported verbatim from the live Tdarr flow "Clean only passthrough" (original flow _id: kASAOsE1n) on 2026-11-08.
+// Exported verbatim from the live Tdarr flow "Clean only passthrough" (original flow _id: kASAOsE1n) on 2026-11-08, then changed so that the remux is the mkvmerge Execute plugin (mkvmergeExecute, mode all) instead of ffmpegCommandExecute.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
-// it by id. Whether Tdarr keeps an _id given here when a flow is created from this file (Add Flow > Local) is unverified;
+// it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
@@ -26,10 +26,14 @@ const details = () => ({
         }
       },
       {
-        "name": "Execute",
-        "sourceRepo": "Community",
-        "pluginName": "ffmpegCommandExecute",
+        "name": "mkvmerge remux",
+        "sourceRepo": "Local",
+        "pluginName": "mkvmergeExecute",
         "version": "1.0.0",
+        "inputsDB": {
+          "mode": "all",
+          "source": "working"
+        },
         "fpEnabled": true,
         "id": "Vl1U5eT5F",
         "position": {

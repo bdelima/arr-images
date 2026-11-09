@@ -1,9 +1,10 @@
 'use strict';
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
-// Exported verbatim from the live Tdarr flow "264 to 265 Converter" (originally _id YEZ9GlGHp, now 20ZN6oc41) on 2026-11-08.
+// Exported verbatim from the live Tdarr flow "264 to 265 Converter" (originally _id YEZ9GlGHp, now 20ZN6oc41) on 2026-11-08, then changed so that every remux step is the mkvmerge Execute plugin (mkvmergeExecute) instead of ffmpeg: the
+// Remove video streams node is gone (audioSubs mode leaves video out) and Entry goes straight to the audio+subs step.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
-// it by id. Whether Tdarr keeps an _id given here when a flow is created from this file (Add Flow > Local) is unverified;
+// it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
@@ -26,28 +27,14 @@ const details = () => ({
         }
       },
       {
-        "name": "Remove video streams",
-        "sourceRepo": "Community",
-        "pluginName": "ffmpegCommandRemoveStreamByProperty",
+        "name": "mkvmerge (audio+subs only)",
+        "sourceRepo": "Local",
+        "pluginName": "mkvmergeExecute",
         "version": "1.0.0",
         "inputsDB": {
-          "codecType": "video",
-          "propertyToCheck": "codec_type",
-          "valuesToRemove": "video",
-          "condition": "equals"
+          "mode": "audioSubs",
+          "source": "working"
         },
-        "fpEnabled": true,
-        "id": "RlgLKOmxg",
-        "position": {
-          "x": 456,
-          "y": 252
-        }
-      },
-      {
-        "name": "Execute (audio+subs only)",
-        "sourceRepo": "Community",
-        "pluginName": "ffmpegCommandExecute",
-        "version": "1.0.0",
         "fpEnabled": true,
         "id": "JTeKdNnFR",
         "position": {
@@ -77,18 +64,13 @@ const details = () => ({
         }
       },
       {
-        "name": "Extract video from original",
-        "sourceRepo": "Community",
-        "pluginName": "runCli",
+        "name": "mkvmerge (video from original)",
+        "sourceRepo": "Local",
+        "pluginName": "mkvmergeExecute",
         "version": "1.0.0",
         "inputsDB": {
-          "useCustomCliPath": "false",
-          "userCli": "ffmpeg",
-          "customCliPath": "/usr/bin/mkvmerge",
-          "doesCommandCreateOutputFile": "true",
-          "userOutputFilePath": "${cacheDir}/${fileName}-video.mkv",
-          "cliArguments": "-y -i \"{{{args.originalLibraryFile._id}}}\" -map 0:v:0 -c:v copy -an -sn \"${outputFilePath}\"",
-          "outputFileBecomesWorkingFile": "true"
+          "mode": "video",
+          "source": "original"
         },
         "fpEnabled": true,
         "id": "tpYlSXpfK",
@@ -210,18 +192,13 @@ const details = () => ({
         }
       },
       {
-        "name": "Final remux",
-        "sourceRepo": "Community",
-        "pluginName": "runCli",
+        "name": "mkvmerge (final combine)",
+        "sourceRepo": "Local",
+        "pluginName": "mkvmergeExecute",
         "version": "1.0.0",
         "inputsDB": {
-          "useCustomCliPath": "false",
-          "userCli": "ffmpeg",
-          "customCliPath": "/usr/bin/mkvmerge",
-          "doesCommandCreateOutputFile": "true",
-          "userOutputFilePath": "${cacheDir}/${fileName}-final.mkv",
-          "cliArguments": "-y -i \"{{{args.inputFileObj._id}}}\" -i \"/downloads/.tdarr-remux-cache/{{{args.originalLibraryFile.fileNameWithoutExtension}}}-audiosubs.mkv\" -map 0:v:0 -map 1 -c copy \"${outputFilePath}\"",
-          "outputFileBecomesWorkingFile": "true"
+          "mode": "combine",
+          "audioSubsDir": "/downloads/.tdarr-remux-cache"
         },
         "fpEnabled": true,
         "id": "SQedUStPK",
@@ -268,13 +245,6 @@ const details = () => ({
       }
     ],
     "flowEdges": [
-      {
-        "source": "RlgLKOmxg",
-        "sourceHandle": "1",
-        "target": "JTeKdNnFR",
-        "targetHandle": null,
-        "id": "F4oNkll2y"
-      },
       {
         "source": "JTeKdNnFR",
         "sourceHandle": "1",
@@ -362,7 +332,7 @@ const details = () => ({
       {
         "source": "X4ANCc9vI",
         "sourceHandle": "1",
-        "target": "RlgLKOmxg",
+        "target": "JTeKdNnFR",
         "targetHandle": null,
         "id": "vE6"
       }
