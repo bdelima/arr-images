@@ -281,9 +281,9 @@ are `0.x` until that has been done on real files.
 ## Tdarr flow plugins (tdarr-flow-plugins)
 
 `bdelima/tdarr-flow-plugins` is a [`DOCKER_MODS`](https://github.com/linuxserver/docker-mods) overlay for the Tdarr **server**
-container. It replaces hand-copying files onto the server: at every container start it puts ten Local Flow Plugins
+container. It replaces hand-copying files onto the server: at every container start it puts twelve Local Flow Plugins
 (`classifySource`, `setMaxBitrate`, `tagEncodeSettings`, `tagOutputMetadata`, `checkSourceEfficiency`,
-`setSourceRelativeBitrate`, `requireEnglishAudio`, `removeUntaggedAudio`, `mkvmergeExecute`, `repairLanguageTags`) and the flow template files for the Downloads
+`setSourceRelativeBitrate`, `requireEnglishAudio`, `removeUntaggedAudio`, `mkvmergeExecute`, `repairLanguageTags`, `markStep`, `requireTrail`) and the flow template files for the Downloads
 Flow (Controller, Converter, Validator, Stream Cleanup, Clean-only passthrough, Repair language tags) into the server's plugin folder. The files in
 [`tdarr-flow-plugins/root`](tdarr-flow-plugins/root) are the source of truth and are shipped as they are, except that the build appends the release version to each flow template's name (below).
 
@@ -310,6 +310,14 @@ Several overlays are separated by `|`. Put it on the server container only; remo
 - **Flow names carry the release version.** The build appends the version to each template's flow name ("Controller" becomes
   "Controller (0.2.1)"), so copies of a flow made from different releases can be told apart in Tdarr. Nothing in Tdarr refers to a
   flow by name (`goToFlow` takes a flow id and a node id). The template files in the repo keep their plain names.
+- **Step trail (confirming the order of steps).** A node's job-log lines can arrive late, so log times cannot show the order in which
+  steps ran. `markStep` appends one numbered entry (`seq|label|node|worker|UTC time`) to the Flow Variable `tdarrTrail` at the point it
+  is placed, and `requireTrail` fails the flow (output 2, wired to Fail Flow) unless the labels it is given are in the trail in that
+  order; the order comes from the sequence numbers, not from any clock. The Controller, Converter and Validator templates carry the
+  stamps, the Validator's passthrough path ends in a `requireTrail` gate (`validator-hc-queue`, `validator-hc-done`, `validator-back-local`)
+  in front of Tag Output Metadata, and Tag Output Metadata adds its own closing entry and writes the whole trail into the file's
+  `TDARR_TRAIL` tag. Read it back with `tdarr-ffmpeg -i <file> 2>&1 | grep -i TDARR_TRAIL`. The time in an entry is the clock of the
+  node that ran the step, so it is comparable between nodes only when their clocks agree.
 - **A flow made from a template gets a new id and cannot update an existing flow.** Observed 2026-11-08: after the 0.2.0 Controller
   and Converter appeared as new flows next to the live ones, the new Controller still sent files to the old Converter, and the old
   Clean and Stream Cleanup flows still returned to the old Controller. To update a live flow in place, paste its JSON with its `_id`
