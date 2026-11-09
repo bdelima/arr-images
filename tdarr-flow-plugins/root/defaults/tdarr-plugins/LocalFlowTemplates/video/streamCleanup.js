@@ -1,7 +1,7 @@
 'use strict';
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
-// Exported verbatim from the live Tdarr flow "Stream Cleanup" (original flow _id: StreamCleanup_PENDING) on 2026-11-08.
+// Live Tdarr flow "Stream Cleanup" (original flow _id: StreamCleanup_PENDING), exported 2026-11-08, plus a Require English Audio check (id scRequireEng) and a Fail Flow node (id scFailNoEng) in front of Begin Command.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Whether Tdarr keeps an _id given here when a flow is created from this file (Add Flow > Local) is unverified;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
@@ -26,6 +26,30 @@ const details = () => ({
         }
       },
       {
+        "name": "Require English Audio",
+        "sourceRepo": "Local",
+        "pluginName": "requireEnglishAudio",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "scRequireEng",
+        "position": {
+          "x": 996,
+          "y": -216
+        }
+      },
+      {
+        "name": "Fail Flow (no English audio)",
+        "sourceRepo": "Community",
+        "pluginName": "failFlow",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "scFailNoEng",
+        "position": {
+          "x": 1260,
+          "y": -216
+        }
+      },
+      {
         "name": "Begin Command",
         "sourceRepo": "Community",
         "pluginName": "ffmpegCommandStart",
@@ -34,7 +58,7 @@ const details = () => ({
         "id": "scBegin",
         "position": {
           "x": 996,
-          "y": -216
+          "y": -144
         }
       },
       {
@@ -52,7 +76,7 @@ const details = () => ({
         "id": "scRemoveImages",
         "position": {
           "x": 996,
-          "y": -144
+          "y": -72
         }
       },
       {
@@ -70,7 +94,7 @@ const details = () => ({
         "id": "scRemoveAudio",
         "position": {
           "x": 996,
-          "y": -84
+          "y": -12
         }
       },
       {
@@ -88,7 +112,7 @@ const details = () => ({
         "id": "scRemoveSubs",
         "position": {
           "x": 996,
-          "y": -12
+          "y": 60
         }
       },
       {
@@ -103,7 +127,7 @@ const details = () => ({
         "id": "scRemoveTitle",
         "position": {
           "x": 996,
-          "y": 72
+          "y": 144
         }
       },
       {
@@ -119,7 +143,7 @@ const details = () => ({
         "id": "scReturnToController",
         "position": {
           "x": 996,
-          "y": 216
+          "y": 288
         }
       },
       {
@@ -135,7 +159,7 @@ const details = () => ({
         "id": "scSetContainer",
         "position": {
           "x": 996,
-          "y": 144
+          "y": 216
         }
       }
     ],
@@ -143,9 +167,23 @@ const details = () => ({
       {
         "source": "scEntry",
         "sourceHandle": "1",
-        "target": "scBegin",
+        "target": "scRequireEng",
         "targetHandle": null,
         "id": "scE2"
+      },
+      {
+        "source": "scRequireEng",
+        "sourceHandle": "1",
+        "target": "scBegin",
+        "targetHandle": null,
+        "id": "scE2b"
+      },
+      {
+        "source": "scRequireEng",
+        "sourceHandle": "2",
+        "target": "scFailNoEng",
+        "targetHandle": null,
+        "id": "scE2c"
       },
       {
         "source": "scBegin",
