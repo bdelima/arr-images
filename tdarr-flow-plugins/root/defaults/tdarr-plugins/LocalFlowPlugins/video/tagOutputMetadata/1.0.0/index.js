@@ -1,7 +1,7 @@
 const details = () => ({
   name: 'Tag Output Metadata',
   description: 'Writes every accumulated output tag (encode params, quality tier, '
-    + 'classifySource verdict, pipeline version, source bits per pixel, size ratio, VMAF score) in one mkvpropedit --tags '
+    + 'classifySource verdict, pipeline version, source bits per pixel, size ratio, VMAF score, step trail) in one mkvpropedit --tags '
     + 'global call. Must be the ONLY node that writes global tags (mkvpropedit --tags '
     + 'replaces rather than merges) and must run after Stream Cleanup has already '
     + 'removed the existing global tags (mkvmerge --no-global-tags).',
@@ -28,6 +28,31 @@ const details = () => ({
   ],
 });
 
+// Adds this node's own entry to the step trail (Flow Variable tdarrTrail, see Mark Step) in the same format, so the
+// trail written to the file ends with the point where the output was tagged, directly before Replace Original File.
+// Copied from Mark Step rather than required from it, so this plugin does not depend on another plugin file.
+const appendTrailEntry = (args, label) => {
+  if (!args.variables.user) args.variables.user = {};
+  const clean = (s) => String(s === undefined || s === null ? '' : s).trim().replace(/[^A-Za-z0-9._-]/g, '-');
+  const existing = String(args.variables.user.tdarrTrail || '')
+    .split(';').map((e) => e.trim()).filter((e) => e !== '');
+  const last = existing.reduce((m, e) => {
+    const n = Number(e.split('|')[0]);
+    return Number.isFinite(n) && n > m ? n : m;
+  }, 0);
+  let node = '';
+  try {
+    node = (args.configVars && args.configVars.config && args.configVars.config.nodeName)
+      || (args.config && args.config.nodeName) || '';
+  } catch (e) {
+    node = '';
+  }
+  const entry = [last + 1, label, clean(node) || 'unknown-node', clean(args.workerType) || 'unknown-worker',
+    new Date().toISOString()].join('|');
+  args.variables.user.tdarrTrail = existing.length > 0 ? `${existing.join(';')};${entry}` : entry;
+  return entry;
+};
+
 const plugin = async (args) => {
   const lib = require('../../../../../methods/lib')();
   args.inputs = lib.loadDefaultValues(args.inputs, details);
@@ -35,6 +60,9 @@ const plugin = async (args) => {
   const fs = require('fs');
   const path = require('path');
   const { CLI } = require('../../../../FlowHelpers/1.0.0/cliUtils');
+
+  // the trail gets its closing entry first, so the tag below includes it
+  args.jobLog(`Tag Output Metadata: TRAIL ${appendTrailEntry(args, 'tag-output-metadata')}`);
 
   const v = args.variables.user || {};
 
@@ -58,6 +86,7 @@ const plugin = async (args) => {
     ['TDARR_VMAF_SCORE', (v.vmafMean !== undefined)
       ? `mean=${v.vmafMean};min=${v.vmafMin};p1=${v.vmafP1}`
       : undefined],
+    ['TDARR_TRAIL', v.tdarrTrail],
   ].filter(([, val]) => val !== undefined && val !== null && val !== '');
 
   if (tagList.length === 0) {

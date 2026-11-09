@@ -241,6 +241,51 @@ const details = () => ({
           "x": 456,
           "y": 780
         }
+      },
+      {
+        "name": "Mark step: landed on encoder",
+        "sourceRepo": "Local",
+        "pluginName": "markStep",
+        "version": "1.0.0",
+        "inputsDB": {
+          "label": "converter-encode-start"
+        },
+        "fpEnabled": true,
+        "id": "cnvMarkEnc",
+        "position": {
+          "x": 456,
+          "y": 450
+        }
+      },
+      {
+        "name": "Mark step: encode done",
+        "sourceRepo": "Local",
+        "pluginName": "markStep",
+        "version": "1.0.0",
+        "inputsDB": {
+          "label": "converter-encode-done"
+        },
+        "fpEnabled": true,
+        "id": "cnvMarkEncDone",
+        "position": {
+          "x": 456,
+          "y": 624
+        }
+      },
+      {
+        "name": "Mark step: landed on local (demux)",
+        "sourceRepo": "Local",
+        "pluginName": "markStep",
+        "version": "1.0.0",
+        "inputsDB": {
+          "label": "converter-demux-local"
+        },
+        "fpEnabled": true,
+        "id": "cnvMarkDemux",
+        "position": {
+          "x": 456,
+          "y": 672
+        }
       }
     ],
     "flowEdges": [
@@ -268,7 +313,7 @@ const details = () => ({
       {
         "source": "tHF4vUCsM",
         "sourceHandle": "1",
-        "target": "ehGAkWvj7",
+        "target": "cnvMarkEnc",
         "targetHandle": null,
         "id": "q9SMuVcpy"
       },
@@ -303,14 +348,14 @@ const details = () => ({
       {
         "source": "Y40uvSwMF",
         "sourceHandle": "1",
-        "target": "LZDe1f8rE",
+        "target": "cnvMarkEncDone",
         "targetHandle": null,
         "id": "Vu9HtsSNH"
       },
       {
         "source": "LZDe1f8rE",
         "sourceHandle": "1",
-        "target": "SQedUStPK",
+        "target": "cnvMarkDemux",
         "targetHandle": null,
         "id": "WJmeN0umw"
       },
@@ -334,6 +379,27 @@ const details = () => ({
         "target": "JTeKdNnFR",
         "targetHandle": null,
         "id": "vE6"
+      },
+      {
+        "source": "cnvMarkEnc",
+        "sourceHandle": "1",
+        "target": "ehGAkWvj7",
+        "targetHandle": null,
+        "id": "q9SMuVcpyb"
+      },
+      {
+        "source": "cnvMarkEncDone",
+        "sourceHandle": "1",
+        "target": "LZDe1f8rE",
+        "targetHandle": null,
+        "id": "Vu9HtsSNHb"
+      },
+      {
+        "source": "cnvMarkDemux",
+        "sourceHandle": "1",
+        "target": "SQedUStPK",
+        "targetHandle": null,
+        "id": "WJmeN0umwb"
       }
     ]
   });

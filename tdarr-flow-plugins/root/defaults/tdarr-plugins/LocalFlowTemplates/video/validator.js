@@ -283,6 +283,66 @@ const details = () => ({
           "x": 1284,
           "y": 492
         }
+      },
+      {
+        "name": "Mark step: landed for health check",
+        "sourceRepo": "Local",
+        "pluginName": "markStep",
+        "version": "1.0.0",
+        "inputsDB": {
+          "label": "validator-hc-queue"
+        },
+        "fpEnabled": true,
+        "id": "valMarkHcQueue",
+        "position": {
+          "x": 1284,
+          "y": 402
+        }
+      },
+      {
+        "name": "Mark step: thorough health check done",
+        "sourceRepo": "Local",
+        "pluginName": "markStep",
+        "version": "1.0.0",
+        "inputsDB": {
+          "label": "validator-hc-done"
+        },
+        "fpEnabled": true,
+        "id": "valMarkHcDone",
+        "position": {
+          "x": 1284,
+          "y": 462
+        }
+      },
+      {
+        "name": "Mark step: back on local",
+        "sourceRepo": "Local",
+        "pluginName": "markStep",
+        "version": "1.0.0",
+        "inputsDB": {
+          "label": "validator-back-local"
+        },
+        "fpEnabled": true,
+        "id": "valMarkBackLocal",
+        "position": {
+          "x": 1284,
+          "y": 522
+        }
+      },
+      {
+        "name": "Require health check before Replace",
+        "sourceRepo": "Local",
+        "pluginName": "requireTrail",
+        "version": "1.0.0",
+        "inputsDB": {
+          "requiredLabels": "validator-hc-queue,validator-hc-done,validator-back-local"
+        },
+        "fpEnabled": true,
+        "id": "valRequireHc",
+        "position": {
+          "x": 1284,
+          "y": 552
+        }
       }
     ],
     "flowEdges": [
@@ -499,21 +559,21 @@ const details = () => ({
       {
         "source": "reqOjochalHC",
         "sourceHandle": "1",
-        "target": "healthCheckPT",
+        "target": "valMarkHcQueue",
         "targetHandle": null,
         "id": "reqOjochalToHC"
       },
       {
         "source": "healthCheckPT",
         "sourceHandle": "1",
-        "target": "reqLocalPT",
+        "target": "valMarkHcDone",
         "targetHandle": null,
         "id": "hcToReqLocal"
       },
       {
         "source": "reqLocalPT",
         "sourceHandle": "1",
-        "target": "tagOutMeta",
+        "target": "valMarkBackLocal",
         "targetHandle": null,
         "id": "reqLocalToReplace"
       },
@@ -530,6 +590,41 @@ const details = () => ({
         "target": "1g5GNL1MP",
         "targetHandle": null,
         "id": "tagMetaToReplace"
+      },
+      {
+        "source": "valMarkHcQueue",
+        "sourceHandle": "1",
+        "target": "healthCheckPT",
+        "targetHandle": null,
+        "id": "reqOjochalToHCb"
+      },
+      {
+        "source": "valMarkHcDone",
+        "sourceHandle": "1",
+        "target": "reqLocalPT",
+        "targetHandle": null,
+        "id": "hcToReqLocalb"
+      },
+      {
+        "source": "valMarkBackLocal",
+        "sourceHandle": "1",
+        "target": "valRequireHc",
+        "targetHandle": null,
+        "id": "reqLocalToReplaceb"
+      },
+      {
+        "source": "valRequireHc",
+        "sourceHandle": "1",
+        "target": "tagOutMeta",
+        "targetHandle": null,
+        "id": "gateToTagMeta"
+      },
+      {
+        "source": "valRequireHc",
+        "sourceHandle": "2",
+        "target": "WrieN1BV1",
+        "targetHandle": null,
+        "id": "gateToFail"
       }
     ]
   });
