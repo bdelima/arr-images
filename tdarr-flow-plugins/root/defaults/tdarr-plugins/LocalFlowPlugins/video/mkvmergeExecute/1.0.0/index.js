@@ -277,7 +277,7 @@ const plugin = async (args) => {
   let lastPercent = -1;
   cli.parseOutput = (data) => {
     try {
-      if (typeof originalParse === 'function') originalParse(data);
+      if (typeof originalParse === 'function') originalParse.call(cli, data);
       const found = [...String(data).matchAll(/Progress:\s*(\d{1,3})%/g)];
       if (found.length === 0) return;
       const percentage = Math.min(100, Number(found[found.length - 1][1]));
