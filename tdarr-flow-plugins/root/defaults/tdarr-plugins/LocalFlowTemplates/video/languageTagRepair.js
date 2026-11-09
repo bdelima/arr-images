@@ -30,13 +30,13 @@ const details = () => ({
         }
       },
       {
-        "name": "Tags: Requeue to local",
+        "name": "Route to local CPU",
         "sourceRepo": "Community",
-        "pluginName": "tagsRequeue",
+        "pluginName": "tagsWorkerType",
         "version": "1.0.0",
         "inputsDB": {
-          "useBasicQueueTags": "false",
-          "customQueueTags": "requireCPU,local"
+          "requiredWorkerType": "CPU",
+          "requiredNodeTags": "local"
         },
         "fpEnabled": true,
         "id": "langRequeue",
