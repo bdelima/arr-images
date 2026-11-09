@@ -237,13 +237,13 @@ const details = () => ({
         }
       },
       {
-        "name": "Tags: Requeue to Ojochal (health check)",
+        "name": "Queue Full Healthcheck",
         "sourceRepo": "Community",
-        "pluginName": "tagsRequeue",
+        "pluginName": "tagsWorkerType",
         "version": "1.0.0",
         "inputsDB": {
-          "useBasicQueueTags": "false",
-          "customQueueTags": "requireGPU,healthcheck-full"
+          "requiredWorkerType": "GPU",
+          "requiredNodeTags": "healthcheck-full"
         },
         "fpEnabled": true,
         "id": "reqOjochalHC",
@@ -258,6 +258,7 @@ const details = () => ({
         "pluginName": "runHealthCheck",
         "version": "1.0.0",
         "inputsDB": {
+          "type": "thorough",
           "gpuAcceleration": "qsv"
         },
         "fpEnabled": true,
@@ -268,13 +269,13 @@ const details = () => ({
         }
       },
       {
-        "name": "Tags: Requeue to local",
+        "name": "Queue back to local",
         "sourceRepo": "Community",
-        "pluginName": "tagsRequeue",
+        "pluginName": "tagsWorkerType",
         "version": "1.0.0",
         "inputsDB": {
-          "useBasicQueueTags": "false",
-          "customQueueTags": "requireCPU,local"
+          "requiredWorkerType": "CPU",
+          "requiredNodeTags": "local"
         },
         "fpEnabled": true,
         "id": "reqLocalPT",
