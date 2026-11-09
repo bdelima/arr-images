@@ -14,6 +14,14 @@ It answers from Tdarr's own records and starts Tdarr on a download it has not se
                 per TRIGGER_DEDUP_SECONDS per path)                                                    -> not ready
     done        every file Tdarr knows under the path has a decision that is not an error              -> ready
 
+A finished Tdarr record (success, not required, error) describes the file as Tdarr last saw it. Tdarr keeps its
+records per absolute path, and a re-download of the same release lands on the same path, so a record can describe a
+file that is no longer there: left alone it would answer "done" for a fresh download that Tdarr never saw, and the
+arr app would import the raw release. So a finished record is compared with the file on disk (size and modification
+time, the `statSync` Tdarr stored); when they differ, the record is for an older file: it is removed from Tdarr's
+file database and a scan of that file is requested, like for a file Tdarr has never seen. A record with no stored
+size/time, a file not visible on disk, and a record with no decision yet are left as they are.
+
 The arr apps send the download's folder for multi-file downloads and the file itself otherwise. Tdarr keeps its
 records per file, keyed by the file's absolute path, so a folder is answered from the records whose path is under
 it. Every container must therefore see the downloads under the same path (as the compose file does).
@@ -66,6 +74,13 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 log = logging.getLogger("tdarr-download-validator")
+
+# A finished Tdarr record is for a different file than the one on disk when the size differs or the modification time
+# is further apart than this (Tdarr stores mtimeMs as a float; the same file on disk agrees to well under a second).
+STALE_MTIME_TOLERANCE_MS = 2000
+# A path whose record this service already removed is not removed again for this long: if a fresh record were ever
+# judged stale right away (a mismatch this check does not understand), that must cost one extra scan, not a loop.
+STALE_REMOVAL_COOLDOWN_SECONDS = 3600
 
 
 class TdarrError(Exception):
@@ -128,6 +143,9 @@ class Tdarr:
             raise TdarrError(f"getAll {collection}: expected a list")
         return [d for d in value if self._doc(d)]
 
+    def remove_one(self, collection, doc_id):
+        self._post("/api/v2/cruddb", {"collection": collection, "mode": "removeOne", "docID": doc_id})
+
     def scan(self, paths, library_id=None):
         # the response is discarded either way (and is plain text "OK" on success, not JSON) -- _post_raw,
         # not _post, so a successful scan is never mistaken for an "unparseable response" failure.
@@ -167,6 +185,7 @@ class Validator:
         # keys are matched case-insensitively: "Better" in TDARR_LIBRARY_MAP and "better" on a series are the same tier
         self.library_map = {k.strip().lower(): v for k, v in (library_map or {}).items()}
         self._triggered = {}
+        self._removed = {}
         self._lock = threading.Lock()
 
     def _library_for_tags(self, tags):
@@ -213,7 +232,7 @@ class Validator:
             return sorted(found)
         return [path]
 
-    def _trigger(self, path, library_id):
+    def _trigger(self, path, library_id, targets=None):
         now = self.clock()
         with self._lock:
             last = self._triggered.get(path)
@@ -224,16 +243,72 @@ class Validator:
             for key in [k for k, t in self._triggered.items() if now - t >= self.dedup_seconds]:
                 if key != path:
                     del self._triggered[key]
-        targets = self._resolve_scan_targets(path)
+        if targets is None:
+            targets = self._resolve_scan_targets(path)
         if targets:
             self.tdarr.scan(targets, library_id)
         return True
+
+    @staticmethod
+    def _is_stale(doc):
+        """True when a finished Tdarr record is for a different file than the one on disk now.
+
+        Only a record with a decision (anything but blank/queued, errors included) is judged, and only when Tdarr
+        stored a size and modification time for it and the file is visible here. Anything else is not stale: the
+        record is trusted as before."""
+        if _decision(doc).lower() in ("", "queued"):
+            return False
+        stat = doc.get("statSync") or {}
+        size, mtime_ms = stat.get("size"), stat.get("mtimeMs")
+        if not isinstance(size, (int, float)) or not isinstance(mtime_ms, (int, float)) or size <= 0 or mtime_ms <= 0:
+            return False
+        try:
+            disk = os.stat(_norm(doc["_id"]))
+        except OSError:
+            return False
+        return int(size) != disk.st_size or abs(disk.st_mtime * 1000 - mtime_ms) > STALE_MTIME_TOLERANCE_MS
+
+    def _remove_stale(self, path, stale, library_id):
+        """Remove the stale records, then ask for a scan of just those files. Returns the answer for the arr app."""
+        now = self.clock()
+        with self._lock:
+            last = self._removed.get(path)
+            if last is not None and now - last < STALE_REMOVAL_COOLDOWN_SECONDS:
+                log.warning("%s: Tdarr's records for %d file(s) look stale again within %d s of removing them; "
+                            "leaving them alone this time", path, len(stale), STALE_REMOVAL_COOLDOWN_SECONDS)
+                return None
+        ids = sorted(d["_id"] for d in stale)
+        for doc_id in ids:
+            try:
+                self.tdarr.remove_one("FileJSONDB", doc_id)
+                still_there = self.tdarr.get_by_id("FileJSONDB", doc_id)
+            except TdarrError as exc:
+                log.warning("could not remove the stale Tdarr record of %s: %s", doc_id, exc)
+                return {"ready": False, "message": f"stale Tdarr record could not be removed ({doc_id}): {exc}"}
+            if still_there:
+                log.warning("Tdarr still has a record for %s after removeOne", doc_id)
+                return {"ready": False, "message": f"stale Tdarr record is still there after removing it ({doc_id})"}
+            log.info("removed the stale Tdarr record of %s (the file on disk is not the one Tdarr processed)", doc_id)
+        with self._lock:
+            self._removed[path] = now
+            for key in [k for k, t in self._removed.items() if now - t >= STALE_REMOVAL_COOLDOWN_SECONDS]:
+                if key != path:
+                    del self._removed[key]
+        message = f"stale Tdarr record removed for {len(ids)} file(s)"
+        if self._trigger(path, library_id, targets=ids):
+            return {"ready": False, "message": f"{message}; scan requested"}
+        return {"ready": False, "message": f"{message}; scan already requested, waiting for Tdarr to pick it up"}
 
     def validate(self, path, tags=None):
         path = _norm(path)
         staged, files = self._records(path)
         if staged:
             return {"ready": False, "message": f"processing ({len(staged)} file(s) in a Flow)"}
+        stale = [d for d in files if self._is_stale(d)]
+        if stale:
+            answer = self._remove_stale(path, stale, self._library_for_tags(tags))
+            if answer is not None:
+                return answer
         errors = [d for d in files if "error" in _decision(d).lower()]
         if errors:
             first = errors[0]
