@@ -18,7 +18,10 @@ class FakeTdarr:
         self.staged = {}
         self.files = {}
         self.scans = []
+        self.removed = []
         self.down = False
+        self.fail_remove = False     # removeOne answers 500
+        self.remove_noop = False     # removeOne answers 200 but removes nothing
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -48,6 +51,15 @@ class FakeTdarr:
                         out = table.get(data["docID"], "")
                     elif data["mode"] == "getAll":
                         out = list(table.values())
+                    elif data["mode"] == "removeOne":
+                        if fake.fail_remove:
+                            self.send_response(500)
+                            self.end_headers()
+                            return
+                        fake.removed.append((data["collection"], data["docID"]))
+                        if not fake.remove_noop:
+                            table.pop(data["docID"], None)
+                        out = None
                     else:
                         out = None
                 else:
@@ -68,8 +80,12 @@ class FakeTdarr:
         self.server.shutdown()
         self.server.server_close()
 
-    def file(self, path, decision):
-        self.files[path] = {"_id": path, "TranscodeDecisionMaker": decision}
+    def file(self, path, decision, size=None, mtime_ms=None):
+        doc = {"_id": path, "TranscodeDecisionMaker": decision}
+        if size is not None or mtime_ms is not None:
+            # what Tdarr stores in a finished record: the file as it was when Tdarr finished with it
+            doc["statSync"] = {"size": size, "mtimeMs": mtime_ms}
+        self.files[path] = doc
 
     def stage(self, path):
         self.staged[path] = {"_id": path}
@@ -323,6 +339,188 @@ class ScanTargetsTests(unittest.TestCase):
         self.assertEqual(self.tdarr.scans[0]["arrayOrPath"], [missing])
 
 
+class StaleRecordTests(unittest.TestCase):
+    """A finished Tdarr record that describes a different file than the one on disk (a re-download of a release
+    that was processed before, same path) must not answer "done": it is removed and the file is scanned."""
+
+    def setUp(self):
+        self.tdarr = FakeTdarr()
+        self.now = 1000.0
+        self.validator = validator.Validator(
+            validator.Tdarr(self.tdarr.url, "lib1", 2), dedup_seconds=60, clock=lambda: self.now,
+            library_map={"balanced": "lib-balanced"})
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+
+    def tearDown(self):
+        self.tdarr.close()
+
+    def make(self, name, size, mtime=1794236663):
+        path = os.path.join(self.dir.name, name)
+        with open(path, "wb") as f:
+            f.write(b"x" * size)
+        os.utime(path, (mtime, mtime))
+        return path
+
+    def check(self, path, tags=None):
+        return self.validator.safe_validate(path, tags)
+
+    def test_record_of_an_older_file_is_removed_and_the_file_scanned(self):
+        # the Carrie case: Tdarr processed a file at this path (1,485,402,232 bytes, mtime 3 days ago); the
+        # re-download that now sits there is a different file
+        ep = self.make("ep.mkv", 2000)
+        self.tdarr.file(ep, "Transcode success", size=1500, mtime_ms=1793977625036.548)
+        r = self.check(ep)
+        self.assertFalse(r["ready"])
+        self.assertNotIn("failed", r)
+        self.assertIn("stale Tdarr record removed for 1 file(s)", r["message"])
+        self.assertEqual(self.tdarr.removed, [("FileJSONDB", ep)])
+        self.assertNotIn(ep, self.tdarr.files)
+        self.assertEqual(self.tdarr.scans, [{"dbID": "lib1", "arrayOrPath": [ep], "mode": "scanFolderWatcher"}])
+
+    def test_after_the_removal_the_file_is_triggered_like_an_unknown_one(self):
+        ep = self.make("ep.mkv", 2000)
+        self.tdarr.file(ep, "Transcode success", size=1500, mtime_ms=1793977625036.548)
+        self.check(ep)
+        self.now += 5
+        self.assertEqual(self.check(ep)["message"], "triggered, waiting for Tdarr to pick it up")
+        self.assertEqual(len(self.tdarr.scans), 1)
+        # Tdarr scans it and queues it; the validator keeps answering not ready until it is decided
+        self.tdarr.file(ep, "Queued")
+        self.now += 60
+        self.assertEqual(self.check(ep)["message"], "triggered")
+
+    def test_record_that_matches_the_file_is_ready_and_nothing_is_removed(self):
+        ep = self.make("ep.mkv", 2000, mtime=1793977625)
+        self.tdarr.file(ep, "Transcode success", size=2000, mtime_ms=1793977625036.548)
+        self.assertTrue(self.check(ep)["ready"])
+        self.assertEqual((self.tdarr.removed, self.tdarr.scans), ([], []))
+
+    def test_a_mtime_within_the_tolerance_is_the_same_file(self):
+        ep = self.make("ep.mkv", 2000, mtime=1793977625)
+        self.tdarr.file(ep, "Transcode success", size=2000, mtime_ms=1793977625000.0 + 1500)
+        self.assertTrue(self.check(ep)["ready"])
+
+    def test_same_size_but_another_mtime_is_another_file(self):
+        ep = self.make("ep.mkv", 2000, mtime=1794236663)
+        self.tdarr.file(ep, "Transcode success", size=2000, mtime_ms=1793977625036.548)
+        self.assertIn("stale", self.check(ep)["message"])
+
+    def test_same_mtime_but_another_size_is_another_file(self):
+        ep = self.make("ep.mkv", 2000, mtime=1793977625)
+        self.tdarr.file(ep, "Transcode success", size=1999, mtime_ms=1793977625000.0)
+        self.assertIn("stale", self.check(ep)["message"])
+
+    def test_old_error_record_does_not_fail_a_new_download(self):
+        # the same path, an earlier release that Tdarr failed: the new file is not that one
+        ep = self.make("ep.mkv", 2000)
+        self.tdarr.file(ep, "Transcode error", size=1500, mtime_ms=1793977625036.548)
+        r = self.check(ep)
+        self.assertEqual((r["ready"], r.get("failed")), (False, None))
+        self.assertEqual(self.tdarr.removed, [("FileJSONDB", ep)])
+
+    def test_a_current_error_record_still_fails(self):
+        ep = self.make("ep.mkv", 2000, mtime=1793977625)
+        self.tdarr.file(ep, "Transcode error", size=2000, mtime_ms=1793977625000.0)
+        self.assertTrue(self.check(ep).get("failed"))
+        self.assertEqual(self.tdarr.removed, [])
+
+    def test_a_record_without_a_decision_is_never_judged_stale(self):
+        ep = self.make("ep.mkv", 2000)
+        self.tdarr.file(ep, "", size=1500, mtime_ms=1793977625036.548)
+        self.assertEqual(self.check(ep)["message"], "triggered")
+        self.assertEqual(self.tdarr.removed, [])
+        self.tdarr.file(ep, "Queued", size=1500, mtime_ms=1793977625036.548)
+        self.now += 60
+        self.assertEqual(self.check(ep)["message"], "triggered")
+        self.assertEqual(self.tdarr.removed, [])
+
+    def test_a_record_with_no_stored_size_or_time_is_trusted(self):
+        ep = self.make("ep.mkv", 2000)
+        self.tdarr.file(ep, "Transcode success")
+        self.assertTrue(self.check(ep)["ready"])
+        self.tdarr.files[ep]["statSync"] = {"mtimeMs": 0, "ctimeMs": 0}
+        self.assertTrue(self.check(ep)["ready"])
+        self.tdarr.files[ep]["statSync"] = {"size": 1500}
+        self.assertTrue(self.check(ep)["ready"])
+        self.assertEqual(self.tdarr.removed, [])
+
+    def test_a_file_that_is_not_on_disk_is_trusted(self):
+        gone = os.path.join(self.dir.name, "gone.mkv")
+        self.tdarr.file(gone, "Transcode success", size=1500, mtime_ms=1793977625036.548)
+        self.assertTrue(self.check(gone)["ready"])
+        self.assertEqual(self.tdarr.removed, [])
+
+    def test_a_running_flow_still_wins(self):
+        ep = self.make("ep.mkv", 2000)
+        self.tdarr.file(ep, "Transcode success", size=1500, mtime_ms=1793977625036.548)
+        self.tdarr.stage(ep)
+        self.assertTrue(self.check(ep)["message"].startswith("processing"))
+        self.assertEqual((self.tdarr.removed, self.tdarr.scans), ([], []))
+
+    def test_folder_only_the_stale_files_are_removed_and_scanned(self):
+        old = self.make("one.mkv", 2000)
+        cur = self.make("two.mkv", 3000, mtime=1793977625)
+        self.tdarr.file(old, "Transcode success", size=1500, mtime_ms=1793977625036.548)
+        self.tdarr.file(cur, "Transcode success", size=3000, mtime_ms=1793977625000.0)
+        r = self.check(self.dir.name)
+        self.assertFalse(r["ready"])
+        self.assertEqual(self.tdarr.removed, [("FileJSONDB", old)])
+        self.assertIn(cur, self.tdarr.files)
+        self.assertEqual(self.tdarr.scans[0]["arrayOrPath"], [old])
+
+    def test_folder_with_every_record_current_is_ready(self):
+        a = self.make("one.mkv", 2000, mtime=1793977625)
+        b = self.make("two.mkv", 3000, mtime=1793977625)
+        self.tdarr.file(a, "Transcode success", size=2000, mtime_ms=1793977625000.0)
+        self.tdarr.file(b, "Not required", size=3000, mtime_ms=1793977625000.0)
+        self.assertTrue(self.check(self.dir.name)["ready"])
+
+    def test_the_scan_goes_to_the_library_of_the_tag(self):
+        ep = self.make("ep.mkv", 2000)
+        self.tdarr.file(ep, "Transcode success", size=1500, mtime_ms=1793977625036.548)
+        self.check(ep, ["balanced"])
+        self.assertEqual(self.tdarr.scans[0]["dbID"], "lib-balanced")
+
+    def test_the_same_path_is_not_removed_again_within_the_cooldown(self):
+        ep = self.make("ep.mkv", 2000)
+        self.tdarr.file(ep, "Transcode success", size=1500, mtime_ms=1793977625036.548)
+        self.check(ep)
+        # Tdarr's new record is judged stale again right away: leave it alone, do not loop
+        self.tdarr.file(ep, "Transcode success", size=1500, mtime_ms=1793977625036.548)
+        self.now += 120
+        with self.assertLogs("tdarr-download-validator", level="WARNING"):
+            r = self.check(ep)
+        self.assertTrue(r["ready"])
+        self.assertEqual(len(self.tdarr.removed), 1)
+        # an hour later a genuinely new download of the same release is handled again
+        self.now += validator.STALE_REMOVAL_COOLDOWN_SECONDS
+        self.assertIn("stale", self.check(ep)["message"])
+        self.assertEqual(len(self.tdarr.removed), 2)
+
+    def test_a_removal_that_fails_is_not_ready_not_failed_and_does_not_scan(self):
+        ep = self.make("ep.mkv", 2000)
+        self.tdarr.file(ep, "Transcode success", size=1500, mtime_ms=1793977625036.548)
+        self.tdarr.fail_remove = True
+        r = self.check(ep)
+        self.assertEqual(r["ready"], False)
+        self.assertNotIn("failed", r)
+        self.assertIn("could not be removed", r["message"])
+        self.assertEqual(self.tdarr.scans, [])
+        # not counted as a removal: once Tdarr cooperates the next call goes through
+        self.tdarr.fail_remove = False
+        self.assertIn("stale Tdarr record removed", self.check(ep)["message"])
+
+    def test_a_removal_that_does_nothing_is_reported_and_does_not_scan(self):
+        ep = self.make("ep.mkv", 2000)
+        self.tdarr.file(ep, "Transcode success", size=1500, mtime_ms=1793977625036.548)
+        self.tdarr.remove_noop = True
+        r = self.check(ep)
+        self.assertEqual(r["ready"], False)
+        self.assertIn("still there", r["message"])
+        self.assertEqual(self.tdarr.scans, [])
+
+
 class HttpTests(unittest.TestCase):
     def setUp(self):
         self.tdarr = FakeTdarr()
@@ -346,6 +544,18 @@ class HttpTests(unittest.TestCase):
         self.tdarr.file("/downloads/a/ep.mkv", "Transcode success")
         status, body = self.post(b'{"path": "/downloads/a/ep.mkv"}')
         self.assertEqual((status, body["ready"]), (200, True))
+
+    def test_a_redownload_over_a_finished_record_is_not_answered_ready_over_http(self):
+        with tempfile.TemporaryDirectory() as d:
+            ep = os.path.join(d, "ep.mkv")
+            with open(ep, "wb") as f:
+                f.write(b"x" * 2000)
+            self.tdarr.file(ep, "Transcode success", size=1500, mtime_ms=1793977625036.548)
+            status, body = self.post(json.dumps({"path": ep}).encode())
+            self.assertEqual(status, 200)
+            self.assertFalse(body["ready"])
+            self.assertIn("stale", body["message"])
+            self.assertEqual(self.tdarr.scans[0]["arrayOrPath"], [ep])
 
     def test_tags_in_the_body_route_the_scan(self):
         status, body = self.post(b'{"path": "/downloads/a/ep.mkv", "tags": ["drama", "Balanced"]}')
