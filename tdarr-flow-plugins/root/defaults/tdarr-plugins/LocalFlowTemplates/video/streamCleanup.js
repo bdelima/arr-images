@@ -1,7 +1,7 @@
 'use strict';
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
-// Live Tdarr flow "Stream Cleanup" (original flow _id: StreamCleanup_PENDING), exported 2026-11-08, plus a Require English Audio check (id scRequireEng) and a Fail Flow node (id scFailNoEng) in front of Begin Command.
+// Live Tdarr flow "Stream Cleanup" (original flow _id: StreamCleanup_PENDING), exported 2026-11-08, plus a Require English Audio check (id scRequireEng) and a Fail Flow node (id scFailNoEng) in front of Begin Command, and a Remove Untagged Audio step (id scRemoveUntagged) after Remove non-english audio.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Whether Tdarr keeps an _id given here when a flow is created from this file (Add Flow > Local) is unverified;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
@@ -98,6 +98,18 @@ const details = () => ({
         }
       },
       {
+        "name": "Remove untagged audio",
+        "sourceRepo": "Local",
+        "pluginName": "removeUntaggedAudio",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "scRemoveUntagged",
+        "position": {
+          "x": 996,
+          "y": 60
+        }
+      },
+      {
         "name": "Remove non-english subtitles",
         "sourceRepo": "Community",
         "pluginName": "ffmpegCommandRemoveStreamByProperty",
@@ -112,7 +124,7 @@ const details = () => ({
         "id": "scRemoveSubs",
         "position": {
           "x": 996,
-          "y": 60
+          "y": 132
         }
       },
       {
@@ -127,7 +139,7 @@ const details = () => ({
         "id": "scRemoveTitle",
         "position": {
           "x": 996,
-          "y": 144
+          "y": 216
         }
       },
       {
@@ -143,7 +155,7 @@ const details = () => ({
         "id": "scReturnToController",
         "position": {
           "x": 996,
-          "y": 288
+          "y": 360
         }
       },
       {
@@ -159,7 +171,7 @@ const details = () => ({
         "id": "scSetContainer",
         "position": {
           "x": 996,
-          "y": 216
+          "y": 288
         }
       }
     ],
@@ -202,9 +214,16 @@ const details = () => ({
       {
         "source": "scRemoveAudio",
         "sourceHandle": "1",
-        "target": "scRemoveSubs",
+        "target": "scRemoveUntagged",
         "targetHandle": null,
         "id": "scE5"
+      },
+      {
+        "source": "scRemoveUntagged",
+        "sourceHandle": "1",
+        "target": "scRemoveSubs",
+        "targetHandle": null,
+        "id": "scE5b"
       },
       {
         "source": "scRemoveSubs",
