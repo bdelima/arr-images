@@ -279,9 +279,10 @@ are `0.x` until that has been done on real files.
 
 `bdelima/tdarr-flow-plugins` is a [`DOCKER_MODS`](https://github.com/linuxserver/docker-mods) overlay for the Tdarr **server**
 container. It replaces hand-copying files onto the server: at every container start it puts six Local Flow Plugins
-(`classifySource`, `setMaxBitrate`, `tagEncodeSettings` v1, `tagOutputMetadata`) and the flow template files for the Downloads
+(`classifySource`, `setMaxBitrate`, `tagEncodeSettings`, `tagOutputMetadata`, `checkSourceEfficiency`,
+`setSourceRelativeBitrate`) and the flow template files for the Downloads
 Flow (Controller, Converter, Validator, Stream Cleanup, Clean-only passthrough) into the server's plugin folder. The files in
-[`tdarr-flow-plugins/root`](tdarr-flow-plugins/root) are the source of truth and are shipped as they are.
+[`tdarr-flow-plugins/root`](tdarr-flow-plugins/root) are the source of truth and are shipped as they are, except that the build appends the release version to each flow template's name (below).
 
 ```yaml
   tdarr:
@@ -303,8 +304,13 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   The script never stops the container from starting; a failure is a log line. A new plugin file needs the server restarted to load, which a container restart does anyway.
 - **Not in the image:** the five flows themselves (they live in Tdarr's database; import them with Add Flow > Import JSON Flow
   Template) and any Tdarr settings.
-- **Templates are unverified.** The `goToFlow` nodes reference other flows by their original ids. Pasting an export keeps them;
-  whether a flow created from a template file keeps them has not been confirmed. Check on a scratch server before relying on it.
+- **Flow names carry the release version.** The build appends the version to each template's flow name ("Controller" becomes
+  "Controller (0.2.1)"), so copies of a flow made from different releases can be told apart in Tdarr. Nothing in Tdarr refers to a
+  flow by name (`goToFlow` takes a flow id and a node id). The template files in the repo keep their plain names.
+- **A flow made from a template gets a new id and cannot update an existing flow.** Observed 2026-11-08: after the 0.2.0 Controller
+  and Converter appeared as new flows next to the live ones, the new Controller still sent files to the old Converter, and the old
+  Clean and Stream Cleanup flows still returned to the old Controller. To update a live flow in place, paste its JSON with its `_id`
+  into Add Flow > Import JSON Flow Template and choose Replace.
 - **Tests.** [`ci.yml`](.github/workflows/ci.yml) builds the image and runs [`smoke-test.sh`](tdarr-flow-plugins/smoke-test.sh):
   exactly the expected files, byte-identical to the repo, `node --check`, the s6 files, and the start-up script's copy rule
   (install / unchanged / replace-and-log / put back / twice is a no-op / owner and mode) in a container. CI has no Tdarr server,
