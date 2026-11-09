@@ -80,14 +80,13 @@ const details = () => ({
         }
       },
       {
-        "name": "Tags: Requeue to Encoder",
+        "name": "Route to encoder (GPU)",
         "sourceRepo": "Community",
-        "pluginName": "tagsRequeue",
+        "pluginName": "tagsWorkerType",
         "version": "1.0.0",
         "inputsDB": {
-          "useBasicQueueTags": "false",
-          "basicQueueTags": "requireCPU",
-          "customQueueTags": "requireGPU,encoder"
+          "requiredWorkerType": "GPU",
+          "requiredNodeTags": "encoder"
         },
         "fpEnabled": true,
         "id": "tHF4vUCsM",
@@ -176,13 +175,13 @@ const details = () => ({
         }
       },
       {
-        "name": "Tags: Requeue to local (demux path)",
+        "name": "Route to local CPU (demux path)",
         "sourceRepo": "Community",
-        "pluginName": "tagsRequeue",
+        "pluginName": "tagsWorkerType",
         "version": "1.0.0",
         "inputsDB": {
-          "useBasicQueueTags": "false",
-          "customQueueTags": "requireCPU,local"
+          "requiredWorkerType": "CPU",
+          "requiredNodeTags": "local"
         },
         "fpEnabled": true,
         "id": "LZDe1f8rE",
