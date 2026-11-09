@@ -155,8 +155,13 @@ const plugin = async (args) => {
     return candidates.find((c) => fs.existsSync(c)) || 'mkvmerge';
   })();
 
+  // mkvmerge opens file names in the locale's encoding. With no locale set (the C locale, which a container can
+  // have) it cannot open a name with accented or non-Latin characters ("The file '' could not be opened"), so run it
+  // with a UTF-8 locale. Reproduced with mkvmerge 82.0 in a sandbox; not checked in the Tdarr containers.
+  const env = { ...process.env, LC_ALL: 'C.UTF-8' };
+
   const identify = (file) => new Promise((resolve, reject) => {
-    execFile(bin, ['--identification-format', 'json', '--identify', file], { maxBuffer: 64 * 1024 * 1024 },
+    execFile(bin, ['--identification-format', 'json', '--identify', file], { maxBuffer: 64 * 1024 * 1024, env },
       (err, stdout, stderr) => {
         let parsed;
         try {
@@ -243,10 +248,17 @@ const plugin = async (args) => {
 
   args.jobLog(`mkvmerge Execute: ${bin} ${spawnArgs.map((a) => (a === '' ? '""' : a)).join(' ')}`);
 
+  // The arguments go to mkvmerge through a JSON options file (`mkvmerge @file`), not on the command line. Tdarr's CLI
+  // helper drops an empty-string argument, so `--title ""` arrived as a bare `--title` and mkvmerge took the next
+  // option as the title (job log 2026-11-09: "The file '0' could not be opened"). A file keeps every argument exactly,
+  // the empty title and paths with spaces included.
+  const optionsFile = `${outDir}/mkvmerge-options.json`;
+  fs.writeFileSync(optionsFile, JSON.stringify(spawnArgs), 'utf8');
+
   const cli = new CLI({
     cli: bin,
-    spawnArgs,
-    spawnOpts: {},
+    spawnArgs: [`@${optionsFile}`],
+    spawnOpts: { env },
     jobLog: args.jobLog,
     outputFilePath,
     inputFileObj: args.inputFileObj,
@@ -254,7 +266,39 @@ const plugin = async (args) => {
     updateWorker: args.updateWorker,
     args,
   });
+
+  // Tdarr's CLI helper only reads progress from ffmpeg, HandBrake and a few other encoders (it goes by the program
+  // name), so mkvmerge showed no percentage and the step looked hung. mkvmerge prints "Progress: N%" while it works;
+  // pass that on to the worker. This relies on the helper calling its parseOutput member for each chunk of output and
+  // having an updateETA member for the ETA (read on Tdarr master, not checked against the installed version). If the
+  // helper has no such members the percentage is still sent without an ETA, or nothing happens; the remux itself is
+  // never affected.
+  const originalParse = cli.parseOutput;
+  let lastPercent = -1;
+  cli.parseOutput = (data) => {
+    try {
+      if (typeof originalParse === 'function') originalParse.call(cli, data);
+      const found = [...String(data).matchAll(/Progress:\s*(\d{1,3})%/g)];
+      if (found.length === 0) return;
+      const percentage = Math.min(100, Number(found[found.length - 1][1]));
+      if (percentage <= lastPercent) return;
+      lastPercent = percentage;
+      if (percentage > 0 && typeof args.updateWorker === 'function') {
+        args.updateWorker({ percentage });
+        if (typeof cli.updateETA === 'function') Promise.resolve(cli.updateETA(percentage)).catch(() => {});
+      }
+    } catch (e) {
+      // progress is cosmetic: never let it break the remux
+    }
+  };
+
   const res = await cli.runCli();
+
+  try {
+    fs.unlinkSync(optionsFile);
+  } catch (e) {
+    args.jobLog(`mkvmerge Execute: could not remove ${optionsFile}: ${e.message}`);
+  }
 
   if (res.cliExitCode === 1 && !cli.cancelled) {
     args.jobLog('mkvmerge Execute: mkvmerge finished with warnings');
