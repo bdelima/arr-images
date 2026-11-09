@@ -278,10 +278,10 @@ are `0.x` until that has been done on real files.
 ## Tdarr flow plugins (tdarr-flow-plugins)
 
 `bdelima/tdarr-flow-plugins` is a [`DOCKER_MODS`](https://github.com/linuxserver/docker-mods) overlay for the Tdarr **server**
-container. It replaces hand-copying files onto the server: at every container start it puts nine Local Flow Plugins
+container. It replaces hand-copying files onto the server: at every container start it puts ten Local Flow Plugins
 (`classifySource`, `setMaxBitrate`, `tagEncodeSettings`, `tagOutputMetadata`, `checkSourceEfficiency`,
-`setSourceRelativeBitrate`, `requireEnglishAudio`, `removeUntaggedAudio`, `mkvmergeExecute`) and the flow template files for the Downloads
-Flow (Controller, Converter, Validator, Stream Cleanup, Clean-only passthrough) into the server's plugin folder. The files in
+`setSourceRelativeBitrate`, `requireEnglishAudio`, `removeUntaggedAudio`, `mkvmergeExecute`, `repairLanguageTags`) and the flow template files for the Downloads
+Flow (Controller, Converter, Validator, Stream Cleanup, Clean-only passthrough, Repair language tags) into the server's plugin folder. The files in
 [`tdarr-flow-plugins/root`](tdarr-flow-plugins/root) are the source of truth and are shipped as they are, except that the build appends the release version to each flow template's name (below).
 
 ```yaml
@@ -302,7 +302,7 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   (`[mod-tdarr-flow-plugins] replaced ... (it differed from the one in the image)`), so a host edit is never lost silently.
   Nothing else in the plugin folder is touched or deleted. Files are owned by `PUID:PGID` (when set), mode 664, new folders 775.
   The script never stops the container from starting; a failure is a log line. A new plugin file needs the server restarted to load, which a container restart does anyway.
-- **Not in the image:** the five flows themselves (they live in Tdarr's database; import them with Add Flow > Import JSON Flow
+- **Not in the image:** the six flows themselves (they live in Tdarr's database; import them with Add Flow > Import JSON Flow
   Template) and any Tdarr settings.
 - **Flow names carry the release version.** The build appends the version to each template's flow name ("Controller" becomes
   "Controller (0.2.1)"), so copies of a flow made from different releases can be told apart in Tdarr. Nothing in Tdarr refers to a
