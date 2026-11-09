@@ -2,11 +2,13 @@
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
 // Exported verbatim from the live Tdarr flow "Stream Cleanup" (original flow _id: StreamCleanup_PENDING) on 2026-11-08.
-// Template details() carry no _id; goToFlow nodes inside these flows reference other flows by their
-// original _id, so a flow created from this file only works if Tdarr keeps those IDs (unverified).
+// details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
+// it by id. Whether Tdarr keeps an _id given here when a flow is created from this file (Add Flow > Local) is unverified;
+// to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
+    "_id": "StreamCleanup_PENDING",
     "name": "Stream Cleanup",
     "description": "Stream Cleanup",
     "tags": "",
@@ -110,7 +112,7 @@ const details = () => ({
         "pluginName": "goToFlow",
         "version": "2.0.0",
         "inputsDB": {
-          "flowId": "WReQY_XGS",
+          "flowId": "HWxfel7zZ",
           "pluginId": "retFromCleanup"
         },
         "fpEnabled": true,
