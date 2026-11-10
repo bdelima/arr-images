@@ -68,7 +68,7 @@ const details = () => ({
       label: 'Audio+Subs Cache Directory (combine mode)',
       name: 'audioSubsDir',
       type: 'string',
-      defaultValue: '/downloads/.tdarr-remux-cache',
+      defaultValue: '/temp/.tdarr-remux-cache',
       inputUI: { type: 'text' },
       tooltip: 'Combine mode reads <this directory>/<original file name without extension>-audiosubs.mkv.',
     },
