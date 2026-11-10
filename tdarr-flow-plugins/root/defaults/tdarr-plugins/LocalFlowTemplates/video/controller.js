@@ -21,7 +21,7 @@ const details = () => ({
         "fpEnabled": true,
         "id": "6sLbd7Q3m",
         "position": {
-          "x": 672,
+          "x": 612,
           "y": -312
         }
       },
@@ -36,8 +36,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "Pu7lH9MsN",
         "position": {
-          "x": 672,
-          "y": -216
+          "x": 612,
+          "y": -120
         }
       },
       {
@@ -75,7 +75,7 @@ const details = () => ({
         "pluginName": "checkSourceEfficiency",
         "version": "1.0.0",
         "inputsDB": {
-          "enabled": "true",
+          "enabled": "false",
           "minBpp": "0.08",
           "legacyMinBpp": "0.04",
           "assumedAudioKbps": "256"
@@ -83,8 +83,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "chkSrcEff",
         "position": {
-          "x": 804,
-          "y": 0
+          "x": 828,
+          "y": -12
         }
       },
       {
@@ -99,7 +99,7 @@ const details = () => ({
         "fpEnabled": true,
         "id": "V0fhZ7bDk",
         "position": {
-          "x": 804,
+          "x": 1080,
           "y": 108
         }
       },
@@ -115,8 +115,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "JUvzFjlQc",
         "position": {
-          "x": 1320,
-          "y": 120
+          "x": 1260,
+          "y": 108
         }
       },
       {
@@ -171,8 +171,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "ctrlGoToCleanup",
         "position": {
-          "x": 672,
-          "y": -168
+          "x": 612,
+          "y": -12
         }
       },
       {
@@ -199,8 +199,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "ctrlReqLocal",
         "position": {
-          "x": 672,
-          "y": -264
+          "x": 612,
+          "y": -216
         }
       },
       {
@@ -230,8 +230,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "ctrlMarkStart",
         "position": {
-          "x": 672,
-          "y": -288
+          "x": 612,
+          "y": -264
         }
       },
       {
@@ -245,8 +245,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "ctrlMarkLocal",
         "position": {
-          "x": 672,
-          "y": -240
+          "x": 612,
+          "y": -168
         }
       },
       {
@@ -260,8 +260,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "ctrlMarkHc",
         "position": {
-          "x": 672,
-          "y": -192
+          "x": 612,
+          "y": -72
         }
       }
     ],

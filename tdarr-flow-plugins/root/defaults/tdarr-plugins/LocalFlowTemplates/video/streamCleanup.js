@@ -31,6 +31,9 @@ const details = () => ({
         "pluginName": "requireEnglishAudio",
         "version": "1.0.0",
         "fpEnabled": true,
+        "inputsDB": {
+          "languages": "eng,en"
+        },
         "id": "scRequireEng",
         "position": {
           "x": 996,
@@ -76,7 +79,7 @@ const details = () => ({
         "id": "scRemoveImages",
         "position": {
           "x": 996,
-          "y": -72
+          "y": -96
         }
       },
       {
@@ -87,14 +90,14 @@ const details = () => ({
         "inputsDB": {
           "codecType": "audio",
           "propertyToCheck": "tags.language",
-          "valuesToRemove": "eng",
+          "valuesToRemove": "eng,en",
           "condition": "not_equals"
         },
         "fpEnabled": true,
         "id": "scRemoveAudio",
         "position": {
           "x": 996,
-          "y": -12
+          "y": -48
         }
       },
       {
@@ -103,10 +106,13 @@ const details = () => ({
         "pluginName": "removeUntaggedAudio",
         "version": "1.0.0",
         "fpEnabled": true,
+        "inputsDB": {
+          "languages": "eng,en"
+        },
         "id": "scRemoveUntagged",
         "position": {
           "x": 996,
-          "y": 60
+          "y": 0
         }
       },
       {
@@ -117,14 +123,14 @@ const details = () => ({
         "inputsDB": {
           "codecType": "subtitle",
           "propertyToCheck": "tags.language",
-          "valuesToRemove": "eng",
+          "valuesToRemove": "eng,en",
           "condition": "not_equals"
         },
         "fpEnabled": true,
         "id": "scRemoveSubs",
         "position": {
           "x": 996,
-          "y": 132
+          "y": 36
         }
       },
       {
@@ -140,7 +146,7 @@ const details = () => ({
         "id": "scReturnToController",
         "position": {
           "x": 996,
-          "y": 360
+          "y": 96
         }
       }
     ],
