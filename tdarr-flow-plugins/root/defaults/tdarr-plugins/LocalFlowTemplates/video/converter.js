@@ -138,7 +138,8 @@ const details = () => ({
         "inputsDB": {
           "enabled": "true",
           "targetPercent": "70",
-          "ceilingPercent": "100",
+          "ceilingBasis": "peak",
+          "ceilingPercent": "70",
           "bufsizeMultiplier": "2",
           "minTargetKbps": "300",
           "assumedAudioKbps": "256"
