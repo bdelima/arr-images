@@ -2,6 +2,7 @@
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
 // Live Tdarr flow "Validator" (original flow _id: Yaax7LBej), exported 2026-11-08, plus a Tag Output Metadata node (id tagOutMeta) in front of Replace Original File. On 2026-11-10 the node positions and the passthrough size floor (Compare File Size Ratio (passthrough) greaterThan 70, was 25) were taken from Bob's live "Validator (0.5.1)". The four VMAF nodes (ids vmafCheck1, vmafCheck1_10bit, vmafCheck4k, vmafCheck4k_10bit) are instances of the Local plugin runVmaf instead of Run CLI shell scripts; same names, positions and edges.
+// Brought up to the live "Validator (0.6.0)" on 2026-11-10 (the version suffix is stamped on at image build, so the name here stays plain). Changes from that update: node id reqLocalPT is now "Queue back to VMAF node" (CPU worker, node tag vmaf, was "Queue back to local" with tag local) and sits at the start of the re-encode path (Entry re-encoded -> Queue back to VMAF node -> Mark step: back on local -> Compare File Size Ratio); the passthrough path now goes from Mark step: thorough health check done straight to Require health check before Replace; node positions moved. NOTE: Require health check before Replace still requires validator-hc-queue, validator-hc-done and validator-back-local, and the validator-back-local mark is now stamped only on the re-encode path, which does not pass through that gate.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
@@ -21,7 +22,7 @@ const details = () => ({
         "fpEnabled": true,
         "id": "FShP88xbj",
         "position": {
-          "x": 540,
+          "x": 504,
           "y": -96
         }
       },
@@ -30,14 +31,14 @@ const details = () => ({
         "sourceRepo": "Community",
         "pluginName": "compareFileSizeRatio",
         "version": "2.0.0",
+        "inputsDB": {
+          "greaterThan": "25"
+        },
         "fpEnabled": true,
         "id": "01GZNv02y",
         "position": {
-          "x": 540,
-          "y": -24
-        },
-        "inputsDB": {
-          "greaterThan": "25"
+          "x": 504,
+          "y": 24
         }
       },
       {
@@ -48,8 +49,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "CUsET8PD3",
         "position": {
-          "x": 420,
-          "y": 48
+          "x": 408,
+          "y": 108
         }
       },
       {
@@ -60,8 +61,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "WrieN1BV1",
         "position": {
-          "x": 864,
-          "y": 300
+          "x": 792,
+          "y": 240
         }
       },
       {
@@ -200,7 +201,7 @@ const details = () => ({
         "fpEnabled": true,
         "id": "FShP88xbjPT",
         "position": {
-          "x": 1044,
+          "x": 864,
           "y": -96
         }
       },
@@ -209,14 +210,14 @@ const details = () => ({
         "sourceRepo": "Community",
         "pluginName": "compareFileSizeRatio",
         "version": "2.0.0",
-        "fpEnabled": true,
         "inputsDB": {
           "greaterThan": "70"
         },
+        "fpEnabled": true,
         "id": "01GZNv02yPT",
         "position": {
-          "x": 1440,
-          "y": -96
+          "x": 1128,
+          "y": -72
         }
       },
       {
@@ -227,8 +228,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "CUsET8PD3PT",
         "position": {
-          "x": 1272,
-          "y": -24
+          "x": 1020,
+          "y": 0
         }
       },
       {
@@ -243,8 +244,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "reqOjochalHC",
         "position": {
-          "x": 1356,
-          "y": 180
+          "x": 1104,
+          "y": 192
         }
       },
       {
@@ -259,24 +260,24 @@ const details = () => ({
         "fpEnabled": true,
         "id": "healthCheckPT",
         "position": {
-          "x": 1548,
-          "y": 264
+          "x": 1320,
+          "y": 240
         }
       },
       {
-        "name": "Queue back to local",
+        "name": "Queue back to VMAF node",
         "sourceRepo": "Community",
         "pluginName": "tagsWorkerType",
         "version": "1.0.0",
         "inputsDB": {
           "requiredWorkerType": "CPU",
-          "requiredNodeTags": "local"
+          "requiredNodeTags": "vmaf"
         },
         "fpEnabled": true,
         "id": "reqLocalPT",
         "position": {
-          "x": 1356,
-          "y": 300
+          "x": 504,
+          "y": -48
         }
       },
       {
@@ -290,8 +291,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valMarkHcQueue",
         "position": {
-          "x": 1548,
-          "y": 204
+          "x": 1320,
+          "y": 192
         }
       },
       {
@@ -305,8 +306,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valMarkHcDone",
         "position": {
-          "x": 1548,
-          "y": 324
+          "x": 1320,
+          "y": 288
         }
       },
       {
@@ -320,8 +321,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valMarkBackLocal",
         "position": {
-          "x": 1356,
-          "y": 348
+          "x": 504,
+          "y": -12
         }
       },
       {
@@ -335,19 +336,12 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valRequireHc",
         "position": {
-          "x": 1356,
+          "x": 1104,
           "y": 396
         }
       }
     ],
     "flowEdges": [
-      {
-        "source": "FShP88xbj",
-        "sourceHandle": "1",
-        "target": "01GZNv02y",
-        "targetHandle": null,
-        "id": "rTL0zUBDZ"
-      },
       {
         "source": "01GZNv02y",
         "sourceHandle": "1",
@@ -594,20 +588,6 @@ const details = () => ({
         "id": "reqOjochalToHCb"
       },
       {
-        "source": "valMarkHcDone",
-        "sourceHandle": "1",
-        "target": "reqLocalPT",
-        "targetHandle": null,
-        "id": "hcToReqLocalb"
-      },
-      {
-        "source": "valMarkBackLocal",
-        "sourceHandle": "1",
-        "target": "valRequireHc",
-        "targetHandle": null,
-        "id": "reqLocalToReplaceb"
-      },
-      {
         "source": "valRequireHc",
         "sourceHandle": "1",
         "target": "tagOutMeta",
@@ -620,6 +600,27 @@ const details = () => ({
         "target": "WrieN1BV1",
         "targetHandle": null,
         "id": "gateToFail"
+      },
+      {
+        "source": "valMarkHcDone",
+        "sourceHandle": "1",
+        "target": "valRequireHc",
+        "targetHandle": null,
+        "id": "iR16UZ4VY"
+      },
+      {
+        "source": "FShP88xbj",
+        "sourceHandle": "1",
+        "target": "reqLocalPT",
+        "targetHandle": null,
+        "id": "qofAT2mS5"
+      },
+      {
+        "source": "valMarkBackLocal",
+        "sourceHandle": "1",
+        "target": "01GZNv02y",
+        "targetHandle": null,
+        "id": "EZe8LFgOg"
       }
     ]
   });

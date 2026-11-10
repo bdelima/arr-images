@@ -1,7 +1,10 @@
 'use strict';
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
-// Exported verbatim from the live Tdarr flow "Controller" (originally _id WReQY_XGS, now HWxfel7zZ) on 2026-11-08.
+// Exported verbatim from the live Tdarr flow "Controller" (originally _id WReQY_XGS, now HWxfel7zZ) on 2026-11-08, and
+// brought up to the live "Controller (0.6.0)" on 2026-11-10 (the version suffix is stamped on at image build, so the name here
+// stays plain). Changes from that update: the "Route to local CPU" and "Mark step: landed on local" nodes are gone, Input File
+// leads through "Mark step: controller start" straight into Run Health Check, and three node positions moved.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
@@ -37,7 +40,7 @@ const details = () => ({
         "id": "Pu7lH9MsN",
         "position": {
           "x": 612,
-          "y": -120
+          "y": -216
         }
       },
       {
@@ -172,7 +175,7 @@ const details = () => ({
         "id": "ctrlGoToCleanup",
         "position": {
           "x": 612,
-          "y": -12
+          "y": -108
         }
       },
       {
@@ -185,22 +188,6 @@ const details = () => ({
         "position": {
           "x": 948,
           "y": -312
-        }
-      },
-      {
-        "name": "Route to local CPU",
-        "sourceRepo": "Community",
-        "pluginName": "tagsWorkerType",
-        "version": "1.0.0",
-        "inputsDB": {
-          "requiredWorkerType": "CPU",
-          "requiredNodeTags": "local"
-        },
-        "fpEnabled": true,
-        "id": "ctrlReqLocal",
-        "position": {
-          "x": 612,
-          "y": -216
         }
       },
       {
@@ -235,21 +222,6 @@ const details = () => ({
         }
       },
       {
-        "name": "Mark step: landed on local",
-        "sourceRepo": "Local",
-        "pluginName": "markStep",
-        "version": "1.0.0",
-        "inputsDB": {
-          "label": "controller-local"
-        },
-        "fpEnabled": true,
-        "id": "ctrlMarkLocal",
-        "position": {
-          "x": 612,
-          "y": -168
-        }
-      },
-      {
         "name": "Mark step: quick health check done",
         "sourceRepo": "Local",
         "pluginName": "markStep",
@@ -261,7 +233,7 @@ const details = () => ({
         "id": "ctrlMarkHc",
         "position": {
           "x": 612,
-          "y": -72
+          "y": -168
         }
       }
     ],
@@ -400,32 +372,18 @@ const details = () => ({
         "id": "ctrlE3"
       },
       {
-        "source": "ctrlReqLocal",
-        "sourceHandle": "1",
-        "target": "ctrlMarkLocal",
-        "targetHandle": null,
-        "id": "ctrlE4"
-      },
-      {
-        "source": "ctrlMarkStart",
-        "sourceHandle": "1",
-        "target": "ctrlReqLocal",
-        "targetHandle": null,
-        "id": "ctrlE3b"
-      },
-      {
-        "source": "ctrlMarkLocal",
-        "sourceHandle": "1",
-        "target": "Pu7lH9MsN",
-        "targetHandle": null,
-        "id": "ctrlE4b"
-      },
-      {
         "source": "ctrlMarkHc",
         "sourceHandle": "1",
         "target": "ctrlGoToCleanup",
         "targetHandle": null,
         "id": "ctrlE1b"
+      },
+      {
+        "source": "ctrlMarkStart",
+        "sourceHandle": "1",
+        "target": "Pu7lH9MsN",
+        "targetHandle": null,
+        "id": "wX1SDPG_j"
       }
     ]
   });

@@ -3,6 +3,9 @@
 /* eslint-disable import/prefer-default-export */
 // Exported verbatim from the live Tdarr flow "264 to 265 Converter" (originally _id YEZ9GlGHp, now 20ZN6oc41) on 2026-11-08, then changed so that every remux step is the mkvmerge Execute plugin (mkvmergeExecute) instead of ffmpeg: the
 // Remove video streams node is gone (audioSubs mode leaves video out) and Entry goes straight to the audio+subs step.
+// Brought up to the live "Converter (0.6.0)" on 2026-11-10 (the version suffix is stamped on at image build, so the name here is the
+// plain "Converter", as the live flow is now called). Changes from that update: the "Route to local CPU (demux path)" and "Mark step:
+// landed on local (demux)" nodes are gone, so "Mark step: encode done" leads straight into the final mkvmerge combine; node positions moved.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
@@ -10,8 +13,8 @@ Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
     "_id": "20ZN6oc41",
-    "name": "264 to 265 Converter",
-    "description": "264 to 265 Converter",
+    "name": "Converter",
+    "description": "Converter",
     "tags": "",
     "flowPlugins": [
       {
@@ -103,8 +106,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "ehGAkWvj7",
         "position": {
-          "x": 804,
-          "y": 384
+          "x": 720,
+          "y": 336
         }
       },
       {
@@ -126,8 +129,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "FAc9QeWJK",
         "position": {
-          "x": 804,
-          "y": 432
+          "x": 720,
+          "y": 384
         }
       },
       {
@@ -147,8 +150,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "srcRelCap",
         "position": {
-          "x": 804,
-          "y": 480
+          "x": 720,
+          "y": 432
         }
       },
       {
@@ -159,8 +162,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "d7QK1TBlh",
         "position": {
-          "x": 804,
-          "y": 516
+          "x": 720,
+          "y": 468
         }
       },
       {
@@ -171,23 +174,7 @@ const details = () => ({
         "fpEnabled": true,
         "id": "Y40uvSwMF",
         "position": {
-          "x": 804,
-          "y": 552
-        }
-      },
-      {
-        "name": "Route to local CPU (demux path)",
-        "sourceRepo": "Community",
-        "pluginName": "tagsWorkerType",
-        "version": "1.0.0",
-        "inputsDB": {
-          "requiredWorkerType": "CPU",
-          "requiredNodeTags": "local"
-        },
-        "fpEnabled": true,
-        "id": "LZDe1f8rE",
-        "position": {
-          "x": 456,
+          "x": 720,
           "y": 504
         }
       },
@@ -204,7 +191,7 @@ const details = () => ({
         "id": "SQedUStPK",
         "position": {
           "x": 456,
-          "y": 600
+          "y": 552
         }
       },
       {
@@ -224,7 +211,7 @@ const details = () => ({
         "id": "R0CsTy4Qw",
         "position": {
           "x": 456,
-          "y": 636
+          "y": 588
         }
       },
       {
@@ -240,7 +227,7 @@ const details = () => ({
         "id": "b8n51xYj4",
         "position": {
           "x": 456,
-          "y": 684
+          "y": 636
         }
       },
       {
@@ -254,8 +241,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "cnvMarkEnc",
         "position": {
-          "x": 804,
-          "y": 336
+          "x": 720,
+          "y": 288
         }
       },
       {
@@ -269,22 +256,7 @@ const details = () => ({
         "fpEnabled": true,
         "id": "cnvMarkEncDone",
         "position": {
-          "x": 804,
-          "y": 600
-        }
-      },
-      {
-        "name": "Mark step: landed on local (demux)",
-        "sourceRepo": "Local",
-        "pluginName": "markStep",
-        "version": "1.0.0",
-        "inputsDB": {
-          "label": "converter-demux-local"
-        },
-        "fpEnabled": true,
-        "id": "cnvMarkDemux",
-        "position": {
-          "x": 456,
+          "x": 720,
           "y": 552
         }
       }
@@ -354,13 +326,6 @@ const details = () => ({
         "id": "Vu9HtsSNH"
       },
       {
-        "source": "LZDe1f8rE",
-        "sourceHandle": "1",
-        "target": "cnvMarkDemux",
-        "targetHandle": null,
-        "id": "WJmeN0umw"
-      },
-      {
         "source": "SQedUStPK",
         "sourceHandle": "1",
         "target": "R0CsTy4Qw",
@@ -391,16 +356,9 @@ const details = () => ({
       {
         "source": "cnvMarkEncDone",
         "sourceHandle": "1",
-        "target": "LZDe1f8rE",
-        "targetHandle": null,
-        "id": "Vu9HtsSNHb"
-      },
-      {
-        "source": "cnvMarkDemux",
-        "sourceHandle": "1",
         "target": "SQedUStPK",
         "targetHandle": null,
-        "id": "WJmeN0umwb"
+        "id": "BPr3K1ven"
       }
     ]
   });
