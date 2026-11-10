@@ -1,7 +1,7 @@
 'use strict';
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
-// Live Tdarr flow "Stream Cleanup" (original flow _id: StreamCleanup_PENDING), exported 2026-11-08, plus a Require English Audio check (id scRequireEng) and a Fail Flow node (id scFailNoEng) in front of Begin Command, and a Remove Untagged Audio step (id scRemoveUntagged) after Remove non-english audio. It only decides which streams stay (the command is run by the mkvmerge Execute node in the Clean and Converter flows); the old Remove title metadata and Set Container nodes are gone because mkvmerge removes the title and global tags and always writes mkv.
+// Live Tdarr flow "Stream Cleanup" (original flow _id: StreamCleanup_PENDING), exported 2026-11-08, plus a Require English Audio check (id scRequireEng) and a Fail Flow node (id scFailNoEng) in front of Begin Command, and a Remove Untagged Audio step (id scRemoveUntagged) after Remove non-english audio. Bob added a Repair Language Tags node (id AmdPMw1wc, no inputs set, so the plugin defaults: language eng, encoder prefix Lavf, dryRun off) in the live flow on 2026-11-10: Require English Audio output 2 now goes to it instead of straight to Fail Flow; its output 1 (tags repaired) goes to Begin Command and its output 2 (nothing to repair) goes to Fail Flow. Node positions are the live ones. It only decides which streams stay (the command is run by the mkvmerge Execute node in the Clean and Converter flows); the old Remove title metadata and Set Container nodes are gone because mkvmerge removes the title and global tags and always writes mkv.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
@@ -37,7 +37,7 @@ const details = () => ({
         "id": "scRequireEng",
         "position": {
           "x": 996,
-          "y": -216
+          "y": -228
         }
       },
       {
@@ -48,8 +48,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "scFailNoEng",
         "position": {
-          "x": 1260,
-          "y": -216
+          "x": 1224,
+          "y": -108
         }
       },
       {
@@ -148,6 +148,18 @@ const details = () => ({
           "x": 996,
           "y": 96
         }
+      },
+      {
+        "name": "Repair Language Tags",
+        "sourceRepo": "Local",
+        "pluginName": "repairLanguageTags",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "AmdPMw1wc",
+        "position": {
+          "x": 1200,
+          "y": -180
+        }
       }
     ],
     "flowEdges": [
@@ -168,9 +180,23 @@ const details = () => ({
       {
         "source": "scRequireEng",
         "sourceHandle": "2",
+        "target": "AmdPMw1wc",
+        "targetHandle": null,
+        "id": "IK1yFZ3Bv"
+      },
+      {
+        "source": "AmdPMw1wc",
+        "sourceHandle": "1",
+        "target": "scBegin",
+        "targetHandle": null,
+        "id": "X3RF1hLd7"
+      },
+      {
+        "source": "AmdPMw1wc",
+        "sourceHandle": "2",
         "target": "scFailNoEng",
         "targetHandle": null,
-        "id": "scE2c"
+        "id": "29dayHdIw"
       },
       {
         "source": "scBegin",
