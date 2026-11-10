@@ -21,8 +21,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "FShP88xbj",
         "position": {
-          "x": 552,
-          "y": 168
+          "x": 540,
+          "y": -96
         }
       },
       {
@@ -33,11 +33,11 @@ const details = () => ({
         "fpEnabled": true,
         "id": "01GZNv02y",
         "position": {
-          "x": 552,
-          "y": 240
+          "x": 540,
+          "y": -24
         },
         "inputsDB": {
-          "greaterThan": "30"
+          "greaterThan": "25"
         }
       },
       {
@@ -48,8 +48,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "CUsET8PD3",
         "position": {
-          "x": 516,
-          "y": 300
+          "x": 420,
+          "y": 48
         }
       },
       {
@@ -60,8 +60,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "WrieN1BV1",
         "position": {
-          "x": 800,
-          "y": 260
+          "x": 864,
+          "y": 300
         }
       },
       {
@@ -72,8 +72,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "checkRes4k",
         "position": {
-          "x": 480,
-          "y": 372
+          "x": 384,
+          "y": 216
         }
       },
       {
@@ -85,7 +85,7 @@ const details = () => ({
         "id": "check10BitStd",
         "position": {
           "x": 324,
-          "y": 468
+          "y": 312
         }
       },
       {
@@ -96,8 +96,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "check10Bit4k",
         "position": {
-          "x": 630,
-          "y": 444
+          "x": 624,
+          "y": 348
         }
       },
       {
@@ -115,8 +115,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "vmafCheck1",
         "position": {
-          "x": 432,
-          "y": 552
+          "x": 408,
+          "y": 396
         }
       },
       {
@@ -134,8 +134,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "vmafCheck1_10bit",
         "position": {
-          "x": 264,
-          "y": 552
+          "x": 240,
+          "y": 384
         }
       },
       {
@@ -153,8 +153,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "vmafCheck4k",
         "position": {
-          "x": 768,
-          "y": 552
+          "x": 732,
+          "y": 444
         }
       },
       {
@@ -172,8 +172,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "vmafCheck4k_10bit",
         "position": {
-          "x": 600,
-          "y": 552
+          "x": 564,
+          "y": 444
         }
       },
       {
@@ -184,8 +184,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "tagOutMeta",
         "position": {
-          "x": 960,
-          "y": 700
+          "x": 936,
+          "y": 600
         }
       },
       {
@@ -196,8 +196,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "1g5GNL1MP",
         "position": {
-          "x": 960,
-          "y": 780
+          "x": 936,
+          "y": 648
         }
       },
       {
@@ -208,8 +208,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "FShP88xbjPT",
         "position": {
-          "x": 1092,
-          "y": 168
+          "x": 1140,
+          "y": -96
         }
       },
       {
@@ -218,10 +218,13 @@ const details = () => ({
         "pluginName": "compareFileSizeRatio",
         "version": "2.0.0",
         "fpEnabled": true,
+        "inputsDB": {
+          "greaterThan": "25"
+        },
         "id": "01GZNv02yPT",
         "position": {
-          "x": 1356,
-          "y": 228
+          "x": 1500,
+          "y": -108
         }
       },
       {
@@ -232,8 +235,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "CUsET8PD3PT",
         "position": {
-          "x": 1236,
-          "y": 204
+          "x": 1392,
+          "y": -24
         }
       },
       {
@@ -248,8 +251,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "reqOjochalHC",
         "position": {
-          "x": 1284,
-          "y": 372
+          "x": 1356,
+          "y": 180
         }
       },
       {
@@ -264,8 +267,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "healthCheckPT",
         "position": {
-          "x": 1284,
-          "y": 432
+          "x": 1548,
+          "y": 264
         }
       },
       {
@@ -280,8 +283,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "reqLocalPT",
         "position": {
-          "x": 1284,
-          "y": 492
+          "x": 1356,
+          "y": 300
         }
       },
       {
@@ -295,8 +298,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valMarkHcQueue",
         "position": {
-          "x": 1284,
-          "y": 402
+          "x": 1548,
+          "y": 204
         }
       },
       {
@@ -310,8 +313,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valMarkHcDone",
         "position": {
-          "x": 1284,
-          "y": 462
+          "x": 1548,
+          "y": 324
         }
       },
       {
@@ -325,8 +328,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valMarkBackLocal",
         "position": {
-          "x": 1284,
-          "y": 522
+          "x": 1356,
+          "y": 348
         }
       },
       {
@@ -340,8 +343,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valRequireHc",
         "position": {
-          "x": 1284,
-          "y": 552
+          "x": 1356,
+          "y": 396
         }
       }
     ],
@@ -580,9 +583,9 @@ const details = () => ({
       {
         "source": "01GZNv02y",
         "sourceHandle": "2",
-        "target": "01GZNv02y",
+        "target": "WrieN1BV1",
         "targetHandle": null,
-        "id": "0ds-weFG1"
+        "id": "jTlWGHyso"
       },
       {
         "source": "tagOutMeta",
