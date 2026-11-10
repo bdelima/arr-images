@@ -1,7 +1,7 @@
 'use strict';
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
-// Live Tdarr flow "Validator" (original flow _id: Yaax7LBej), exported 2026-11-08, plus a Tag Output Metadata node (id tagOutMeta) in front of Replace Original File. On 2026-11-10 the node positions and the passthrough size floor (Compare File Size Ratio (passthrough) greaterThan 70, was 25) were taken from Bob's live "Validator (0.5.1)".
+// Live Tdarr flow "Validator" (original flow _id: Yaax7LBej), exported 2026-11-08, plus a Tag Output Metadata node (id tagOutMeta) in front of Replace Original File. On 2026-11-10 the node positions and the passthrough size floor (Compare File Size Ratio (passthrough) greaterThan 70, was 25) were taken from Bob's live "Validator (0.5.1)". The four VMAF nodes (ids vmafCheck1, vmafCheck1_10bit, vmafCheck4k, vmafCheck4k_10bit) are instances of the Local plugin runVmaf instead of Run CLI shell scripts; same names, positions and edges.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
@@ -102,15 +102,13 @@ const details = () => ({
       },
       {
         "name": "Run VMAF Quality Check",
-        "sourceRepo": "Community",
-        "pluginName": "runCli",
+        "sourceRepo": "Local",
+        "pluginName": "runVmaf",
         "version": "1.0.0",
         "inputsDB": {
-          "useCustomCliPath": "true",
-          "customCliPath": "/bin/sh",
-          "doesCommandCreateOutputFile": "false",
-          "userOutputFilePath": "{{{args.inputFileObj._id}}}",
-          "cliArguments": "-c 'LOCKFILE=\"/temp/vmaf-cuda.lock\"; VMAFLOG=\"/temp/vmaf-$$.json\"; flock \"$LOCKFILE\" /usr/local/bin/ffmpeg-vmaf-cuda -xerror -stats_period 5 -hwaccel cuda -hwaccel_output_format cuda -i \"{{{args.originalLibraryFile._id}}}\" -hwaccel cuda -hwaccel_output_format cuda -i \"{{{args.inputFileObj._id}}}\" -an -filter_complex \"[0:v]scale_cuda=format=yuv420p[ref];[1:v]scale_cuda=format=yuv420p[dist];[dist][ref]libvmaf_cuda=log_path=$VMAFLOG:log_fmt=json\" -f null - 2>&1; EC=$?; if [ $EC -ne 0 ]; then echo \"ffmpeg-vmaf-cuda failed with exit $EC\"; rm -f \"$VMAFLOG\"; exit 1; fi; MEAN=$(grep -A5 \"\\\"vmaf\\\"\" \"$VMAFLOG\" | grep \"\\\"mean\\\"\" | head -1 | sed -E \"s/[^0-9.]+//g\"); MIN=$(grep -A5 \"\\\"vmaf\\\"\" \"$VMAFLOG\" | grep \"\\\"min\\\"\" | head -1 | sed -E \"s/[^0-9.]+//g\"); HMEAN=$(grep -A5 \"\\\"vmaf\\\"\" \"$VMAFLOG\" | grep \"\\\"harmonic_mean\\\"\" | head -1 | sed -E \"s/[^0-9.]+//g\"); FRAMES=\"/temp/vmaf-frames-$$.txt\"; sed -n \"/\\\"frames\\\": \\[/,/^  \\],/p\" \"$VMAFLOG\" | grep -oE \"\\\"vmaf\\\": [0-9.]+\" | sed -E \"s/.*: //\" | sort -n > \"$FRAMES\"; N=$(wc -l < \"$FRAMES\"); P=$(awk -v n=\"$N\" \"BEGIN{print 1*(n-1)/100}\"); IL=$(awk -v p=\"$P\" \"BEGIN{print int(p)}\"); IR=$(awk -v p=\"$P\" -v il=\"$IL\" \"BEGIN{print (p==il)?il:il+1}\"); LO=$(sed -n \"$((IL+1))p\" \"$FRAMES\"); HI=$(sed -n \"$((IR+1))p\" \"$FRAMES\"); P1=$(awk -v lo=\"$LO\" -v hi=\"$HI\" -v il=\"$IL\" -v ir=\"$IR\" -v p=\"$P\" \"BEGIN{if(il==ir) r=lo; else r=lo*(ir-p)+hi*(p-il); print r}\"); rm -f \"$FRAMES\"; echo \"VMAF score: mean=$MEAN min=$MIN harmonic_mean=$HMEAN p1=$P1 n=$N\"; rm -f \"$VMAFLOG\"; awk -v s=\"$MEAN\" \"BEGIN{exit !(s>=93)}\"'"
+          "pixelFormat": "yuv420p",
+          "model": "default",
+          "minMean": "93"
         },
         "fpEnabled": true,
         "id": "vmafCheck1",
@@ -121,15 +119,13 @@ const details = () => ({
       },
       {
         "name": "Run VMAF Quality Check (10-bit)",
-        "sourceRepo": "Community",
-        "pluginName": "runCli",
+        "sourceRepo": "Local",
+        "pluginName": "runVmaf",
         "version": "1.0.0",
         "inputsDB": {
-          "useCustomCliPath": "true",
-          "customCliPath": "/bin/sh",
-          "doesCommandCreateOutputFile": "false",
-          "userOutputFilePath": "{{{args.inputFileObj._id}}}",
-          "cliArguments": "-c 'LOCKFILE=\"/temp/vmaf-cuda.lock\"; VMAFLOG=\"/temp/vmaf-$$.json\"; flock \"$LOCKFILE\" /usr/local/bin/ffmpeg-vmaf-cuda -xerror -stats_period 5 -hwaccel cuda -hwaccel_output_format cuda -i \"{{{args.originalLibraryFile._id}}}\" -hwaccel cuda -hwaccel_output_format cuda -i \"{{{args.inputFileObj._id}}}\" -an -filter_complex \"[0:v]scale_cuda=format=yuv420p10le[ref];[1:v]scale_cuda=format=yuv420p10le[dist];[dist][ref]libvmaf_cuda=log_path=$VMAFLOG:log_fmt=json\" -f null - 2>&1; EC=$?; if [ $EC -ne 0 ]; then echo \"ffmpeg-vmaf-cuda failed with exit $EC\"; rm -f \"$VMAFLOG\"; exit 1; fi; MEAN=$(grep -A5 \"\\\"vmaf\\\"\" \"$VMAFLOG\" | grep \"\\\"mean\\\"\" | head -1 | sed -E \"s/[^0-9.]+//g\"); MIN=$(grep -A5 \"\\\"vmaf\\\"\" \"$VMAFLOG\" | grep \"\\\"min\\\"\" | head -1 | sed -E \"s/[^0-9.]+//g\"); HMEAN=$(grep -A5 \"\\\"vmaf\\\"\" \"$VMAFLOG\" | grep \"\\\"harmonic_mean\\\"\" | head -1 | sed -E \"s/[^0-9.]+//g\"); FRAMES=\"/temp/vmaf-frames-$$.txt\"; sed -n \"/\\\"frames\\\": \\[/,/^  \\],/p\" \"$VMAFLOG\" | grep -oE \"\\\"vmaf\\\": [0-9.]+\" | sed -E \"s/.*: //\" | sort -n > \"$FRAMES\"; N=$(wc -l < \"$FRAMES\"); P=$(awk -v n=\"$N\" \"BEGIN{print 1*(n-1)/100}\"); IL=$(awk -v p=\"$P\" \"BEGIN{print int(p)}\"); IR=$(awk -v p=\"$P\" -v il=\"$IL\" \"BEGIN{print (p==il)?il:il+1}\"); LO=$(sed -n \"$((IL+1))p\" \"$FRAMES\"); HI=$(sed -n \"$((IR+1))p\" \"$FRAMES\"); P1=$(awk -v lo=\"$LO\" -v hi=\"$HI\" -v il=\"$IL\" -v ir=\"$IR\" -v p=\"$P\" \"BEGIN{if(il==ir) r=lo; else r=lo*(ir-p)+hi*(p-il); print r}\"); rm -f \"$FRAMES\"; echo \"VMAF score: mean=$MEAN min=$MIN harmonic_mean=$HMEAN p1=$P1 n=$N\"; rm -f \"$VMAFLOG\"; awk -v s=\"$MEAN\" \"BEGIN{exit !(s>=93)}\"'"
+          "pixelFormat": "yuv420p10le",
+          "model": "default",
+          "minMean": "93"
         },
         "fpEnabled": true,
         "id": "vmafCheck1_10bit",
@@ -140,15 +136,13 @@ const details = () => ({
       },
       {
         "name": "Run VMAF Quality Check (4K model)",
-        "sourceRepo": "Community",
-        "pluginName": "runCli",
+        "sourceRepo": "Local",
+        "pluginName": "runVmaf",
         "version": "1.0.0",
         "inputsDB": {
-          "useCustomCliPath": "true",
-          "customCliPath": "/bin/sh",
-          "doesCommandCreateOutputFile": "false",
-          "userOutputFilePath": "{{{args.inputFileObj._id}}}",
-          "cliArguments": "-c 'LOCKFILE=\"/temp/vmaf-cuda.lock\"; VMAFLOG=\"/temp/vmaf-$$.json\"; flock \"$LOCKFILE\" /usr/local/bin/ffmpeg-vmaf-cuda -xerror -stats_period 5 -hwaccel cuda -hwaccel_output_format cuda -i \"{{{args.originalLibraryFile._id}}}\" -hwaccel cuda -hwaccel_output_format cuda -i \"{{{args.inputFileObj._id}}}\" -an -filter_complex \"[0:v]scale_cuda=format=yuv420p[ref];[1:v]scale_cuda=format=yuv420p[dist];[dist][ref]libvmaf_cuda=model=version=vmaf_4k_v0.6.1:log_path=$VMAFLOG:log_fmt=json\" -f null - 2>&1; EC=$?; if [ $EC -ne 0 ]; then echo \"ffmpeg-vmaf-cuda failed with exit $EC\"; rm -f \"$VMAFLOG\"; exit 1; fi; MEAN=$(grep -A5 \"\\\"vmaf\\\"\" \"$VMAFLOG\" | grep \"\\\"mean\\\"\" | head -1 | sed -E \"s/[^0-9.]+//g\"); MIN=$(grep -A5 \"\\\"vmaf\\\"\" \"$VMAFLOG\" | grep \"\\\"min\\\"\" | head -1 | sed -E \"s/[^0-9.]+//g\"); HMEAN=$(grep -A5 \"\\\"vmaf\\\"\" \"$VMAFLOG\" | grep \"\\\"harmonic_mean\\\"\" | head -1 | sed -E \"s/[^0-9.]+//g\"); FRAMES=\"/temp/vmaf-frames-$$.txt\"; sed -n \"/\\\"frames\\\": \\[/,/^  \\],/p\" \"$VMAFLOG\" | grep -oE \"\\\"vmaf\\\": [0-9.]+\" | sed -E \"s/.*: //\" | sort -n > \"$FRAMES\"; N=$(wc -l < \"$FRAMES\"); P=$(awk -v n=\"$N\" \"BEGIN{print 1*(n-1)/100}\"); IL=$(awk -v p=\"$P\" \"BEGIN{print int(p)}\"); IR=$(awk -v p=\"$P\" -v il=\"$IL\" \"BEGIN{print (p==il)?il:il+1}\"); LO=$(sed -n \"$((IL+1))p\" \"$FRAMES\"); HI=$(sed -n \"$((IR+1))p\" \"$FRAMES\"); P1=$(awk -v lo=\"$LO\" -v hi=\"$HI\" -v il=\"$IL\" -v ir=\"$IR\" -v p=\"$P\" \"BEGIN{if(il==ir) r=lo; else r=lo*(ir-p)+hi*(p-il); print r}\"); rm -f \"$FRAMES\"; echo \"VMAF score: mean=$MEAN min=$MIN harmonic_mean=$HMEAN p1=$P1 n=$N\"; rm -f \"$VMAFLOG\"; awk -v s=\"$MEAN\" \"BEGIN{exit !(s>=93)}\"'"
+          "pixelFormat": "yuv420p",
+          "model": "vmaf_4k_v0.6.1",
+          "minMean": "93"
         },
         "fpEnabled": true,
         "id": "vmafCheck4k",
@@ -159,15 +153,13 @@ const details = () => ({
       },
       {
         "name": "Run VMAF Quality Check (4K model, 10-bit)",
-        "sourceRepo": "Community",
-        "pluginName": "runCli",
+        "sourceRepo": "Local",
+        "pluginName": "runVmaf",
         "version": "1.0.0",
         "inputsDB": {
-          "useCustomCliPath": "true",
-          "customCliPath": "/bin/sh",
-          "doesCommandCreateOutputFile": "false",
-          "userOutputFilePath": "{{{args.inputFileObj._id}}}",
-          "cliArguments": "-c 'LOCKFILE=\"/temp/vmaf-cuda.lock\"; VMAFLOG=\"/temp/vmaf-$$.json\"; flock \"$LOCKFILE\" /usr/local/bin/ffmpeg-vmaf-cuda -xerror -stats_period 5 -hwaccel cuda -hwaccel_output_format cuda -i \"{{{args.originalLibraryFile._id}}}\" -hwaccel cuda -hwaccel_output_format cuda -i \"{{{args.inputFileObj._id}}}\" -an -filter_complex \"[0:v]scale_cuda=format=yuv420p10le[ref];[1:v]scale_cuda=format=yuv420p10le[dist];[dist][ref]libvmaf_cuda=model=version=vmaf_4k_v0.6.1:log_path=$VMAFLOG:log_fmt=json\" -f null - 2>&1; EC=$?; if [ $EC -ne 0 ]; then echo \"ffmpeg-vmaf-cuda failed with exit $EC\"; rm -f \"$VMAFLOG\"; exit 1; fi; MEAN=$(grep -A5 \"\\\"vmaf\\\"\" \"$VMAFLOG\" | grep \"\\\"mean\\\"\" | head -1 | sed -E \"s/[^0-9.]+//g\"); MIN=$(grep -A5 \"\\\"vmaf\\\"\" \"$VMAFLOG\" | grep \"\\\"min\\\"\" | head -1 | sed -E \"s/[^0-9.]+//g\"); HMEAN=$(grep -A5 \"\\\"vmaf\\\"\" \"$VMAFLOG\" | grep \"\\\"harmonic_mean\\\"\" | head -1 | sed -E \"s/[^0-9.]+//g\"); FRAMES=\"/temp/vmaf-frames-$$.txt\"; sed -n \"/\\\"frames\\\": \\[/,/^  \\],/p\" \"$VMAFLOG\" | grep -oE \"\\\"vmaf\\\": [0-9.]+\" | sed -E \"s/.*: //\" | sort -n > \"$FRAMES\"; N=$(wc -l < \"$FRAMES\"); P=$(awk -v n=\"$N\" \"BEGIN{print 1*(n-1)/100}\"); IL=$(awk -v p=\"$P\" \"BEGIN{print int(p)}\"); IR=$(awk -v p=\"$P\" -v il=\"$IL\" \"BEGIN{print (p==il)?il:il+1}\"); LO=$(sed -n \"$((IL+1))p\" \"$FRAMES\"); HI=$(sed -n \"$((IR+1))p\" \"$FRAMES\"); P1=$(awk -v lo=\"$LO\" -v hi=\"$HI\" -v il=\"$IL\" -v ir=\"$IR\" -v p=\"$P\" \"BEGIN{if(il==ir) r=lo; else r=lo*(ir-p)+hi*(p-il); print r}\"); rm -f \"$FRAMES\"; echo \"VMAF score: mean=$MEAN min=$MIN harmonic_mean=$HMEAN p1=$P1 n=$N\"; rm -f \"$VMAFLOG\"; awk -v s=\"$MEAN\" \"BEGIN{exit !(s>=93)}\"'"
+          "pixelFormat": "yuv420p10le",
+          "model": "vmaf_4k_v0.6.1",
+          "minMean": "93"
         },
         "fpEnabled": true,
         "id": "vmafCheck4k_10bit",
