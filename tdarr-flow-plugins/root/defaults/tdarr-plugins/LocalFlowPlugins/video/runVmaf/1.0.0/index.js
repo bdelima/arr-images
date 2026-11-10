@@ -190,12 +190,17 @@ const plugin = async (args) => {
     + `${distorted} against ${reference}${duration > 0 ? '' : ' (duration unknown, so no percentage)'}`);
   log(`waiting for ${lockFile} if another VMAF run holds it, then ${ffmpegPath} runs`);
 
+  // The helper's updateETA stats outputFilePath on every progress tick and sends the worker that file's size and an estimated
+  // final size (size / percentage, kept from the first tick unless the size changes), which the worker shows as the C: and T:
+  // figures. This step writes no output file (ffmpeg runs with -f null), so it must not name the working file there: a finished
+  // file would be read as a growing output and show nonsense like C:5000%. A path that never exists makes the helper send 0.
+  const noOutputFile = `${vmafLog}.no-output-file`;
   const cli = new CLI({
     cli: flockPath,
     spawnArgs: [lockFile, ffmpegPath, ...ffArgs],
     spawnOpts: {},
     jobLog: args.jobLog,
-    outputFilePath: distorted,
+    outputFilePath: noOutputFile,
     inputFileObj: args.inputFileObj,
     logFullCliOutput: args.logFullCliOutput,
     updateWorker: args.updateWorker,
@@ -204,8 +209,9 @@ const plugin = async (args) => {
 
   // Progress: ffmpeg prints "frame=  123 fps= 45 q=-0.0 size=N/A time=00:00:05.12 bitrate=N/A speed=1.5x" every 5 s.
   // This relies on Tdarr's CLI helper calling its parseOutput member for each chunk of output and having an updateETA
-  // member (read on Tdarr master, not checked against the installed version). Without them the score is still produced,
-  // only the percentage is missing. The helper itself recognises ffmpeg by program name only, so it does nothing here.
+  // member (read on Tdarr master; on naples the worker row does show the percentage and fps). Without them the score is
+  // still produced, only the percentage is missing. The helper itself recognises ffmpeg by program name only, so it does
+  // nothing here.
   const startedAt = Date.now();
   const originalParse = cli.parseOutput;
   let scoring = false;
