@@ -139,7 +139,7 @@ const details = () => ({
           "enabled": "true",
           "targetPercent": "70",
           "ceilingBasis": "peak",
-          "ceilingPercent": "70",
+          "ceilingPercent": "100",
           "bufsizeMultiplier": "2",
           "minTargetKbps": "300",
           "assumedAudioKbps": "256"
