@@ -39,7 +39,7 @@ const details = () => ({
         "id": "JTeKdNnFR",
         "position": {
           "x": 456,
-          "y": 300
+          "y": 264
         }
       },
       {
@@ -52,15 +52,15 @@ const details = () => ({
           "userCli": "mkvmerge",
           "customCliPath": "/bin/sh",
           "doesCommandCreateOutputFile": "true",
-          "userOutputFilePath": "/downloads/.tdarr-remux-cache/{{{args.originalLibraryFile.fileNameWithoutExtension}}}-audiosubs.mkv",
-          "cliArguments": "-c mkdir -p \"/downloads/.tdarr-remux-cache\"; cp \"{{{args.inputFileObj._id}}}\" \"${outputFilePath}\"",
+          "userOutputFilePath": "/temp/.tdarr-remux-cache/{{{args.originalLibraryFile.fileNameWithoutExtension}}}-audiosubs.mkv",
+          "cliArguments": "-c mkdir -p \"/temp/.tdarr-remux-cache\"; cp \"{{{args.inputFileObj._id}}}\" \"${outputFilePath}\"",
           "outputFileBecomesWorkingFile": "false"
         },
         "fpEnabled": true,
         "id": "IBXuDL7Dx",
         "position": {
           "x": 456,
-          "y": 348
+          "y": 312
         }
       },
       {
@@ -76,7 +76,7 @@ const details = () => ({
         "id": "tpYlSXpfK",
         "position": {
           "x": 456,
-          "y": 396
+          "y": 360
         }
       },
       {
@@ -92,7 +92,7 @@ const details = () => ({
         "id": "tHF4vUCsM",
         "position": {
           "x": 456,
-          "y": 432
+          "y": 408
         }
       },
       {
@@ -103,8 +103,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "ehGAkWvj7",
         "position": {
-          "x": 456,
-          "y": 468
+          "x": 804,
+          "y": 384
         }
       },
       {
@@ -126,8 +126,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "FAc9QeWJK",
         "position": {
-          "x": 456,
-          "y": 516
+          "x": 804,
+          "y": 432
         }
       },
       {
@@ -146,8 +146,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "srcRelCap",
         "position": {
-          "x": 456,
-          "y": 540
+          "x": 804,
+          "y": 480
         }
       },
       {
@@ -158,8 +158,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "d7QK1TBlh",
         "position": {
-          "x": 456,
-          "y": 564
+          "x": 804,
+          "y": 516
         }
       },
       {
@@ -170,8 +170,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "Y40uvSwMF",
         "position": {
-          "x": 456,
-          "y": 600
+          "x": 804,
+          "y": 552
         }
       },
       {
@@ -187,7 +187,7 @@ const details = () => ({
         "id": "LZDe1f8rE",
         "position": {
           "x": 456,
-          "y": 648
+          "y": 504
         }
       },
       {
@@ -197,13 +197,13 @@ const details = () => ({
         "version": "1.0.0",
         "inputsDB": {
           "mode": "combine",
-          "audioSubsDir": "/downloads/.tdarr-remux-cache"
+          "audioSubsDir": "/temp/.tdarr-remux-cache"
         },
         "fpEnabled": true,
         "id": "SQedUStPK",
         "position": {
           "x": 456,
-          "y": 696
+          "y": 600
         }
       },
       {
@@ -216,14 +216,14 @@ const details = () => ({
           "userCli": "mkvmerge",
           "customCliPath": "/bin/sh",
           "doesCommandCreateOutputFile": "false",
-          "cliArguments": "-c rm -f \"/downloads/.tdarr-remux-cache/{{{args.originalLibraryFile.fileNameWithoutExtension}}}-audiosubs.mkv\"",
+          "cliArguments": "-c rm -f \"/temp/.tdarr-remux-cache/{{{args.originalLibraryFile.fileNameWithoutExtension}}}-audiosubs.mkv\"",
           "outputFileBecomesWorkingFile": "false"
         },
         "fpEnabled": true,
         "id": "R0CsTy4Qw",
         "position": {
           "x": 456,
-          "y": 732
+          "y": 636
         }
       },
       {
@@ -239,7 +239,7 @@ const details = () => ({
         "id": "b8n51xYj4",
         "position": {
           "x": 456,
-          "y": 780
+          "y": 684
         }
       },
       {
@@ -253,8 +253,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "cnvMarkEnc",
         "position": {
-          "x": 456,
-          "y": 450
+          "x": 804,
+          "y": 336
         }
       },
       {
@@ -268,8 +268,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "cnvMarkEncDone",
         "position": {
-          "x": 456,
-          "y": 624
+          "x": 804,
+          "y": 600
         }
       },
       {
@@ -284,7 +284,7 @@ const details = () => ({
         "id": "cnvMarkDemux",
         "position": {
           "x": 456,
-          "y": 672
+          "y": 552
         }
       }
     ],
