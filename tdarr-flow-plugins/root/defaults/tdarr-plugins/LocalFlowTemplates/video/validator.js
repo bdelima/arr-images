@@ -1,7 +1,7 @@
 'use strict';
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
-// Live Tdarr flow "Validator" (original flow _id: Yaax7LBej), exported 2026-11-08, plus a Tag Output Metadata node (id tagOutMeta) in front of Replace Original File.
+// Live Tdarr flow "Validator" (original flow _id: Yaax7LBej), exported 2026-11-08, plus a Tag Output Metadata node (id tagOutMeta) in front of Replace Original File. On 2026-11-10 the node positions and the passthrough size floor (Compare File Size Ratio (passthrough) greaterThan 70, was 25) were taken from Bob's live "Validator (0.5.1)".
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
@@ -208,7 +208,7 @@ const details = () => ({
         "fpEnabled": true,
         "id": "FShP88xbjPT",
         "position": {
-          "x": 1140,
+          "x": 1044,
           "y": -96
         }
       },
@@ -219,12 +219,12 @@ const details = () => ({
         "version": "2.0.0",
         "fpEnabled": true,
         "inputsDB": {
-          "greaterThan": "25"
+          "greaterThan": "70"
         },
         "id": "01GZNv02yPT",
         "position": {
-          "x": 1500,
-          "y": -108
+          "x": 1440,
+          "y": -96
         }
       },
       {
@@ -235,7 +235,7 @@ const details = () => ({
         "fpEnabled": true,
         "id": "CUsET8PD3PT",
         "position": {
-          "x": 1392,
+          "x": 1272,
           "y": -24
         }
       },
