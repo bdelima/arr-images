@@ -22,12 +22,19 @@
 // it gave mean 96.137, min 73.383 and none below 50. So both inputs are re-timestamped from the frame number at the
 // reference's frame rate before scoring. This assumes the two files hold the same frames in the same order (an encode of the
 // reference, which is what this step is for) and a constant frame rate. The 1 ms rounding is the likely cause, not proven.
+//
+// Frame count: because frames are paired by number, a file with a different number of video frames than the original would be
+// compared against the wrong frames from the point where they drift apart, and the score would mean nothing. Before taking the
+// GPU lock this plugin counts the video packets of both files with ffprobe (one packet per frame in Matroska, no decoding) and
+// fails the job when the counts differ, so a mismatch costs a read of both files instead of a full scoring run. If the count
+// itself cannot be made (no ffprobe, a timeout), a warning goes to the job log and scoring goes ahead as before.
 
 const details = () => ({
   name: 'Run VMAF Quality Check',
   description: 'Scores the working file against the original library file with ffmpeg-vmaf-cuda (one run at a time under a '
     + 'lock file), shows progress in the Tdarr worker, logs "VMAF score: mean= min= harmonic_mean= p1= n=", sets the Flow '
     + 'Variables vmafMean, vmafMin and vmafP1, and fails the job when the mean is below the minimum or ffmpeg fails. '
+    + 'Before scoring it counts the video frames of both files and fails the job when they differ. '
     + 'Choose the pixel format (yuv420p or yuv420p10le) and the model (the default one or the 4K one) per node.',
   style: {
     borderColor: 'green',
@@ -136,6 +143,72 @@ const percentile = (sorted, p) => {
   return pos === lo ? sorted[lo] : sorted[lo] * (hi - pos) + sorted[hi] * (pos - lo);
 };
 
+// ffprobe names to try, most likely first: the sibling of Tdarr's own ffmpeg ("tdarr-ffmpeg" gives "tdarr-ffprobe"), then the
+// usual names on the PATH. One that is not there is skipped.
+const ffprobeCandidates = (tdarrFfmpegPath) => {
+  const path = require('path');
+  const list = [];
+  if (tdarrFfmpegPath) {
+    const base = path.basename(String(tdarrFfmpegPath));
+    if (/ffmpeg/i.test(base)) {
+      const dir = path.dirname(String(tdarrFfmpegPath));
+      const sibling = base.replace(/ffmpeg/i, 'ffprobe');
+      list.push(dir === '.' ? sibling : path.join(dir, sibling));
+    }
+  }
+  list.push('tdarr-ffprobe', 'ffprobe');
+  return list.filter((c, i) => list.indexOf(c) === i);
+};
+
+// Number of packets in the first video stream of a file ({ frames, tool } or { error }). Reads the whole file once without
+// decoding it. Matroska stores one frame per block, so packets are frames; a container with a different layout would need
+// another way to count.
+const countVideoFrames = async ({ tdarrFfmpegPath, file, timeoutMs }) => {
+  const { spawn } = require('child_process');
+  const candidates = ffprobeCandidates(tdarrFfmpegPath);
+  const errors = [];
+  for (let c = 0; c < candidates.length; c += 1) {
+    const tool = candidates[c];
+    // eslint-disable-next-line no-await-in-loop
+    const outcome = await new Promise((resolve) => {
+      let child;
+      let out = '';
+      let err = '';
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      };
+      const timer = setTimeout(() => {
+        try { child.kill('SIGKILL'); } catch (e) { /* already gone */ }
+        finish({ error: `timed out after ${Math.round(timeoutMs / 1000)} s` });
+      }, timeoutMs);
+      try {
+        child = spawn(tool, ['-v', 'error', '-count_packets', '-select_streams', 'v:0',
+          '-show_entries', 'stream=nb_read_packets', '-of', 'csv=p=0', file]);
+      } catch (e) {
+        finish({ error: `could not start: ${e.message}`, missing: true });
+        return;
+      }
+      child.on('error', (e) => finish({ error: e.code === 'ENOENT' ? 'not found' : e.message, missing: e.code === 'ENOENT' }));
+      child.stdout.on('data', (d) => { out += d.toString(); });
+      child.stderr.on('data', (d) => { if (err.length < 400) err += d.toString(); });
+      child.on('close', (code) => {
+        const frames = Number(out.trim().split('\n')[0]);
+        if (code !== 0) finish({ error: `exit code ${code}${err ? ` (${err.trim().slice(0, 200)})` : ''}` });
+        else if (!Number.isInteger(frames) || frames <= 0) finish({ error: `unreadable output "${out.trim().slice(0, 80)}"` });
+        else finish({ frames });
+      });
+    });
+    if (outcome.frames !== undefined) return { frames: outcome.frames, tool };
+    errors.push(`${tool}: ${outcome.error}`);
+    if (!outcome.missing) break; // the tool ran and failed: another ffprobe will not fare better
+  }
+  return { error: errors.join('; ') };
+};
+
 const plugin = async (args) => {
   const lib = require('../../../../../methods/lib')();
   args.inputs = lib.loadDefaultValues(args.inputs, details);
@@ -193,6 +266,25 @@ const plugin = async (args) => {
   if (!refRate) log(`the original file has no usable frame rate in its probe data; using the working file's ${rate.text}`);
   if (refRate && distRate && Math.abs(refRate.fps - distRate.fps) / refRate.fps > 0.001) {
     log(`warning: the original runs at ${refRate.text} fps and the working file at ${distRate.text}; frames are paired by position, so a frame rate change will lower the score`);
+  }
+
+  // Same number of video frames in both files, or there is nothing meaningful to score (see the header). Done before the lock
+  // so that waiting for another run's GPU time is not spent on a file that cannot be scored.
+  {
+    const countStarted = Date.now();
+    const [refCount, distCount] = await Promise.all([reference, distorted].map((file) => countVideoFrames({
+      tdarrFfmpegPath: args.ffmpegPath, file, timeoutMs: 30 * 60 * 1000,
+    })));
+    if (refCount.error || distCount.error) {
+      log(`warning: could not compare frame counts (original: ${refCount.error || refCount.frames}; working file: ${distCount.error || distCount.frames}); scoring anyway`);
+    } else if (refCount.frames !== distCount.frames) {
+      const diff = distCount.frames - refCount.frames;
+      log(`frame counts differ: original ${refCount.frames}, working file ${distCount.frames} (${diff > 0 ? '+' : ''}${diff})`);
+      fail(`the original has ${refCount.frames} video frames and the working file has ${distCount.frames}; frames are paired by number, so `
+        + 'a score would not mean anything. Not running VMAF.');
+    } else {
+      log(`both files have ${refCount.frames} video frames (counted in ${Math.round((Date.now() - countStarted) / 100) / 10} s)`);
+    }
   }
 
   const vmafLog = `${tempDir}/vmaf-${process.pid}-${Date.now()}.json`;
