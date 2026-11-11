@@ -324,6 +324,21 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   label is not required there; the 0.6.0 flow required it and failed every passthrough file), and Tag Output Metadata adds its own closing entry and writes the whole trail into the file's
   `TDARR_TRAIL` tag. Read it back with `tdarr-ffmpeg -i <file> 2>&1 | grep -i TDARR_TRAIL`. The time in an entry is the clock of the
   node that ran the step, so it is comparable between nodes only when their clocks agree.
+- **Tags survive a later pass.** Every mkvmerge remux drops the file's global tags, so without help a second pass over an already-encoded
+  file would lose the tags its encode run wrote. Tag Output Metadata first reads the `TDARR_` tags of the original library file (from the
+  probe data Tdarr holds, `format.tags`; if that has none, from an `ffmpeg -f ffmetadata` read of the file) and merges them with this run's.
+  The tags that describe an encode (`TDARR_ENCODE_PARAMS`, `TDARR_QUALITY_TIER`, `TDARR_SOURCE_CLASS`, `TDARR_SOURCE_BPP`,
+  `TDARR_SIZE_RATIO`, `TDARR_VMAF_SCORE`, `TDARR_ENCODE_VERSION`, `TDARR_ENCODE_TRAIL`) are rewritten only when this run re-encoded the video
+  (the trail has `converter-encode-done`); when it did not, and the original already carries `TDARR_ENCODE_PARAMS` or `TDARR_ENCODE_TRAIL`,
+  they are kept as the encode run wrote them. `TDARR_PIPELINE_VERSION` and `TDARR_TRAIL` always describe the run that wrote them, so
+  `TDARR_ENCODE_VERSION` and `TDARR_ENCODE_TRAIL` are copies of those two taken at the encode run. Any other `TDARR_` tag on the original is
+  carried over unchanged. The job log says how many tags were found, where they came from and which were kept. Checked on real Matroska
+  files with `mkvpropedit`, `ffprobe` and `ffmpeg` in a sandbox, with Tdarr's helpers stubbed; not yet seen in a real Tdarr job, and whether
+  Tdarr's own probe data carries `format.tags` is not confirmed (the ffmpeg read covers it if it does not).
+- **Frame-count check before VMAF.** Run VMAF pairs frame N of the original with frame N of the encode, so files with different frame
+  counts cannot be scored meaningfully. Before taking the GPU lock it counts the video packets of both files with `ffprobe -count_packets`
+  (the sibling of Tdarr's ffmpeg, then `tdarr-ffprobe`, then `ffprobe`) and fails the job, naming both counts, when they differ at all. If the
+  count cannot be made (no ffprobe, a timeout), it logs a warning and scores as before. The count reads each file once without decoding it.
 - **Updating a live flow from a template.** Each template carries the flow's own `_id` (the `goToFlow` nodes in the other flows
   point at flows by id), so importing it from Add Flow > Local prompts Replace and keeps the id (observed by the owner,
   2026-11-09). A template without an `_id` (the 0.2.0 ones) made a new flow with a random id next to the live one, and the old
