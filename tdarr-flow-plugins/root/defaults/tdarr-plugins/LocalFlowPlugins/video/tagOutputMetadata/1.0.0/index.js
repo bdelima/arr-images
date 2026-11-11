@@ -4,7 +4,10 @@ const details = () => ({
     + 'classifySource verdict, pipeline version, source bits per pixel, size ratio, VMAF score, step trail) in one mkvpropedit --tags '
     + 'global call. Must be the ONLY node that writes global tags (mkvpropedit --tags '
     + 'replaces rather than merges) and must run after Stream Cleanup has already '
-    + 'removed the existing global tags (mkvmerge --no-global-tags).',
+    + 'removed the existing global tags (mkvmerge --no-global-tags). The TDARR_ tags the original file already carries are '
+    + 'read first: when this run did not encode (the trail has no converter-encode-done), the tags that describe the earlier '
+    + 'encode are kept, and TDARR_ENCODE_VERSION and TDARR_ENCODE_TRAIL keep that run\'s pipeline version and step trail. '
+    + 'TDARR_PIPELINE_VERSION and TDARR_TRAIL always describe this run.',
   style: {
     borderColor: 'green',
   },
@@ -53,6 +56,135 @@ const appendTrailEntry = (args, label) => {
   return entry;
 };
 
+// Tags that describe an encode. A run that does not encode keeps the ones the original already has; a run that encodes
+// replaces all of them. TDARR_ENCODE_VERSION and TDARR_ENCODE_TRAIL are copies of TDARR_PIPELINE_VERSION and TDARR_TRAIL
+// taken at the encoding run, so a later pass (which overwrites those two) leaves the encode run on record.
+const ENCODE_TAGS = [
+  'TDARR_ENCODE_PARAMS', 'TDARR_QUALITY_TIER', 'TDARR_SOURCE_CLASS', 'TDARR_SOURCE_BPP', 'TDARR_SIZE_RATIO',
+  'TDARR_VMAF_SCORE', 'TDARR_ENCODE_VERSION', 'TDARR_ENCODE_TRAIL',
+];
+// Tags that always describe the run that is writing them.
+const RUN_TAGS = ['TDARR_PIPELINE_VERSION', 'TDARR_TRAIL'];
+
+// true when the step trail holds an entry with this label (entries are "n|label|node|worker|time", separated by ";")
+const trailHasLabel = (trail, label) => String(trail || '')
+  .split(';').some((entry) => entry.trim().split('|')[1] === label);
+
+// ffmpeg's ffmetadata text: "KEY=value" lines before the first [SECTION], with \ = ; # and newline escaped by a backslash.
+const parseFfmetadata = (text) => {
+  const unescape = (str) => str.replace(/\\(.)/g, '$1');
+  const found = {};
+  for (const rawLine of String(text).split('\n')) {
+    const line = rawLine.replace(/\r$/, '');
+    if (line.startsWith('[')) break;
+    if (line === '' || line.startsWith(';') || line.startsWith('#')) continue;
+    let eq = -1;
+    for (let i = 0; i < line.length; i += 1) {
+      if (line[i] === '\\') {
+        i += 1;
+      } else if (line[i] === '=') {
+        eq = i;
+        break;
+      }
+    }
+    if (eq > 0) found[unescape(line.slice(0, eq)).toUpperCase()] = unescape(line.slice(eq + 1));
+  }
+  return found;
+};
+
+// The TDARR_ tags of the original file, as { TDARR_NAME: value }, and where they came from. First choice is the probe data
+// Tdarr already holds (ffprobe lists a Matroska file's global tags under format.tags). When that has none, the file is asked
+// directly with ffmpeg, in case the probe data was taken without the format section. { source: 'none' } when there are none.
+const readExistingTags = async (args) => {
+  const pick = (all) => {
+    const out = {};
+    Object.keys(all || {}).forEach((k) => {
+      if (/^TDARR_/i.test(k) && all[k] !== undefined && all[k] !== null && String(all[k]) !== '') out[k.toUpperCase()] = String(all[k]);
+    });
+    return out;
+  };
+  const probe = args.originalLibraryFile && args.originalLibraryFile.ffProbeData;
+  const fromProbe = pick(probe && probe.format && probe.format.tags);
+  if (Object.keys(fromProbe).length > 0) return { tags: fromProbe, source: 'probe data' };
+
+  const original = args.originalLibraryFile && args.originalLibraryFile._id;
+  if (!original || !args.ffmpegPath) return { tags: {}, source: 'none' };
+  const { spawn } = require('child_process');
+  return new Promise((resolve) => {
+    let out = '';
+    let child;
+    const finish = (value) => {
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch (e) { /* already gone */ }
+      finish({ tags: {}, source: 'none', note: 'ffmpeg timed out' });
+    }, 60000);
+    try {
+      child = spawn(args.ffmpegPath, ['-nostdin', '-v', 'error', '-i', original, '-f', 'ffmetadata', '-']);
+    } catch (e) {
+      finish({ tags: {}, source: 'none', note: `could not start ffmpeg: ${e.message}` });
+      return;
+    }
+    child.on('error', (e) => finish({ tags: {}, source: 'none', note: `ffmpeg: ${e.message}` }));
+    child.stdout.on('data', (d) => { if (out.length < 1000000) out += d.toString(); });
+    child.on('close', (code) => {
+      if (code !== 0) {
+        finish({ tags: {}, source: 'none', note: `ffmpeg exit ${code}` });
+        return;
+      }
+      const tags = pick(parseFfmetadata(out));
+      finish({ tags, source: Object.keys(tags).length > 0 ? 'ffmpeg' : 'none' });
+    });
+  });
+};
+
+// Works out the tag list to write. fresh: this run's values; existing: the original's TDARR_ tags; encodedThisRun: whether
+// this run re-encoded the video. Returns { list: [[name, value], ...], kept: [names kept from the original] }.
+const mergeTags = ({ fresh, existing, encodedThisRun }) => {
+  const result = {};
+  const kept = [];
+  const known = new Set([...ENCODE_TAGS, ...RUN_TAGS]);
+
+  // tags this plugin does not know about (written by something else, or by a later version) are carried over unchanged
+  Object.keys(existing).forEach((name) => {
+    if (!known.has(name)) {
+      result[name] = existing[name];
+      kept.push(name);
+    }
+  });
+
+  const wasEncoded = Boolean(existing.TDARR_ENCODE_PARAMS || existing.TDARR_ENCODE_TRAIL);
+  if (!encodedThisRun && wasEncoded) {
+    // a later pass over a file this pipeline already encoded: the encode tags stay as the encode run wrote them
+    ENCODE_TAGS.forEach((name) => {
+      if (existing[name] !== undefined) {
+        result[name] = existing[name];
+        kept.push(name);
+      }
+    });
+  } else {
+    ENCODE_TAGS.forEach((name) => {
+      if (fresh[name] !== undefined) result[name] = fresh[name];
+    });
+    if (encodedThisRun) {
+      if (fresh.TDARR_PIPELINE_VERSION !== undefined) result.TDARR_ENCODE_VERSION = fresh.TDARR_PIPELINE_VERSION;
+      if (fresh.TDARR_TRAIL !== undefined) result.TDARR_ENCODE_TRAIL = fresh.TDARR_TRAIL;
+    }
+  }
+  RUN_TAGS.forEach((name) => {
+    if (fresh[name] !== undefined) result[name] = fresh[name];
+  });
+
+  const order = [...ENCODE_TAGS, ...RUN_TAGS];
+  const list = [
+    ...order.filter((name) => result[name] !== undefined).map((name) => [name, result[name]]),
+    ...Object.keys(result).filter((name) => !known.has(name)).sort().map((name) => [name, result[name]]),
+  ];
+  return { list, kept };
+};
+
 const plugin = async (args) => {
   const lib = require('../../../../../methods/lib')();
   args.inputs = lib.loadDefaultValues(args.inputs, details);
@@ -76,18 +208,29 @@ const plugin = async (args) => {
     args.jobLog(`Tag Output Metadata: could not work out the size ratio: ${e.message}`);
   }
 
-  const tagList = [
-    ['TDARR_ENCODE_PARAMS', v.tdarrEncodeParams],
-    ['TDARR_QUALITY_TIER', v.tdarrQualityTier],
-    ['TDARR_SOURCE_CLASS', v.tdarrSourceClass],
-    ['TDARR_PIPELINE_VERSION', args.inputs.pipelineVersion],
-    ['TDARR_SOURCE_BPP', v.tdarrSourceBpp],
-    ['TDARR_SIZE_RATIO', sizeRatio],
-    ['TDARR_VMAF_SCORE', (v.vmafMean !== undefined)
+  const freshTags = {
+    TDARR_ENCODE_PARAMS: v.tdarrEncodeParams,
+    TDARR_QUALITY_TIER: v.tdarrQualityTier,
+    TDARR_SOURCE_CLASS: v.tdarrSourceClass,
+    TDARR_PIPELINE_VERSION: args.inputs.pipelineVersion,
+    TDARR_SOURCE_BPP: v.tdarrSourceBpp,
+    TDARR_SIZE_RATIO: sizeRatio,
+    TDARR_VMAF_SCORE: (v.vmafMean !== undefined)
       ? `mean=${v.vmafMean};min=${v.vmafMin};p1=${v.vmafP1}`
-      : undefined],
-    ['TDARR_TRAIL', v.tdarrTrail],
-  ].filter(([, val]) => val !== undefined && val !== null && val !== '');
+      : undefined,
+    TDARR_TRAIL: v.tdarrTrail,
+  };
+  Object.keys(freshTags).forEach((k) => {
+    if (freshTags[k] === undefined || freshTags[k] === null || freshTags[k] === '') delete freshTags[k];
+  });
+
+  const existing = await readExistingTags(args);
+  const encodedThisRun = trailHasLabel(v.tdarrTrail, 'converter-encode-done');
+  const merged = mergeTags({ fresh: freshTags, existing: existing.tags, encodedThisRun });
+  const tagList = merged.list;
+  args.jobLog(`Tag Output Metadata: ${encodedThisRun ? 'this run re-encoded the video, so the encode tags are rewritten' : 'this run did not re-encode the video'}; `
+    + `the original file's TDARR_ tags: ${Object.keys(existing.tags).length} found (${existing.source}${existing.note ? `, ${existing.note}` : ''})`
+    + `${merged.kept.length > 0 ? `; kept from the original: ${merged.kept.join(', ')}` : ''}`);
 
   if (tagList.length === 0) {
     args.jobLog('Tag Output Metadata: nothing populated to write, skipping mkvpropedit call');
