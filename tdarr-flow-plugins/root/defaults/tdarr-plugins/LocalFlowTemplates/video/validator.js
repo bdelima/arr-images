@@ -2,7 +2,7 @@
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
 // Live Tdarr flow "Validator" (original flow _id: Yaax7LBej), exported 2026-11-08, plus a Tag Output Metadata node (id tagOutMeta) in front of Replace Original File. On 2026-11-10 the node positions and the passthrough size floor (Compare File Size Ratio (passthrough) greaterThan 70, was 25) were taken from Bob's live "Validator (0.5.1)". The four VMAF nodes (ids vmafCheck1, vmafCheck1_10bit, vmafCheck4k, vmafCheck4k_10bit) are instances of the Local plugin runVmaf instead of Run CLI shell scripts; same names, positions and edges.
-// Brought up to the live "Validator (0.6.0)" on 2026-11-10 (the version suffix is stamped on at image build, so the name here stays plain). Changes from that update: node id reqLocalPT is now "Queue back to VMAF node" (CPU worker, node tag vmaf, was "Queue back to local" with tag local) and sits at the start of the re-encode path (Entry re-encoded -> Queue back to VMAF node -> Mark step: back on local -> Compare File Size Ratio); the passthrough path now goes from Mark step: thorough health check done straight to Require health check before Replace; node positions moved. NOTE: Require health check before Replace still requires validator-hc-queue, validator-hc-done and validator-back-local, and the validator-back-local mark is now stamped only on the re-encode path, which does not pass through that gate.
+// Brought up to the live "Validator (0.6.0)" on 2026-11-10 (the version suffix is stamped on at image build, so the name here stays plain). Changes from that update: node id reqLocalPT is now "Queue back to VMAF node" (CPU worker, node tag vmaf, was "Queue back to local" with tag local) and sits at the start of the re-encode path (Entry re-encoded -> Queue back to VMAF node -> Mark step: back on local -> Compare File Size Ratio); the passthrough path now goes from Mark step: thorough health check done straight to Require health check before Replace; node positions moved. The Require health check before Replace gate (valRequireHc) requires validator-hc-queue and validator-hc-done only. The live 0.6.0 flow also listed validator-back-local there, but that mark is now stamped only on the re-encode path, which does not go through the gate, so requiring it failed every passthrough job; it is removed from the gate here.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
@@ -331,7 +331,7 @@ const details = () => ({
         "pluginName": "requireTrail",
         "version": "1.0.0",
         "inputsDB": {
-          "requiredLabels": "validator-hc-queue,validator-hc-done,validator-back-local"
+          "requiredLabels": "validator-hc-queue,validator-hc-done"
         },
         "fpEnabled": true,
         "id": "valRequireHc",
