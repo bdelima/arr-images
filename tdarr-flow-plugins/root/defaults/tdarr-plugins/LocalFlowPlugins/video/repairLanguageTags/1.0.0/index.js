@@ -6,7 +6,8 @@ const details = () => ({
     + 'a remux with -map_metadata -1) AND it has at least one audio track with no language. Every audio and subtitle track with no language '
     + 'is then set to the configured language. '
     + '(2) Video language: the file has exactly one audio track, that track has no language, and the first video track has a language equal '
-    + 'to the configured language. The audio track is then given the video track\'s language (only the audio track is changed). '
+    + 'to the configured language, written either as the three-letter code (eng) or only as a BCP 47 tag (en, en-US). '
+    + 'The audio track is then given the configured three-letter language (only the audio track is changed). '
     + 'A video track with no language, or with a different language, never causes a change, because output 1 is treated as "now has the configured language". '
     + 'Output 1 = tags repaired, output 2 = nothing to do (the reason is in the job log).',
   style: {
@@ -100,6 +101,21 @@ const plugin = async (args) => {
     return lang === 'und' && (ietf === '' || ietf === 'und');
   };
 
+  // A track can carry its language as the legacy three-letter code ("eng") or only as a BCP 47 tag ("en", "en-US").
+  // mkvmerge then reports language "und" with language_ietf "en", and ffprobe shows no tag at all. Both spellings count as the
+  // configured language for the video track. The two-letter form is known only for the languages in this table.
+  const TWO_LETTER = {
+    eng: 'en', fre: 'fr', fra: 'fr', ger: 'de', deu: 'de', spa: 'es', ita: 'it', por: 'pt', dut: 'nl', nld: 'nl', swe: 'sv',
+    nor: 'no', dan: 'da', fin: 'fi', pol: 'pl', rus: 'ru', jpn: 'ja', kor: 'ko', chi: 'zh', zho: 'zh', ara: 'ar', heb: 'he',
+    hin: 'hi', tur: 'tr', ukr: 'uk', gre: 'el', ell: 'el', cze: 'cs', ces: 'cs', hun: 'hu', rum: 'ro', ron: 'ro',
+  };
+  const hasLanguage = (t, wanted) => {
+    const p = t.properties || {};
+    if (String(p.language || '').toLowerCase() === wanted) return true;
+    const primary = String(p.language_ietf || '').toLowerCase().split('-')[0];
+    return primary !== '' && (primary === wanted || primary === TWO_LETTER[wanted]);
+  };
+
   const notRequired = (reason) => {
     log(`${reason}. The file was not changed.`);
     return { outputFileObj: args.inputFileObj, outputNumber: 2, variables: args.variables };
@@ -144,8 +160,9 @@ const plugin = async (args) => {
       reasons.push('the video-language rule found no video track');
     } else if (isUntagged(video)) {
       reasons.push('the video-language rule found a video track with no language');
-    } else if (String((video.properties || {}).language || '').toLowerCase() !== language) {
-      reasons.push(`the video track's language is "${(video.properties || {}).language}", not "${language}", so the audio track was not given it`);
+    } else if (!hasLanguage(video, language)) {
+      const vp = video.properties || {};
+      reasons.push(`the video track's language is "${vp.language}"${vp.language_ietf ? ` (${vp.language_ietf})` : ''}, not "${language}", so the audio track was not given it`);
     } else {
       targets = [audioTracks[0]];
       why = `the file has exactly one audio track (#${audioTracks[0].id}), it has no language, and the video track (#${video.id}) is tagged "${language}": giving the audio track the video track's language`;
