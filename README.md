@@ -303,10 +303,14 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   The plugins `require()` Tdarr's helpers by relative path, so each file must land at exactly that depth.
 - **Copy rule, per file.** Missing: installed. Identical: left alone. Different: replaced, and the log says so
   (`[mod-tdarr-flow-plugins] replaced ... (it differed from the one in the image)`), so a host edit is never lost silently.
-  Nothing else in the plugin folder is touched or deleted. Files are owned by `PUID:PGID` (when set), mode 664, new folders 775.
+  Nothing else in the plugin folder is touched. The one exception is a short retired list: a file this image used to ship and no longer does
+  is deleted at start if it is still there (the `RETIRED` array in the run script, exact paths only, never a folder, a link, a path outside the
+  plugin folder or a file the image ships; the log says `removed ...`). Today it holds `LocalFlowTemplates/video/languageTagRepair.js`. Files are
+  owned by `PUID:PGID` (when set), mode 664, new folders 775.
   The script never stops the container from starting; a failure is a log line. A new plugin file needs the server restarted to load, which a container restart does anyway.
 - **Not in the image:** the five flows themselves (they live in Tdarr's database; import them with Add Flow > Import JSON Flow
-  Template) and any Tdarr settings.
+  Template) and any Tdarr settings. A flow already imported from a template stays in Tdarr's database when the template is retired;
+  delete it in the Flows tab.
 - **Each flow template has its own version, stamped by the build.** The build appends a version to each template's flow name
   ("Controller" becomes "Controller (v9)"), so copies of a flow made from different template versions can be told apart in
   Tdarr. The version is the number of commits that touched that template file
@@ -344,7 +348,7 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   so Require English Audio would not see it. Each change is read back with `mkvmerge --identify`.
 - **Tests.** [`ci.yml`](.github/workflows/ci.yml) builds the image and runs [`smoke-test.sh`](tdarr-flow-plugins/smoke-test.sh):
   exactly the expected files, byte-identical to the repo, `node --check`, the s6 files, and the start-up script's copy rule
-  (install / unchanged / replace-and-log / put back / twice is a no-op / owner and mode) in a container. CI has no Tdarr server,
+  (install / unchanged / replace-and-log / put back / retire / twice is a no-op / owner and mode) in a container. CI has no Tdarr server,
   so that Tdarr loads the plugins and that the service runs before the server starts are checked by hand (below).
 - **Check by hand after the first release.** (1) Add `DOCKER_MODS` to a scratch Tdarr server container with its own empty server
   folder, never the live `/opt/tdarr/server`; check the files appear with the right owner and mode and Tdarr lists the plugins.
