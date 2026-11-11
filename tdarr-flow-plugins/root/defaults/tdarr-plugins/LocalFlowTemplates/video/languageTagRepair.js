@@ -13,7 +13,7 @@ Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
     "_id": "LangTagRepair",
-    "name": "Repair language tags (0.4.1)",
+    "name": "Repair language tags",
     "description": "Sets language eng on untagged audio and subtitle tracks of files written by ffmpeg (damage signature); changes nothing else",
     "tags": "",
     "flowPlugins": [
