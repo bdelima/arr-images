@@ -285,7 +285,7 @@ container. It replaces hand-copying files onto the server: at every container st
 (`classifySource`, `setMaxBitrate`, `tagEncodeSettings`, `tagOutputMetadata`, `checkSourceEfficiency`,
 `setSourceRelativeBitrate`, `requireEnglishAudio`, `removeUntaggedAudio`, `mkvmergeExecute`, `repairLanguageTags`, `markStep`, `requireTrail`, `runVmaf`) and the flow template files for the Downloads
 Flow (Controller, Converter, Validator, Stream Cleanup, Clean-only passthrough, Repair language tags) into the server's plugin folder. The files in
-[`tdarr-flow-plugins/root`](tdarr-flow-plugins/root) are the source of truth and are shipped as they are, except that the build appends the release version to each flow template's name (below).
+[`tdarr-flow-plugins/root`](tdarr-flow-plugins/root) are the source of truth and are shipped byte for byte; each flow template's name carries that template's own version (below).
 
 ```yaml
   tdarr:
@@ -307,9 +307,14 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   The script never stops the container from starting; a failure is a log line. A new plugin file needs the server restarted to load, which a container restart does anyway.
 - **Not in the image:** the six flows themselves (they live in Tdarr's database; import them with Add Flow > Import JSON Flow
   Template) and any Tdarr settings.
-- **Flow names carry the release version.** The build appends the version to each template's flow name ("Controller" becomes
-  "Controller (0.2.1)"), so copies of a flow made from different releases can be told apart in Tdarr. Nothing in Tdarr refers to a
-  flow by name (`goToFlow` takes a flow id and a node id). The template files in the repo keep their plain names.
+- **Each flow template has its own version.** The version is part of the template's flow name in the source file
+  (`"name": "Controller (0.6.1)"`), so copies of a flow made from different template versions can be told apart in Tdarr, and
+  a release no longer renames templates that did not change: a flow only looks changed in Tdarr when its template really is.
+  Whoever changes a template bumps the number in its name line (patch number for a fix or a layout change, minor for new
+  behaviour); an unchanged template keeps its version across releases. The image version (`tdarr-flow-plugins/VERSION`) is a
+  separate number. On pull requests CI fails a template whose content changed but whose name did not
+  ([`check-template-versions.sh`](tdarr-flow-plugins/check-template-versions.sh)), and the build and smoke test fail a template
+  whose name does not end in a version. Nothing in Tdarr refers to a flow by name (`goToFlow` takes a flow id and a node id).
 - **Step trail (confirming the order of steps).** A node's job-log lines can arrive late, so log times cannot show the order in which
   steps ran. `markStep` appends one numbered entry (`seq|label|node|worker|UTC time`) to the Flow Variable `tdarrTrail` at the point it
   is placed, and `requireTrail` fails the flow (output 2, wired to Fail Flow) unless the labels it is given are in the trail in that

@@ -2,8 +2,7 @@
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
 // Exported verbatim from the live Tdarr flow "Controller" (originally _id WReQY_XGS, now HWxfel7zZ) on 2026-11-08, and
-// brought up to the live "Controller (0.6.0)" on 2026-11-10 (the version suffix is stamped on at image build, so the name here
-// stays plain). Changes from that update: the "Route to local CPU" and "Mark step: landed on local" nodes are gone, Input File
+// brought up to the live "Controller (0.6.0)" on 2026-11-10 (the name carries the template's own version, see the README). Changes from that update: the "Route to local CPU" and "Mark step: landed on local" nodes are gone, Input File
 // leads through "Mark step: controller start" straight into Run Health Check, and three node positions moved.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
@@ -12,7 +11,7 @@ Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
     "_id": "HWxfel7zZ",
-    "name": "Controller",
+    "name": "Controller (0.6.1)",
     "description": "Controller",
     "tags": "",
     "flowPlugins": [
