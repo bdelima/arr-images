@@ -13,6 +13,15 @@
 // from the sorted per-frame scores, exactly as the shell did. The job log gets the same line as before:
 //   VMAF score: mean=.. min=.. harmonic_mean=.. p1=.. n=..
 // and the Flow Variables vmafMean, vmafMin and vmafP1 are set, which Tag Output Metadata writes into the TDARR_VMAF_SCORE tag.
+//
+// Frame pairing: libvmaf's filter pairs a reference frame with a distorted frame by timestamp, not by position. Matroska
+// timestamps are rounded to 1 ms, so at 23.976 fps (and other non-integer rates) two files with the same frames can carry
+// slightly different timestamps, and some frames get paired with a neighbour. That shows up as isolated frames scoring far
+// too low (down to 0.00) in a clean encode. Measured on the same two files (S01E08, 32,384 frames): the unchanged graph gave
+// mean 92.822, min 0.000 and 838 frames below 50; with both inputs re-timestamped from the frame number (setpts=N/(fps*TB))
+// it gave mean 96.137, min 73.383 and none below 50. So both inputs are re-timestamped from the frame number at the
+// reference's frame rate before scoring. This assumes the two files hold the same frames in the same order (an encode of the
+// reference, which is what this step is for) and a constant frame rate. The 1 ms rounding is the likely cause, not proven.
 
 const details = () => ({
   name: 'Run VMAF Quality Check',
@@ -163,9 +172,34 @@ const plugin = async (args) => {
     fail(`${flockPath} was not found on the PATH`);
   }
 
+  // Frame rate of the first video stream as an exact fraction ("24000/1001"), from the probe data Tdarr already holds.
+  const frameRateOf = (fileObj) => {
+    const video = ((fileObj && fileObj.ffProbeData && fileObj.ffProbeData.streams) || []).find((s) => s.codec_type === 'video');
+    if (!video) return null;
+    for (const text of [video.avg_frame_rate, video.r_frame_rate]) {
+      const m = String(text || '').trim().match(/^(\d+)(?:\/(\d+))?$/);
+      if (m) {
+        const rateNum = Number(m[1]);
+        const rateDen = m[2] === undefined ? 1 : Number(m[2]);
+        if (rateNum > 0 && rateDen > 0) return { num: rateNum, den: rateDen, text: `${rateNum}/${rateDen}`, fps: rateNum / rateDen };
+      }
+    }
+    return null;
+  };
+  const refRate = frameRateOf(args.originalLibraryFile);
+  const distRate = frameRateOf(args.inputFileObj);
+  const rate = refRate || distRate;
+  if (!rate) fail('could not read the frame rate of the original or the working file from their probe data');
+  if (!refRate) log(`the original file has no usable frame rate in its probe data; using the working file's ${rate.text}`);
+  if (refRate && distRate && Math.abs(refRate.fps - distRate.fps) / refRate.fps > 0.001) {
+    log(`warning: the original runs at ${refRate.text} fps and the working file at ${distRate.text}; frames are paired by position, so a frame rate change will lower the score`);
+  }
+
   const vmafLog = `${tempDir}/vmaf-${process.pid}-${Date.now()}.json`;
   const modelPart = model === 'default' ? '' : `model=version=${model}:`;
-  const filter = `[0:v]scale_cuda=format=${pixelFormat}[ref];[1:v]scale_cuda=format=${pixelFormat}[dist];`
+  // setpts gives both inputs timestamps computed from the frame number, so libvmaf pairs frame N with frame N (see the header)
+  const retime = `setpts=N*${rate.den}/(${rate.num}*TB)`;
+  const filter = `[0:v]${retime},scale_cuda=format=${pixelFormat}[ref];[1:v]${retime},scale_cuda=format=${pixelFormat}[dist];`
     + `[dist][ref]libvmaf_cuda=${modelPart}log_path=${vmafLog}:log_fmt=json`;
   const ffArgs = [
     '-xerror', '-stats_period', '5',
@@ -186,16 +220,21 @@ const plugin = async (args) => {
   };
   const duration = durationOf();
 
-  log(`${model === 'default' ? 'default model' : model}, ${pixelFormat}, minimum mean ${minMean}; `
+  log(`${model === 'default' ? 'default model' : model}, ${pixelFormat}, frames paired by number at ${rate.text} fps, minimum mean ${minMean}; `
     + `${distorted} against ${reference}${duration > 0 ? '' : ' (duration unknown, so no percentage)'}`);
   log(`waiting for ${lockFile} if another VMAF run holds it, then ${ffmpegPath} runs`);
 
+  // The helper's updateETA stats outputFilePath on every progress tick and sends the worker that file's size and an estimated
+  // final size (size / percentage, kept from the first tick unless the size changes), which the worker shows as the C: and T:
+  // figures. This step writes no output file (ffmpeg runs with -f null), so it must not name the working file there: a finished
+  // file would be read as a growing output and show nonsense like C:5000%. A path that never exists makes the helper send 0.
+  const noOutputFile = `${vmafLog}.no-output-file`;
   const cli = new CLI({
     cli: flockPath,
     spawnArgs: [lockFile, ffmpegPath, ...ffArgs],
     spawnOpts: {},
     jobLog: args.jobLog,
-    outputFilePath: distorted,
+    outputFilePath: noOutputFile,
     inputFileObj: args.inputFileObj,
     logFullCliOutput: args.logFullCliOutput,
     updateWorker: args.updateWorker,
@@ -204,8 +243,9 @@ const plugin = async (args) => {
 
   // Progress: ffmpeg prints "frame=  123 fps= 45 q=-0.0 size=N/A time=00:00:05.12 bitrate=N/A speed=1.5x" every 5 s.
   // This relies on Tdarr's CLI helper calling its parseOutput member for each chunk of output and having an updateETA
-  // member (read on Tdarr master, not checked against the installed version). Without them the score is still produced,
-  // only the percentage is missing. The helper itself recognises ffmpeg by program name only, so it does nothing here.
+  // member (read on Tdarr master; on naples the worker row does show the percentage and fps). Without them the score is
+  // still produced, only the percentage is missing. The helper itself recognises ffmpeg by program name only, so it does
+  // nothing here.
   const startedAt = Date.now();
   const originalParse = cli.parseOutput;
   let scoring = false;
