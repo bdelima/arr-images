@@ -24,6 +24,9 @@
  *   Output 8:  legacy, HDR/DoVi
  *   Output 9:  other/unrecognized, not HDR/DoVi
  *   Output 10: other/unrecognized, HDR/DoVi
+ *
+ * It also sets the Flow Variable user.tdarrSourceClass to the codec bucket (h264, hevc, av1, legacy, other), with
+ * "-hdr" added for HDR/DoVi, which Tag Output Metadata writes into the TDARR_SOURCE_CLASS tag.
  */
 
 const LEGACY_CODECS = ['vc1', 'mpeg2video', 'mpeg4', 'vp8', 'wmv2', 'wmv3'];
@@ -101,6 +104,15 @@ const plugin = async (args) => {
   }
 
   const outputNumber = isHdr ? bucketBase + 1 : bucketBase;
+
+  // The source class Tag Output Metadata writes into TDARR_SOURCE_CLASS: the codec bucket, with -hdr added for HDR or
+  // Dolby Vision (h264, hevc-hdr, av1, legacy, other-hdr, ...). It is a Flow Variable, so it follows the file through
+  // goToFlow like the step trail does.
+  const bucketName = { 1: 'h264', 3: 'hevc', 5: 'av1', 7: 'legacy', 9: 'other' }[bucketBase];
+  if (!args.variables) args.variables = {};
+  if (!args.variables.user) args.variables.user = {};
+  args.variables.user.tdarrSourceClass = isHdr ? `${bucketName}-hdr` : bucketName;
+  args.jobLog(`Classify Source: source class ${args.variables.user.tdarrSourceClass} (output ${outputNumber})`);
 
   return {
     outputFileObj: args.inputFileObj,
