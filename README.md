@@ -332,13 +332,19 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   file would lose the tags its encode run wrote. Tag Output Metadata first reads the `TDARR_` tags of the original library file (from the
   probe data Tdarr holds, `format.tags`; if that has none, from an `ffmpeg -f ffmetadata` read of the file) and merges them with this run's.
   The tags that describe an encode (`TDARR_ENCODE_PARAMS`, `TDARR_QUALITY_TIER`, `TDARR_SOURCE_CLASS`, `TDARR_SOURCE_BPP`,
-  `TDARR_SIZE_RATIO`, `TDARR_VMAF_SCORE`, `TDARR_ENCODE_VERSION`, `TDARR_ENCODE_TRAIL`) are rewritten only when this run re-encoded the video
+  `TDARR_SOURCE_VIDEO_KBPS`, `TDARR_SOURCE_PEAK_KBPS`, `TDARR_SIZE_RATIO`, `TDARR_VMAF_SCORE`, `TDARR_ENCODE_VERSION`, `TDARR_ENCODE_TRAIL`) are rewritten only when this run re-encoded the video
   (the trail has `converter-encode-done`); when it did not, and the original already carries `TDARR_ENCODE_PARAMS` or `TDARR_ENCODE_TRAIL`,
   they are kept as the encode run wrote them. `TDARR_PIPELINE_VERSION` and `TDARR_TRAIL` always describe the run that wrote them, so
   `TDARR_ENCODE_VERSION` and `TDARR_ENCODE_TRAIL` are copies of those two taken at the encode run. Any other `TDARR_` tag on the original is
   carried over unchanged. The job log says how many tags were found, where they came from and which were kept. Checked on real Matroska
   files with `mkvpropedit`, `ffprobe` and `ffmpeg` in a sandbox, with Tdarr's helpers stubbed; not yet seen in a real Tdarr job, and whether
   Tdarr's own probe data carries `format.tags` is not confirmed (the ffmpeg read covers it if it does not).
+- **Source bitrate tags.** Set Source-Relative Bitrate records the source video's average bitrate and, when its peak scan works, the busiest
+  window's bitrate (the window length and percentile are that node's own inputs, 2 s and 100 by default) as Flow Variables; Tag Output Metadata writes
+  them as `TDARR_SOURCE_VIDEO_KBPS` and `TDARR_SOURCE_PEAK_KBPS`, whole kbps, for QSV encodes only (the plugin leaves other encoders alone). They are in the
+  encode group, so a later pass keeps them. `TDARR_SOURCE_BPP` (bits per pixel) comes from Check Source Efficiency and is written only when that node is
+  enabled; with both its minimums at 0 it never skips a file and only measures. If Check Source Efficiency is enabled it also sets the average-bitrate
+  variable, and Set Source-Relative Bitrate then overwrites it with the value it used for the encode.
 - **Frame-count check before VMAF.** Run VMAF pairs frame N of the original with frame N of the encode, so files with different frame
   counts cannot be scored meaningfully. Before taking the GPU lock it counts the video packets of both files with `ffprobe -count_packets`
   (the sibling of Tdarr's ffmpeg, then `tdarr-ffprobe`, then `ffprobe`) and fails the job, naming both counts, when they differ at all. If the
