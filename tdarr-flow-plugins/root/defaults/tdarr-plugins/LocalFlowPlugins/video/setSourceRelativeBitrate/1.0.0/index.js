@@ -368,6 +368,9 @@ const plugin = async (args) => {
     }
 
     const sourceKbps = bps / 1000;
+    // Flow Variables for Tag Output Metadata (TDARR_SOURCE_VIDEO_KBPS, and TDARR_SOURCE_PEAK_KBPS when the peak scan below works).
+    if (!args.variables.user) args.variables.user = {};
+    args.variables.user.tdarrSourceVideoKbps = String(Math.round(sourceKbps));
     const targetK = Math.max(Math.round(minTargetKbps), Math.round((sourceKbps * targetPercent) / 100));
 
     let ceilingBaseKbps = sourceKbps;
@@ -395,6 +398,7 @@ const plugin = async (args) => {
           + `${Math.round(scan.peakKbps)} kbps (percentile ${peakPercentile} of ${scan.windows} windows of `
           + `${window} s)`);
         ceilingBaseKbps = scan.peakKbps;
+        args.variables.user.tdarrSourcePeakKbps = String(Math.round(scan.peakKbps));
         ceilingBaseNote = `source peak ${Math.round(scan.peakKbps)} kbps`;
       }
     }
