@@ -37,15 +37,21 @@ extra=$(cd "$work" && find . -mindepth 1 -maxdepth 1 | sort | tr '\n' ' ')
 for f in BUILD-INFO LICENSE; do [ -s "$work/doc/$f" ] || fail "missing from the image: /usr/share/doc/tdarr-flow-plugins/$f"; done
 echo "   ok   the image holds exactly the expected files"
 
-# 2. byte-identical to the source (each flow template carries its own version in its name, in the source file), and valid JavaScript
+# 2. byte-identical to the source (the flow templates are identical except for their own version in the flow's name: the
+# number of commits that touched that template, from template-versions.sh), and valid JavaScript
+versions=$(tdarr-flow-plugins/template-versions.sh)
 count=0
 while IFS= read -r f; do
-  cmp -s "tdarr-flow-plugins/root/$f" "$work/$f" || fail "$f differs from the repo source"
   case "$f" in
     defaults/tdarr-plugins/LocalFlowTemplates/*)
-      # the flow's own name line (indented four spaces) must end in the template's version
-      grep -E '^    "name": ' "$work/$f" | grep -qE ' \([0-9]+\.[0-9]+\.[0-9]+\)",$' || fail "$f: the flow name does not end in its version, e.g. (0.6.1)"
+      n=$(printf '%s\n' $versions | sed -n "s/^$(basename "$f")=\([0-9][0-9]*\)\$/\1/p")
+      [ -n "$n" ] || fail "no version worked out for $f"
+      sed "s/^    \"name\": \"\(.*\)\",\$/    \"name\": \"\1 (v$n)\",/" "tdarr-flow-plugins/root/$f" | cmp -s - "$work/$f" \
+        || fail "$f differs from the repo source apart from its version (v$n) in its name"
+      # a template with no flow-level name line would pass the comparison above unchanged, so check the name itself
+      grep -E '^    "name": ' "$work/$f" | grep -qF " (v$n)\"," || fail "$f: the flow name does not carry its version (v$n)"
       ;;
+    *) cmp -s "tdarr-flow-plugins/root/$f" "$work/$f" || fail "$f differs from the repo source" ;;
   esac
   count=$((count + 1))
 done < <(cd tdarr-flow-plugins/root && find defaults -type f | sort)
@@ -56,7 +62,7 @@ done
 ls "$work"/defaults/tdarr-plugins/LocalFlowTemplates/video/*.js >/dev/null 2>&1 || fail "no flow templates shipped"
 docker run --rm -v "$work/defaults:/d:ro" node:20-slim sh -c 'for f in $(find /d -name "*.js"); do node --check "$f" || exit 1; done' \
   || fail "a shipped file does not pass node --check"
-echo "   ok   $count files, byte-identical to the repo, template names carry their versions, valid JavaScript"
+echo "   ok   $count files, byte-identical to the repo (template names carry their own versions: $versions) and valid JavaScript"
 
 # 3. the s6 service, as LinuxServer's mod loader expects it
 s6=$work/etc/s6-overlay/s6-rc.d

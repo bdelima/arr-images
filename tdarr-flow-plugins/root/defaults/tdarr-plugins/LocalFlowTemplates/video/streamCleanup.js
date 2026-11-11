@@ -9,7 +9,7 @@ Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
     "_id": "StreamCleanup_PENDING",
-    "name": "Stream Cleanup (0.6.0)",
+    "name": "Stream Cleanup",
     "description": "Stream Cleanup",
     "tags": "",
     "flowPlugins": [

@@ -9,7 +9,7 @@ Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
     "_id": "kASAOsE1n",
-    "name": "Clean only passthrough (0.3.0)",
+    "name": "Clean only passthrough",
     "description": "Clean only passthrough",
     "tags": "",
     "flowPlugins": [

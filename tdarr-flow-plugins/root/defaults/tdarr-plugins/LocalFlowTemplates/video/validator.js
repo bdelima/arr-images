@@ -10,7 +10,7 @@ Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
     "_id": "Yaax7LBej",
-    "name": "Validator (0.6.1)",
+    "name": "Validator",
     "description": "Validator",
     "tags": "",
     "flowPlugins": [
