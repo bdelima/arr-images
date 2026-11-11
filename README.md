@@ -284,7 +284,7 @@ are `0.x` until that has been done on real files.
 container. It replaces hand-copying files onto the server: at every container start it puts thirteen Local Flow Plugins
 (`classifySource`, `setMaxBitrate`, `tagEncodeSettings`, `tagOutputMetadata`, `checkSourceEfficiency`,
 `setSourceRelativeBitrate`, `requireEnglishAudio`, `removeUntaggedAudio`, `mkvmergeExecute`, `repairLanguageTags`, `markStep`, `requireTrail`, `runVmaf`) and the flow template files for the Downloads
-Flow (Controller, Converter, Validator, Stream Cleanup, Clean-only passthrough, Repair language tags) into the server's plugin folder. The files in
+Flow (Controller, Converter, Validator, Stream Cleanup, Clean-only passthrough) into the server's plugin folder. The files in
 [`tdarr-flow-plugins/root`](tdarr-flow-plugins/root) are the source of truth and are shipped as they are, except that the build appends each flow template's own version to its name (below).
 
 ```yaml
@@ -305,7 +305,7 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   (`[mod-tdarr-flow-plugins] replaced ... (it differed from the one in the image)`), so a host edit is never lost silently.
   Nothing else in the plugin folder is touched or deleted. Files are owned by `PUID:PGID` (when set), mode 664, new folders 775.
   The script never stops the container from starting; a failure is a log line. A new plugin file needs the server restarted to load, which a container restart does anyway.
-- **Not in the image:** the six flows themselves (they live in Tdarr's database; import them with Add Flow > Import JSON Flow
+- **Not in the image:** the five flows themselves (they live in Tdarr's database; import them with Add Flow > Import JSON Flow
   Template) and any Tdarr settings.
 - **Each flow template has its own version, stamped by the build.** The build appends a version to each template's flow name
   ("Controller" becomes "Controller (v9)"), so copies of a flow made from different template versions can be told apart in
@@ -319,14 +319,29 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   steps ran. `markStep` appends one numbered entry (`seq|label|node|worker|UTC time`) to the Flow Variable `tdarrTrail` at the point it
   is placed, and `requireTrail` fails the flow (output 2, wired to Fail Flow) unless the labels it is given are in the trail in that
   order; the order comes from the sequence numbers, not from any clock. The Controller, Converter and Validator templates carry the
-  stamps, the Validator's passthrough path ends in a `requireTrail` gate (`validator-hc-queue`, `validator-hc-done`, `validator-back-local`)
-  in front of Tag Output Metadata, and Tag Output Metadata adds its own closing entry and writes the whole trail into the file's
+  stamps, the Validator's passthrough path ends in a `requireTrail` gate (`validator-hc-queue`, then `validator-hc-done`)
+  in front of Tag Output Metadata (the re-encode path also stamps `validator-back-local`, but it never reaches the gate, so that
+  label is not required there; the 0.6.0 flow required it and failed every passthrough file), and Tag Output Metadata adds its own closing entry and writes the whole trail into the file's
   `TDARR_TRAIL` tag. Read it back with `tdarr-ffmpeg -i <file> 2>&1 | grep -i TDARR_TRAIL`. The time in an entry is the clock of the
   node that ran the step, so it is comparable between nodes only when their clocks agree.
-- **A flow made from a template gets a new id and cannot update an existing flow.** Observed 2026-11-08: after the 0.2.0 Controller
-  and Converter appeared as new flows next to the live ones, the new Controller still sent files to the old Converter, and the old
-  Clean and Stream Cleanup flows still returned to the old Controller. To update a live flow in place, paste its JSON with its `_id`
-  into Add Flow > Import JSON Flow Template and choose Replace.
+- **Updating a live flow from a template.** Each template carries the flow's own `_id` (the `goToFlow` nodes in the other flows
+  point at flows by id), so importing it from Add Flow > Local prompts Replace and keeps the id (observed by the owner,
+  2026-11-09). A template without an `_id` (the 0.2.0 ones) made a new flow with a random id next to the live one, and the old
+  flows kept pointing at each other (observed 2026-11-08). While a flow is bound to libraries, importing it from the Local tab does
+  not replace it in place: it lands as a new flow with a random id (observed with the Controller, 2026-11-09/10). Unbind the
+  libraries first, Replace, then rebind them. A flow no library uses (Converter, Validator, Stream Cleanup, Clean-only passthrough)
+  is replaced in place.
+- **Language tags in Stream Cleanup.** The flow keeps English audio only. Require English Audio checks ffprobe's `tags.language`
+  for an exact match with its `languages` input (`eng,en` in the template: a track tagged `eng` or a raw `en` both count). If no audio
+  track matches, the file goes to Repair Language Tags: output 1 (tags repaired) continues to Begin Command, output 2 (nothing to
+  repair) goes to Fail Flow. Repair Language Tags changes a Matroska file only in place with `mkvpropedit` (no remux), only tracks with
+  no language, and only in one of two cases. (1) The container was last written by ffmpeg (muxing or writing application starts with
+  `Lavf`, the signature of the old `-map_metadata -1` remux) and it has an untagged audio track: every untagged audio and subtitle track
+  is set to `eng`. (2) The file has exactly one audio track, that track has no language, and the first video track has the same
+  language (`eng`, a raw `en`, or a BCP 47 tag such as `en` or `en-US` on its own): that audio track, and only that one, is set to
+  `eng`. Case 2 does not look at the writing application. A video tagged with another language, or untagged, never causes a change.
+  The tag written is the legacy three-letter one on purpose: a track tagged only through `language-ietf` shows no language in ffprobe,
+  so Require English Audio would not see it. Each change is read back with `mkvmerge --identify`.
 - **Tests.** [`ci.yml`](.github/workflows/ci.yml) builds the image and runs [`smoke-test.sh`](tdarr-flow-plugins/smoke-test.sh):
   exactly the expected files, byte-identical to the repo, `node --check`, the s6 files, and the start-up script's copy rule
   (install / unchanged / replace-and-log / put back / twice is a no-op / owner and mode) in a container. CI has no Tdarr server,
