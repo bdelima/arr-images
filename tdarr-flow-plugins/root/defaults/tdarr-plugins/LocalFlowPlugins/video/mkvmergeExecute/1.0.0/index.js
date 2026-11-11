@@ -27,7 +27,8 @@
  *
  * Track mapping: mkvmerge track ids are matched to the command's streams by position within each type (the 2nd audio
  * stream in the command is the 2nd audio track mkvmerge reports). The counts per type must be equal and the language
- * tags must agree where both are set. If they do not, the plugin throws, so a wrong track can never be removed.
+ * tags must agree where both are set (the bibliographic and terminologic forms of a code, baq and eus, count as the
+ * same). If they do not, the plugin throws, so a wrong track can never be removed.
  *
  * Failures (unreadable file, mapping mismatch, mkvmerge error) throw, which fails the file. mkvmerge exit code 1
  * (warnings) is accepted.
@@ -93,9 +94,19 @@ const TYPES = [
   { plan: 'subtitle', mkv: 'subtitles', label: 'subtitle' },
 ];
 
+// ISO 639-2 has two codes for 20 languages: the bibliographic one (B) and the terminologic one (T). mkvmerge reports
+// the B code (baq, fre, cze), ffmpeg reports the T code (eus, fra, ces), so the same track compares unequal.
+// Both sides are brought to the T code before they are compared.
+const BIB_TO_TERM = {
+  alb: 'sqi', arm: 'hye', baq: 'eus', bur: 'mya', chi: 'zho', cze: 'ces', dut: 'nld', fre: 'fra', geo: 'kat',
+  ger: 'deu', gre: 'ell', ice: 'isl', mac: 'mkd', mao: 'mri', may: 'msa', per: 'fas', rum: 'ron', slo: 'slk',
+  tib: 'bod', wel: 'cym',
+};
+
 const normLang = (l) => {
   const v = String(l || '').trim().toLowerCase();
-  return (v === '' || v === 'und') ? '' : v;
+  if (v === '' || v === 'und') return '';
+  return BIB_TO_TERM[v] || v;
 };
 
 const describe = (s) => {
@@ -117,11 +128,13 @@ const mapTracks = (cmdStreams, identified) => {
           + `${(tr.properties || {}).language || ''}`).join('; ')}]`);
     }
     planned.forEach((s, i) => {
-      const a = normLang(s.tags && s.tags.language);
-      const b = normLang((tracks[i].properties || {}).language);
+      const rawA = String((s.tags && s.tags.language) || '').trim().toLowerCase();
+      const rawB = String((tracks[i].properties || {}).language || '').trim().toLowerCase();
+      const a = normLang(rawA);
+      const b = normLang(rawB);
       if (a !== '' && b !== '' && a !== b) {
-        throw new Error(`mkvmerge Execute: ${t.label} stream ${i + 1} is tagged "${a}" for ffmpeg (${describe(s)}) but `
-          + `"${b}" for mkvmerge (track ${tracks[i].id}), so the tracks cannot be matched safely`);
+        throw new Error(`mkvmerge Execute: ${t.label} stream ${i + 1} is tagged "${rawA}" for ffmpeg (${describe(s)}) but `
+          + `"${rawB}" for mkvmerge (track ${tracks[i].id}), so the tracks cannot be matched safely`);
       }
     });
     out[t.plan] = planned.map((s, i) => ({ stream: s, track: tracks[i] }));
