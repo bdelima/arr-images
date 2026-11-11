@@ -4,6 +4,9 @@
 // Exported verbatim from the live Tdarr flow "Controller" (originally _id WReQY_XGS, now HWxfel7zZ) on 2026-11-08, and
 // brought up to the live "Controller (0.6.0)" on 2026-11-10 (the build stamps the template's version onto the name, so the name here stays plain). Changes from that update: the "Route to local CPU" and "Mark step: landed on local" nodes are gone, Input File
 // leads through "Mark step: controller start" straight into Run Health Check, and three node positions moved.
+// Brought up to the live "Controller (v10)" on 2026-11-11: new "Queue to mapped nodes" (Tags: Worker Type, CPU worker on a node tagged mapped) between Input File and
+// "Mark step: controller start". An unmapped encoder node that picks the job up at Input File re-queues it to a mapped node there, and its job log says it did
+// not download the file ("unmapped node, tags plugin after start plugin, no need to download file"). Three node positions moved.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
@@ -39,7 +42,7 @@ const details = () => ({
         "id": "Pu7lH9MsN",
         "position": {
           "x": 612,
-          "y": -216
+          "y": -204
         }
       },
       {
@@ -174,7 +177,7 @@ const details = () => ({
         "id": "ctrlGoToCleanup",
         "position": {
           "x": 612,
-          "y": -108
+          "y": -120
         }
       },
       {
@@ -217,7 +220,7 @@ const details = () => ({
         "id": "ctrlMarkStart",
         "position": {
           "x": 612,
-          "y": -264
+          "y": -240
         }
       },
       {
@@ -233,6 +236,22 @@ const details = () => ({
         "position": {
           "x": 612,
           "y": -168
+        }
+      },
+      {
+        "name": "Queue to mapped nodes",
+        "sourceRepo": "Community",
+        "pluginName": "tagsWorkerType",
+        "version": "1.0.0",
+        "id": "ps-ThIC3R",
+        "position": {
+          "x": 612,
+          "y": -276
+        },
+        "fpEnabled": true,
+        "inputsDB": {
+          "requiredWorkerType": "CPU",
+          "requiredNodeTags": "mapped"
         }
       }
     ],
@@ -364,13 +383,6 @@ const details = () => ({
         "id": "ctrlE2"
       },
       {
-        "source": "6sLbd7Q3m",
-        "sourceHandle": "1",
-        "target": "ctrlMarkStart",
-        "targetHandle": null,
-        "id": "ctrlE3"
-      },
-      {
         "source": "ctrlMarkHc",
         "sourceHandle": "1",
         "target": "ctrlGoToCleanup",
@@ -383,6 +395,20 @@ const details = () => ({
         "target": "Pu7lH9MsN",
         "targetHandle": null,
         "id": "wX1SDPG_j"
+      },
+      {
+        "source": "ps-ThIC3R",
+        "sourceHandle": "1",
+        "target": "ctrlMarkStart",
+        "targetHandle": null,
+        "id": "pAqRJHOFu"
+      },
+      {
+        "source": "6sLbd7Q3m",
+        "sourceHandle": "1",
+        "target": "ps-ThIC3R",
+        "targetHandle": null,
+        "id": "Kd_QSFHUx"
       }
     ]
   });
