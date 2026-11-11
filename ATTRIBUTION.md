@@ -132,11 +132,10 @@ affiliated with or endorsed by them.
 
 ## tdarr-flow-plugins: material in the image
 
-`bdelima/tdarr-flow-plugins` ships thirteen Tdarr Local Flow Plugins and six flow template files written by the repository owner
+`bdelima/tdarr-flow-plugins` ships thirteen Tdarr Local Flow Plugins and five flow template files written by the repository owner
 (this repository's own code, GPL-3.0-only like the rest). They are written against the plugin API and helpers of
 [HaveAGitGat/Tdarr_Plugins](https://github.com/HaveAGitGat/Tdarr_Plugins) (GPL-3.0) and modeled on its stock plugins such as
 `runMkvPropEdit` and `ffmpegCommandSetVideoEncoder`. The plugins only `require()` Tdarr's helpers at run time; no Tdarr code or
 binaries are bundled, so the statement under "Tdarr" above stays true. The image carries the repository `LICENSE` and a
 `BUILD-INFO` with the version, revision and a checksum per file in `/usr/share/doc/tdarr-flow-plugins/`. Whether any single
 file counts as derived from Tdarr_Plugins is for the author to judge; the whole repository is GPL-3.0, which covers either answer.
-
