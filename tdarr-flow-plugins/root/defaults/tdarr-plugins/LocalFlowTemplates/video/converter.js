@@ -6,6 +6,9 @@
 // Brought up to the live "Converter (0.6.0)" on 2026-11-10 (the build stamps the template's version onto the name, so the name here stays
 // plain; the live flow is now called "Converter"). Changes from that update: the "Route to local CPU (demux path)" and "Mark step:
 // landed on local (demux)" nodes are gone, so "Mark step: encode done" leads straight into the final mkvmerge combine; node positions moved.
+// Brought up to the live "Converter (v11)" on 2026-11-11: after "Mark step: encode done" new "Route to mapped nodes" (Tags: Worker Type, CPU worker on a node tagged mapped) and
+// "Mark step: landed on mapped node" (label converter-encode-mapped) come before the final mkvmerge combine, so an encode that ran on an unmapped node goes back to a mapped node,
+// which downloads the encoded file from the server, before the combine reads the shared remux cache. "Route to encoder (GPU)" is renamed "Route to encoder nodes"; node positions moved.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
@@ -17,6 +20,21 @@ const details = () => ({
     "description": "Converter",
     "tags": "",
     "flowPlugins": [
+      {
+        "name": "Mark step: landed on mapped node",
+        "sourceRepo": "Local",
+        "pluginName": "markStep",
+        "version": "1.0.0",
+        "inputsDB": {
+          "label": "converter-encode-mapped"
+        },
+        "fpEnabled": true,
+        "id": "qwYEerynw",
+        "position": {
+          "x": 456,
+          "y": 552
+        }
+      },
       {
         "name": "Entry from Controller Flow",
         "sourceRepo": "Community",
@@ -83,7 +101,7 @@ const details = () => ({
         }
       },
       {
-        "name": "Route to encoder (GPU)",
+        "name": "Route to encoder nodes",
         "sourceRepo": "Community",
         "pluginName": "tagsWorkerType",
         "version": "1.0.0",
@@ -107,7 +125,7 @@ const details = () => ({
         "id": "ehGAkWvj7",
         "position": {
           "x": 720,
-          "y": 336
+          "y": 372
         }
       },
       {
@@ -130,7 +148,7 @@ const details = () => ({
         "id": "FAc9QeWJK",
         "position": {
           "x": 720,
-          "y": 384
+          "y": 420
         }
       },
       {
@@ -151,7 +169,7 @@ const details = () => ({
         "id": "srcRelCap",
         "position": {
           "x": 720,
-          "y": 432
+          "y": 468
         }
       },
       {
@@ -163,7 +181,7 @@ const details = () => ({
         "id": "d7QK1TBlh",
         "position": {
           "x": 720,
-          "y": 468
+          "y": 504
         }
       },
       {
@@ -175,7 +193,7 @@ const details = () => ({
         "id": "Y40uvSwMF",
         "position": {
           "x": 720,
-          "y": 504
+          "y": 540
         }
       },
       {
@@ -191,7 +209,7 @@ const details = () => ({
         "id": "SQedUStPK",
         "position": {
           "x": 456,
-          "y": 552
+          "y": 600
         }
       },
       {
@@ -211,7 +229,7 @@ const details = () => ({
         "id": "R0CsTy4Qw",
         "position": {
           "x": 456,
-          "y": 588
+          "y": 636
         }
       },
       {
@@ -227,7 +245,7 @@ const details = () => ({
         "id": "b8n51xYj4",
         "position": {
           "x": 456,
-          "y": 636
+          "y": 684
         }
       },
       {
@@ -242,7 +260,7 @@ const details = () => ({
         "id": "cnvMarkEnc",
         "position": {
           "x": 720,
-          "y": 288
+          "y": 324
         }
       },
       {
@@ -257,7 +275,23 @@ const details = () => ({
         "id": "cnvMarkEncDone",
         "position": {
           "x": 720,
-          "y": 552
+          "y": 588
+        }
+      },
+      {
+        "name": "Route to mapped nodes",
+        "sourceRepo": "Community",
+        "pluginName": "tagsWorkerType",
+        "version": "1.0.0",
+        "id": "qyqzR1Ocm",
+        "position": {
+          "x": 456,
+          "y": 516
+        },
+        "fpEnabled": true,
+        "inputsDB": {
+          "requiredNodeTags": "mapped",
+          "requiredWorkerType": "CPU"
         }
       }
     ],
@@ -326,13 +360,6 @@ const details = () => ({
         "id": "Vu9HtsSNH"
       },
       {
-        "source": "SQedUStPK",
-        "sourceHandle": "1",
-        "target": "R0CsTy4Qw",
-        "targetHandle": null,
-        "id": "euQAg3ePe"
-      },
-      {
         "source": "R0CsTy4Qw",
         "sourceHandle": "1",
         "target": "b8n51xYj4",
@@ -356,9 +383,30 @@ const details = () => ({
       {
         "source": "cnvMarkEncDone",
         "sourceHandle": "1",
+        "target": "qyqzR1Ocm",
+        "targetHandle": null,
+        "id": "spm0GzRIZ"
+      },
+      {
+        "source": "qyqzR1Ocm",
+        "sourceHandle": "1",
+        "target": "qwYEerynw",
+        "targetHandle": null,
+        "id": "dZY17ylsS"
+      },
+      {
+        "source": "SQedUStPK",
+        "sourceHandle": "1",
+        "target": "R0CsTy4Qw",
+        "targetHandle": null,
+        "id": "_zXcfY6xK"
+      },
+      {
+        "source": "qwYEerynw",
+        "sourceHandle": "1",
         "target": "SQedUStPK",
         "targetHandle": null,
-        "id": "BPr3K1ven"
+        "id": "4oldrn25C"
       }
     ]
   });
