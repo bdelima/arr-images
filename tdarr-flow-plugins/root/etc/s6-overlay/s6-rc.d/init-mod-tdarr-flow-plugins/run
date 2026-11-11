@@ -4,17 +4,28 @@
 # A host bind mount hides anything an image puts at that path, so the files are staged under /defaults and copied.
 #
 # Rule, per file: missing -> install it; identical -> leave it; different -> replace it and say so in the log (the
-# repo is the truth; a host edit that gets replaced is never silent). Nothing else in the plugin folder is touched or
-# deleted. Files and any folders it has to create belong to PUID:PGID (when set), mode 664 / 775.
+# repo is the truth; a host edit that gets replaced is never silent). Files it retires are deleted (see RETIRED below).
+# Nothing else in the plugin folder is touched or deleted. Files and any folders it has to create belong to PUID:PGID
+# (when set), mode 664 / 775.
 #
 # The paths and ids can be overridden for testing (see smoke-test.sh):
 #   TDARR_FLOW_PLUGINS_SRC   default /defaults/tdarr-plugins
 #   TDARR_FLOW_PLUGINS_DEST  default /app/server/Tdarr/Plugins/FlowPlugins
+#   TDARR_FLOW_PLUGINS_RETIRED  default: the RETIRED list below (one relative path per word)
 set -u
 
 SRC=${TDARR_FLOW_PLUGINS_SRC:-/defaults/tdarr-plugins}
 DEST=${TDARR_FLOW_PLUGINS_DEST:-/app/server/Tdarr/Plugins/FlowPlugins}
 TAG='[mod-tdarr-flow-plugins]'
+
+# Files this image used to ship and no longer does. The copy rule never deletes anything by itself, so a file removed
+# from the repo stays on the server; one that is listed here (exact path relative to DEST, no wildcards) is deleted at
+# start if it is there. Add a line when a plugin or template is dropped from the repo; never list a file the image ships.
+RETIRED=(
+  LocalFlowTemplates/video/languageTagRepair.js
+)
+# for testing only: a replacement list from the environment
+if [ -n "${TDARR_FLOW_PLUGINS_RETIRED:-}" ]; then read -r -a RETIRED <<< "$TDARR_FLOW_PLUGINS_RETIRED"; fi
 
 say() { echo "$TAG $*"; }
 
@@ -37,7 +48,7 @@ make_dirs() {
   done
 }
 
-installed=0 replaced=0 unchanged=0 failed=0
+installed=0 replaced=0 unchanged=0 removed=0 failed=0
 while IFS= read -r -d '' file; do
   rel=${file#"$SRC"/}
   target=$DEST/$rel
@@ -69,5 +80,35 @@ while IFS= read -r -d '' file; do
   fi
 done < <(find "$SRC" -type f -print0 | sort -z)
 
-say "done: $installed installed, $replaced replaced, $unchanged unchanged, $failed failed (into $DEST)"
+# retired files: delete the exact listed regular file if it is there. A path that is empty, absolute, climbs with "..",
+# is a file this image ships, or is not a regular file (a folder, a link) is reported and left alone.
+for rel in ${RETIRED[@]+"${RETIRED[@]}"}; do
+  case "$rel" in
+    ''|/*|..|../*|*/..|*/../*)
+      say "ERROR: retired path '$rel' is not a plain relative path; skipped"
+      failed=$((failed + 1))
+      continue
+      ;;
+  esac
+  if [ -e "$SRC/$rel" ]; then
+    say "ERROR: $rel is on the retired list but this image ships it; not removed"
+    failed=$((failed + 1))
+    continue
+  fi
+  target=$DEST/$rel
+  if [ -L "$target" ] || { [ -e "$target" ] && [ ! -f "$target" ]; }; then
+    say "ERROR: $target is not a regular file; not removed"
+    failed=$((failed + 1))
+  elif [ -f "$target" ]; then
+    if rm -f "$target"; then
+      say "removed $rel (retired: this image no longer ships it)"
+      removed=$((removed + 1))
+    else
+      say "ERROR: could not remove $target"
+      failed=$((failed + 1))
+    fi
+  fi
+done
+
+say "done: $installed installed, $replaced replaced, $unchanged unchanged, $removed removed, $failed failed (into $DEST)"
 exit 0
