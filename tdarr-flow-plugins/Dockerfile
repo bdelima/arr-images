@@ -3,9 +3,9 @@
 # tdarr-flow-plugins: a DOCKER_MODS overlay for the Tdarr SERVER container (see the README, "Tdarr flow plugins"). It
 # carries thirteen Local Flow Plugins and the flow template files, and a start-up script that copies them into the server's
 # plugin folder every time the container starts. Nothing is compiled or downloaded; the files in
-# tdarr-flow-plugins/root are the source of truth and are shipped as they are, with one exception: the build appends the
-# release version to each flow template's name ("Controller" becomes "Controller (0.2.1)"), so copies of a flow made from
-# different releases can be told apart in Tdarr.
+# tdarr-flow-plugins/root are the source of truth and are shipped byte for byte. Each flow template's name carries that
+# template's own version ("Controller (0.6.1)"), kept in the source file and bumped only when that template changes; the
+# build only checks that every template has one.
 # Build context: the repository root.
 #
 #   docker build -f tdarr-flow-plugins/Dockerfile --build-arg VERSION=$(cat tdarr-flow-plugins/VERSION) .
@@ -24,13 +24,12 @@ RUN set -eu; \
     # the s6 service files must be plain LF text and the run script executable, whatever the checkout did to them
     for f in $(find /root-layer/etc -type f -size +0); do sed -i 's/\r$//' "$f"; done; \
     chmod 0755 /root-layer/etc/s6-overlay/s6-rc.d/init-mod-tdarr-flow-plugins/run; \
-    # stamp the release version into each flow template's name. A template's own name is the one line indented exactly four
-    # spaces ("name": ...); every template must have exactly one and it must end up carrying the version, or the build stops
+    # every flow template must have exactly one flow-level name line (the line indented exactly four spaces) and it must end in
+    # the template's own version, " (x.y.z)"; nothing is stamped here, the version is part of the source file
     case "$VERSION" in ''|*[!0-9A-Za-z._-]*) echo "VERSION must be letters, digits, dot, underscore or dash, got: '$VERSION'" >&2; exit 1;; esac; \
     for f in /root-layer/defaults/tdarr-plugins/LocalFlowTemplates/video/*.js; do \
       [ "$(grep -c '^    "name": "' "$f")" = 1 ] || { echo "$f: expected exactly one flow-level name line" >&2; exit 1; }; \
-      sed -i "s/^    \"name\": \"\(.*\)\",\$/    \"name\": \"\1 ($VERSION)\",/" "$f"; \
-      grep -qF " ($VERSION)\"," "$f" || { echo "$f: the version was not stamped into the flow name" >&2; exit 1; }; \
+      grep -qE '^    "name": ".* \([0-9]+\.[0-9]+\.[0-9]+\)",$' "$f" || { echo "$f: the flow name does not end in its version, e.g. (0.6.1)" >&2; exit 1; }; \
     done; \
     { echo "tdarr-flow-plugins $VERSION (source: https://github.com/bdelima/arr-images, revision $REVISION)"; \
       echo "plugins: $(cd /root-layer/defaults/tdarr-plugins/LocalFlowPlugins && find . -name index.js | sort | tr '\n' ' ')"; \
