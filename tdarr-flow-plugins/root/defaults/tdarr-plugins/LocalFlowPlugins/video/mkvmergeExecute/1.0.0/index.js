@@ -94,19 +94,62 @@ const TYPES = [
   { plan: 'subtitle', mkv: 'subtitles', label: 'subtitle' },
 ];
 
-// ISO 639-2 has two codes for 20 languages: the bibliographic one (B) and the terminologic one (T). mkvmerge reports
-// the B code (baq, fre, cze), ffmpeg reports the T code (eus, fra, ces), so the same track compares unequal.
-// Both sides are brought to the T code before they are compared.
+// Language tags are compared only as a second check on the position match above, and the two tools do not spell a
+// language the same way: ffmpeg gives the terminologic ISO 639-2 code (eus, fra, ces) where mkvmerge gives the
+// bibliographic one (baq, fre, cze), and a raw two-letter tag ("en") shows as is in ffprobe but as "eng" in mkvmerge.
+// So both sides are first brought to one canonical form: the primary subtag of a BCP 47 tag, a two-letter ISO 639-1
+// code or a bibliographic code turned into the terminologic ISO 639-2 code. A value that is not a language code
+// ("xx", which mkvmerge reports as "und"), "und" and an empty tag canonicalize to '' and are not compared. That
+// leaves a throw only for two different, known languages. Tables generated from the iso-codes package (ISO 639-2:
+// 486 codes, ISO 639-1: 184 codes) and checked against ffprobe and mkvmerge for every code, see the PR.
 const BIB_TO_TERM = {
   alb: 'sqi', arm: 'hye', baq: 'eus', bur: 'mya', chi: 'zho', cze: 'ces', dut: 'nld', fre: 'fra', geo: 'kat',
   ger: 'deu', gre: 'ell', ice: 'isl', mac: 'mkd', mao: 'mri', may: 'msa', per: 'fas', rum: 'ron', slo: 'slk',
   tib: 'bod', wel: 'cym',
 };
 
+const ISO_639_2 = new Set([
+  'aar abk ace ach ada ady afa afh afr ain aka akk ale alg alt amh ang anp apa ara arc arg arn arp art arw asm',
+  'ast ath aus ava ave awa aym aze bad bai bak bal bam ban bas bat bej bel bem ben ber bho bih bik bin bis bla',
+  'bnt bod bos bra bre btk bua bug bul byn cad cai car cat cau ceb cel ces cha chb che chg chk chm chn cho chp',
+  'chr chu chv chy cmc cnr cop cor cos cpe cpf cpp cre crh crp csb cus cym dak dan dar day del den deu dgr din',
+  'div doi dra dsb dua dum dyu dzo efi egy eka ell elx eng enm epo est eus ewe ewo fan fao fas fat fij fil fin',
+  'fiu fon fra frm fro frr frs fry ful fur gaa gay gba gem gez gil gla gle glg glv gmh goh gon gor got grb grc',
+  'grn gsw guj gwi hai hat hau haw heb her hil him hin hit hmn hmo hrv hsb hun hup hye iba ibo ido iii ijo iku',
+  'ile ilo ina inc ind ine inh ipk ira iro isl ita jav jbo jpn jpr jrb kaa kab kac kal kam kan kar kas kat kau',
+  'kaw kaz kbd kha khi khm kho kik kin kir kmb kok kom kon kor kos kpe krc krl kro kru kua kum kur kut lad lah',
+  'lam lao lat lav lez lim lin lit lol loz ltz lua lub lug lui lun luo lus mad mag mah mai mak mal man map mar',
+  'mas mdf mdr men mga mic min mis mkd mkh mlg mlt mnc mni mno moh mon mos mri msa mul mun mus mwl mwr mya myn',
+  'myv nah nai nap nau nav nbl nde ndo nds nep new nia nic niu nld nno nob nog non nor nqo nso nub nwc nya nym',
+  'nyn nyo nzi oci oji ori orm osa oss ota oto paa pag pal pam pan pap pau peo phi phn pli pol pon por pra pro',
+  'pus que raj rap rar roa roh rom ron run rup rus sad sag sah sai sal sam san sas sat scn sco sel sem sga sgn',
+  'shn sid sin sio sit sla slk slv sma sme smi smj smn smo sms sna snd snk sog som son sot spa sqi srd srn srp',
+  'srr ssa ssw suk sun sus sux swa swe syc syr tah tai tam tat tel tem ter tet tgk tgl tha tig tir tiv tkl tlh',
+  'tli tmh tog ton tpi tsi tsn tso tuk tum tup tur tut tvl twi tyv udm uga uig ukr umb und urd uzb vai ven vie',
+  'vol vot wak wal war was wen wln wol xal xho yao yap yid yor ypk zap zbl zen zgh zha zho znd zul zun zxx zza',
+].join(' ').split(' '));
+
+const ISO_639_1 = Object.fromEntries([
+  'aa=aar ab=abk ae=ave af=afr ak=aka am=amh an=arg ar=ara as=asm av=ava ay=aym az=aze ba=bak be=bel bg=bul',
+  'bh=bih bi=bis bm=bam bn=ben bo=bod br=bre bs=bos ca=cat ce=che ch=cha co=cos cr=cre cs=ces cu=chu cv=chv',
+  'cy=cym da=dan de=deu dv=div dz=dzo ee=ewe el=ell en=eng eo=epo es=spa et=est eu=eus fa=fas ff=ful fi=fin',
+  'fj=fij fo=fao fr=fra fy=fry ga=gle gd=gla gl=glg gn=grn gu=guj gv=glv ha=hau he=heb hi=hin ho=hmo hr=hrv',
+  'ht=hat hu=hun hy=hye hz=her ia=ina id=ind ie=ile ig=ibo ii=iii ik=ipk io=ido is=isl it=ita iu=iku ja=jpn',
+  'jv=jav ka=kat kg=kon ki=kik kj=kua kk=kaz kl=kal km=khm kn=kan ko=kor kr=kau ks=kas ku=kur kv=kom kw=cor',
+  'ky=kir la=lat lb=ltz lg=lug li=lim ln=lin lo=lao lt=lit lu=lub lv=lav mg=mlg mh=mah mi=mri mk=mkd ml=mal',
+  'mn=mon mr=mar ms=msa mt=mlt my=mya na=nau nb=nob nd=nde ne=nep ng=ndo nl=nld nn=nno no=nor nr=nbl nv=nav',
+  'ny=nya oc=oci oj=oji om=orm or=ori os=oss pa=pan pi=pli pl=pol ps=pus pt=por qu=que rm=roh rn=run ro=ron',
+  'ru=rus rw=kin sa=san sc=srd sd=snd se=sme sg=sag si=sin sk=slk sl=slv sm=smo sn=sna so=som sq=sqi sr=srp',
+  'ss=ssw st=sot su=sun sv=swe sw=swa ta=tam te=tel tg=tgk th=tha ti=tir tk=tuk tl=tgl tn=tsn to=ton tr=tur',
+  'ts=tso tt=tat tw=twi ty=tah ug=uig uk=ukr ur=urd uz=uzb ve=ven vi=vie vo=vol wa=wln wo=wol xh=xho yi=yid',
+  'yo=yor za=zha zh=zho zu=zul',
+].join(' ').split(' ').map((p) => p.split('=')));
+
 const normLang = (l) => {
-  const v = String(l || '').trim().toLowerCase();
+  const v = String(l || '').trim().toLowerCase().split(/[-_]/)[0];
   if (v === '' || v === 'und') return '';
-  return BIB_TO_TERM[v] || v;
+  const code = BIB_TO_TERM[v] || ISO_639_1[v] || v;
+  return ISO_639_2.has(code) ? code : '';
 };
 
 const describe = (s) => {
