@@ -393,8 +393,8 @@ is LinuxServer's, unchanged.
 - If upstream changes the lines the patch touches, the build **fails** at `git apply --check` instead of shipping
   an image without the override. That is the signal to update the patch.
 
-The build needs `.NET SDK 8` for Radarr and Lidarr and `6` for Sonarr (their Core projects target `net8.0` and
-`net6.0`); the Dockerfiles use the matching SDK images.
+The build needs `.NET SDK 8` for Radarr and Lidarr, `6` for Sonarr and `10` for Sportarr (their projects target `net8.0`,
+`net6.0` and, since Sportarr v4.1.12, a `global.json` that asks for SDK 10.0.100); the Dockerfiles use the matching SDK images.
 
 ## License and source
 
