@@ -19,12 +19,13 @@ ARG FFMPEG_REF=n7.1
 ARG CUDA_ARCH=75
 
 ENV DEBIAN_FRONTEND=noninteractive
-# The build tools come from an Ubuntu mirror that GitHub's runners reach reliably (the same one the runners use for
-# themselves). On 2026-11-11 archive.ubuntu.com and security.ubuntu.com stopped resolving from the runners' build
-# containers for hours, which failed this stage ("Unable to locate package"). Nothing from this stage is shipped (the final
-# image is built FROM scratch), so the choice of mirror does not change the published image. Override with
+# The build tools come from an Ubuntu mirror outside the ubuntu.com domain. On 2026-11-11 every ubuntu.com host
+# (archive., security. and azure.archive.ubuntu.com) stopped resolving from GitHub's runner build containers for hours,
+# while other hosts (developer.download.nvidia.com, deb.debian.org) kept resolving, which failed this stage ("Unable to
+# locate package"). The cause is not established. Nothing from this stage is shipped (the final image is built FROM
+# scratch), so the choice of mirror does not change the published image. Override with
 # --build-arg APT_MIRROR=http://archive.ubuntu.com/ubuntu to use the default archive.
-ARG APT_MIRROR=http://azure.archive.ubuntu.com/ubuntu
+ARG APT_MIRROR=http://mirrors.edge.kernel.org/ubuntu
 RUN sed -i -e "s|http://archive.ubuntu.com/ubuntu|${APT_MIRROR}|g" -e "s|http://security.ubuntu.com/ubuntu|${APT_MIRROR}|g" /etc/apt/sources.list \
     && grep -q "${APT_MIRROR}" /etc/apt/sources.list \
     && apt-get update && apt-get install -y --no-install-recommends \
