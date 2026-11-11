@@ -19,7 +19,16 @@ ARG FFMPEG_REF=n7.1
 ARG CUDA_ARCH=75
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# The build tools come from an Ubuntu mirror outside the ubuntu.com domain. On 2026-11-11 every ubuntu.com host
+# (archive., security. and azure.archive.ubuntu.com) stopped resolving from GitHub's runner build containers for hours,
+# while other hosts (developer.download.nvidia.com, deb.debian.org) kept resolving, which failed this stage ("Unable to
+# locate package"). The cause is not established. Nothing from this stage is shipped (the final image is built FROM
+# scratch), so the choice of mirror does not change the published image. Override with
+# --build-arg APT_MIRROR=http://archive.ubuntu.com/ubuntu to use the default archive.
+ARG APT_MIRROR=http://mirrors.edge.kernel.org/ubuntu
+RUN sed -i -e "s|http://archive.ubuntu.com/ubuntu|${APT_MIRROR}|g" -e "s|http://security.ubuntu.com/ubuntu|${APT_MIRROR}|g" /etc/apt/sources.list \
+    && grep -q "${APT_MIRROR}" /etc/apt/sources.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
       build-essential ca-certificates git nasm ninja-build patchelf pkg-config python3-pip xxd \
     && pip3 install --no-cache-dir meson cmake \
     && rm -rf /var/lib/apt/lists/*
