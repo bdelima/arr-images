@@ -311,12 +311,18 @@ const plugin = async (args) => {
   const optionsFile = `${outDir}/mkvmerge-options.json`;
   fs.writeFileSync(optionsFile, JSON.stringify(spawnArgs), 'utf8');
 
+  // The helper's updateETA stats outputFilePath on every progress tick and sends the worker that file's size and an estimated
+  // final size (size / percentage), which the worker shows as the C: and T: figures. A remux is not a compression step and the
+  // size of mkvmerge's output at a given percentage does not follow the percentage, so the figures were junk (C:622% T:76% on
+  // a video remux, C:12% T:12% on audio and subtitles). Naming a path that never exists makes the helper send 0 for both,
+  // as Run VMAF does; the percentage and the ETA do not depend on it.
+  const noStatsFile = `${outputFilePath}.no-size-stats`;
   const cli = new CLI({
     cli: bin,
     spawnArgs: [`@${optionsFile}`],
     spawnOpts: { env },
     jobLog: args.jobLog,
-    outputFilePath,
+    outputFilePath: noStatsFile,
     inputFileObj: args.inputFileObj,
     logFullCliOutput: args.logFullCliOutput,
     updateWorker: args.updateWorker,
