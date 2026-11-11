@@ -117,6 +117,30 @@ out=$(run); echo "$out"
 echo "$out" | grep -q 'installed LocalFlowTemplates/video/controller.js' || fail "a deleted file was not put back"
 echo "   ok   a missing file is put back"
 
+# a file the image no longer ships is deleted when it is on the retired list, and nothing else is
+mkdir -p /scratch/FlowPlugins/LocalFlowTemplates/video
+retired=/scratch/FlowPlugins/LocalFlowTemplates/video/languageTagRepair.js
+echo "an old template" > "$retired"
+echo "my own template" > /scratch/FlowPlugins/LocalFlowTemplates/video/myOwnTemplate.js
+out=$(run); echo "$out"
+echo "$out" | grep -q 'removed LocalFlowTemplates/video/languageTagRepair.js' || fail "a retired file was not removed and logged"
+[ ! -e "$retired" ] || fail "the retired file is still there"
+[ "$(cat /scratch/FlowPlugins/LocalFlowTemplates/video/myOwnTemplate.js)" = "my own template" ] || fail "a file that is not on the list was touched"
+out=$(run); echo "$out"
+echo "$out" | grep -q ' 0 removed' || fail "a second run removed something"
+echo "   ok   a retired file is removed and logged, an unlisted file is left, a second run removes nothing"
+
+# the list holds exact paths inside the plugin folder only: nothing outside it, nothing the image ships, no folders or links
+mkdir -p /scratch/FlowPlugins/keepdir
+echo outside > /scratch/outside.txt
+ln -s /scratch/outside.txt /scratch/FlowPlugins/linked.js
+out=$(TDARR_FLOW_PLUGINS_RETIRED="../outside.txt /etc/hostname keepdir linked.js $tpl" run); echo "$out"
+[ "$(grep -c 'ERROR' <<< "$out")" = 5 ] || fail "the unsafe retired entries were not all reported"
+echo "$out" | grep -q ' 0 removed' || fail "an unsafe retired entry was removed"
+[ -e /scratch/outside.txt ] && [ -d /scratch/FlowPlugins/keepdir ] && [ -L /scratch/FlowPlugins/linked.js ] && [ -f "/scratch/FlowPlugins/$tpl" ] \
+  || fail "something an unsafe retired entry pointed at was removed"
+echo "   ok   the retired list never reaches outside the plugin folder, a shipped file, a folder or a link"
+
 out=$(TDARR_FLOW_PLUGINS_SRC=/nonexistent run); echo "$out"
 echo "$out" | grep -q 'ERROR' || fail "a missing source was not reported"
 echo "   ok   a broken image reports an error and still exits 0"
