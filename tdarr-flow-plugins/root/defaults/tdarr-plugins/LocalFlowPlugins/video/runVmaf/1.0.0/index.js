@@ -12,7 +12,7 @@
 // pooled_metrics, p1 (the 1st percentile of the per-frame scores, linear interpolation between the two nearest frames)
 // from the sorted per-frame scores, exactly as the shell did. The job log gets the same line as before:
 //   VMAF score: mean=.. min=.. harmonic_mean=.. p1=.. n=..
-// and the Flow Variables vmafMean, vmafMin and vmafP1 are set, which Tag Output Metadata writes into the TDARR_VMAF_SCORE tag.
+// and the Flow Variables user.vmafMean, user.vmafMin and user.vmafP1 are set, which Tag Output Metadata writes into the TDARR_VMAF_SCORE tag.
 //
 // Frame pairing: libvmaf's filter pairs a reference frame with a distorted frame by timestamp, not by position. Matroska
 // timestamps are rounded to 1 ms, so at 23.976 fps (and other non-integer rates) two files with the same frames can carry
@@ -33,7 +33,7 @@ const details = () => ({
   name: 'Run VMAF Quality Check',
   description: 'Scores the working file against the original library file with ffmpeg-vmaf-cuda (one run at a time under a '
     + 'lock file), shows progress in the Tdarr worker, logs "VMAF score: mean= min= harmonic_mean= p1= n=", sets the Flow '
-    + 'Variables vmafMean, vmafMin and vmafP1, and fails the job when the mean is below the minimum or ffmpeg fails. '
+    + 'Variables user.vmafMean, user.vmafMin and user.vmafP1, and fails the job when the mean is below the minimum or ffmpeg fails. '
     + 'Before scoring it counts the video frames of both files and fails the job when they differ. '
     + 'Choose the pixel format (yuv420p or yuv420p10le) and the model (the default one or the 4K one) per node.',
   style: {
@@ -392,10 +392,13 @@ const plugin = async (args) => {
     log(`VMAF score: mean=${f(mean)} min=${f(min)} harmonic_mean=${f(hmean)} p1=${f(p1)} n=${n}`);
 
     const round2 = (v) => Math.round(v * 100) / 100;
+    // Tag Output Metadata reads these from args.variables.user, the same place the step trail lives. They used to be set
+    // directly on args.variables, where Tag Output Metadata never looked, so TDARR_VMAF_SCORE could not be written.
     args.variables = args.variables || {};
-    args.variables.vmafMean = round2(mean);
-    args.variables.vmafMin = round2(min);
-    args.variables.vmafP1 = round2(p1);
+    if (!args.variables.user) args.variables.user = {};
+    args.variables.user.vmafMean = round2(mean);
+    args.variables.user.vmafMin = round2(min);
+    args.variables.user.vmafP1 = round2(p1);
 
     if (!(mean >= minMean)) {
       fail(`the mean VMAF score ${f(mean)} is below the minimum ${minMean}`);
