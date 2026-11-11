@@ -182,9 +182,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0 # each flow template's version is the number of commits that touched it (template-versions.sh)
 
       - name: Build the overlay image
-        run: docker build -f tdarr-flow-plugins/Dockerfile --build-arg VERSION="$(cat tdarr-flow-plugins/VERSION)" -t arr-test/tdarr-flow-plugins:ci .
+        run: docker build -f tdarr-flow-plugins/Dockerfile --build-arg VERSION="$(cat tdarr-flow-plugins/VERSION)" --build-arg TEMPLATE_VERSIONS="$(tdarr-flow-plugins/template-versions.sh)" -t arr-test/tdarr-flow-plugins:ci .
 
       - name: Smoke test
         run: tdarr-flow-plugins/smoke-test.sh arr-test/tdarr-flow-plugins:ci

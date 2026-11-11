@@ -3,8 +3,8 @@
 /* eslint-disable import/prefer-default-export */
 // Exported verbatim from the live Tdarr flow "264 to 265 Converter" (originally _id YEZ9GlGHp, now 20ZN6oc41) on 2026-11-08, then changed so that every remux step is the mkvmerge Execute plugin (mkvmergeExecute) instead of ffmpeg: the
 // Remove video streams node is gone (audioSubs mode leaves video out) and Entry goes straight to the audio+subs step.
-// Brought up to the live "Converter (0.6.0)" on 2026-11-10 (the version suffix is stamped on at image build, so the name here is the
-// plain "Converter", as the live flow is now called). Changes from that update: the "Route to local CPU (demux path)" and "Mark step:
+// Brought up to the live "Converter (0.6.0)" on 2026-11-10 (the build stamps the template's version onto the name, so the name here stays
+// plain; the live flow is now called "Converter"). Changes from that update: the "Route to local CPU (demux path)" and "Mark step:
 // landed on local (demux)" nodes are gone, so "Mark step: encode done" leads straight into the final mkvmerge combine; node positions moved.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;

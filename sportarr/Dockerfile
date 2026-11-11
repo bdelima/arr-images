@@ -23,7 +23,7 @@ RUN apk add --no-cache git ca-certificates \
     && git clone --quiet --depth 1 --branch "${UPSTREAM_TAG}" https://github.com/Sportarr/Sportarr.git /src
 
 # ---- build the patched assembly (runs on the build host's own architecture; the output is managed code) ----
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG UPSTREAM_TAG
 ARG VERSION
 

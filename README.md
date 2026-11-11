@@ -285,7 +285,7 @@ container. It replaces hand-copying files onto the server: at every container st
 (`classifySource`, `setMaxBitrate`, `tagEncodeSettings`, `tagOutputMetadata`, `checkSourceEfficiency`,
 `setSourceRelativeBitrate`, `requireEnglishAudio`, `removeUntaggedAudio`, `mkvmergeExecute`, `repairLanguageTags`, `markStep`, `requireTrail`, `runVmaf`) and the flow template files for the Downloads
 Flow (Controller, Converter, Validator, Stream Cleanup, Clean-only passthrough, Repair language tags) into the server's plugin folder. The files in
-[`tdarr-flow-plugins/root`](tdarr-flow-plugins/root) are the source of truth and are shipped as they are, except that the build appends the release version to each flow template's name (below).
+[`tdarr-flow-plugins/root`](tdarr-flow-plugins/root) are the source of truth and are shipped as they are, except that the build appends each flow template's own version to its name (below).
 
 ```yaml
   tdarr:
@@ -307,9 +307,14 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   The script never stops the container from starting; a failure is a log line. A new plugin file needs the server restarted to load, which a container restart does anyway.
 - **Not in the image:** the six flows themselves (they live in Tdarr's database; import them with Add Flow > Import JSON Flow
   Template) and any Tdarr settings.
-- **Flow names carry the release version.** The build appends the version to each template's flow name ("Controller" becomes
-  "Controller (0.2.1)"), so copies of a flow made from different releases can be told apart in Tdarr. Nothing in Tdarr refers to a
-  flow by name (`goToFlow` takes a flow id and a node id). The template files in the repo keep their plain names.
+- **Each flow template has its own version, stamped by the build.** The build appends a version to each template's flow name
+  ("Controller" becomes "Controller (v9)"), so copies of a flow made from different template versions can be told apart in
+  Tdarr. The version is the number of commits that touched that template file
+  ([`template-versions.sh`](tdarr-flow-plugins/template-versions.sh), which CI and the release workflow run on the full
+  history and pass to the build). It goes up by one each time a template is changed and stays put while it is not, so a release
+  does not rename templates that did not change, and nobody has to bump anything. It is a counter, not the release number: the image
+  version (`tdarr-flow-plugins/VERSION`) is separate. The template files in the repo keep their plain names. The build and smoke
+  test fail if a template has no version stamped. Nothing in Tdarr refers to a flow by name (`goToFlow` takes a flow id and a node id).
 - **Step trail (confirming the order of steps).** A node's job-log lines can arrive late, so log times cannot show the order in which
   steps ran. `markStep` appends one numbered entry (`seq|label|node|worker|UTC time`) to the Flow Variable `tdarrTrail` at the point it
   is placed, and `requireTrail` fails the flow (output 2, wired to Fail Flow) unless the labels it is given are in the trail in that
@@ -403,8 +408,8 @@ is LinuxServer's, unchanged.
 - If upstream changes the lines the patch touches, the build **fails** at `git apply --check` instead of shipping
   an image without the override. That is the signal to update the patch.
 
-The build needs `.NET SDK 8` for Radarr and Lidarr and `6` for Sonarr (their Core projects target `net8.0` and
-`net6.0`); the Dockerfiles use the matching SDK images.
+The build needs `.NET SDK 8` for Radarr and Lidarr, `6` for Sonarr and `10` for Sportarr (their projects target `net8.0`,
+`net6.0` and, since Sportarr v4.1.12, a `global.json` that asks for SDK 10.0.100); the Dockerfiles use the matching SDK images.
 
 ## License and source
 

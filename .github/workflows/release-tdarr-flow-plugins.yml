@@ -28,10 +28,14 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0 # each flow template's version is the number of commits that touched it
 
       - name: Version
         id: v
-        run: echo "version=$(tr -d '[:space:]' < tdarr-flow-plugins/VERSION)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(tr -d '[:space:]' < tdarr-flow-plugins/VERSION)" >> "$GITHUB_OUTPUT"
+          echo "templates=$(tdarr-flow-plugins/template-versions.sh)" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
@@ -44,6 +48,7 @@ jobs:
           load: true
           build-args: |
             VERSION=${{ steps.v.outputs.version }}
+            TEMPLATE_VERSIONS=${{ steps.v.outputs.templates }}
             REVISION=${{ github.sha }}
           tags: arr-test/tdarr-flow-plugins:ci
 
@@ -66,6 +71,7 @@ jobs:
           push: true
           build-args: |
             VERSION=${{ steps.v.outputs.version }}
+            TEMPLATE_VERSIONS=${{ steps.v.outputs.templates }}
             REVISION=${{ github.sha }}
           tags: |
             bdelima/tdarr-flow-plugins:${{ steps.v.outputs.version }}
