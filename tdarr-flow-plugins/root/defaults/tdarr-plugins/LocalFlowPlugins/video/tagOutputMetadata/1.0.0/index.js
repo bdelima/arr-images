@@ -1,7 +1,7 @@
 const details = () => ({
   name: 'Tag Output Metadata',
   description: 'Writes every accumulated output tag (encode params, quality tier, '
-    + 'classifySource verdict, pipeline version, source bits per pixel, size ratio, VMAF score, step trail) in one mkvpropedit --tags '
+    + 'classifySource verdict, pipeline version, source bits per pixel, source video and peak bitrate, size ratio, VMAF score, step trail) in one mkvpropedit --tags '
     + 'global call. Must be the ONLY node that writes global tags (mkvpropedit --tags '
     + 'replaces rather than merges) and must run after Stream Cleanup has already '
     + 'removed the existing global tags (mkvmerge --no-global-tags). The TDARR_ tags the original file already carries are '
@@ -60,8 +60,8 @@ const appendTrailEntry = (args, label) => {
 // replaces all of them. TDARR_ENCODE_VERSION and TDARR_ENCODE_TRAIL are copies of TDARR_PIPELINE_VERSION and TDARR_TRAIL
 // taken at the encoding run, so a later pass (which overwrites those two) leaves the encode run on record.
 const ENCODE_TAGS = [
-  'TDARR_ENCODE_PARAMS', 'TDARR_QUALITY_TIER', 'TDARR_SOURCE_CLASS', 'TDARR_SOURCE_BPP', 'TDARR_SIZE_RATIO',
-  'TDARR_VMAF_SCORE', 'TDARR_ENCODE_VERSION', 'TDARR_ENCODE_TRAIL',
+  'TDARR_ENCODE_PARAMS', 'TDARR_QUALITY_TIER', 'TDARR_SOURCE_CLASS', 'TDARR_SOURCE_BPP', 'TDARR_SOURCE_VIDEO_KBPS',
+  'TDARR_SOURCE_PEAK_KBPS', 'TDARR_SIZE_RATIO', 'TDARR_VMAF_SCORE', 'TDARR_ENCODE_VERSION', 'TDARR_ENCODE_TRAIL',
 ];
 // Tags that always describe the run that is writing them.
 const RUN_TAGS = ['TDARR_PIPELINE_VERSION', 'TDARR_TRAIL'];
@@ -214,6 +214,8 @@ const plugin = async (args) => {
     TDARR_SOURCE_CLASS: v.tdarrSourceClass,
     TDARR_PIPELINE_VERSION: args.inputs.pipelineVersion,
     TDARR_SOURCE_BPP: v.tdarrSourceBpp,
+    TDARR_SOURCE_VIDEO_KBPS: v.tdarrSourceVideoKbps,
+    TDARR_SOURCE_PEAK_KBPS: v.tdarrSourcePeakKbps,
     TDARR_SIZE_RATIO: sizeRatio,
     TDARR_VMAF_SCORE: (v.vmafMean !== undefined)
       ? `mean=${v.vmafMean};min=${v.vmafMin};p1=${v.vmafP1}`
