@@ -24,6 +24,7 @@
  *
  * Every output has the title and the global tags removed (mkvmerge --title "" --no-global-tags).
  * Attachments (fonts, cover images) are removed unless the command keeps all of them.
+ * The job log lists what was there before it was removed (old title, global tag names and values, attachment names).
  *
  * Track mapping: mkvmerge track ids are matched to the command's streams by position within each type (the 2nd audio
  * stream in the command is the 2nd audio track mkvmerge reports). The counts per type must be equal and the language
@@ -236,6 +237,51 @@ const plugin = async (args) => {
       });
   });
 
+  // The title and global tags are removed without being read, so say in the job log what was there. The title, the
+  // number of global tags and the attachments come from mkvmerge --identify; the tag names and values from
+  // `mkvextract tags` (global tags are the Tag blocks that target no track, chapter, edition or attachment). Only a
+  // log line: if any of it fails the remux carries on.
+  const xmlText = (t) => String(t).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+  const shorten = (t) => (t.length > 80 ? `${t.slice(0, 77)}...` : t);
+  const readGlobalTags = (file) => new Promise((resolve) => {
+    const extract = path.join(path.dirname(bin), 'mkvextract');
+    const exe = path.dirname(bin) !== '.' && fs.existsSync(extract) ? extract : 'mkvextract';
+    execFile(exe, [file, 'tags'], { maxBuffer: 64 * 1024 * 1024, env }, (err, stdout) => {
+      if (err || !stdout) { resolve(null); return; }
+      const found = [];
+      String(stdout).split('<Tag>').slice(1).forEach((block) => {
+        if (/<(Track|Chapter|Edition|Attachment)UID>/.test(block)) return;
+        [...block.matchAll(/<Name>([\s\S]*?)<\/Name>\s*<String>([\s\S]*?)<\/String>/g)]
+          .forEach((m) => found.push(`${xmlText(m[1])}=${shorten(xmlText(m[2]))}`));
+      });
+      resolve(found);
+    });
+  });
+  const logRemoved = async (file, identified, attachmentsRemoved) => {
+    try {
+      const props = (identified.container && identified.container.properties) || {};
+      const title = typeof props.title === 'string' && props.title !== '' ? props.title : '';
+      const tagCount = (identified.global_tags || []).reduce((n, g) => n + (Number(g.num_entries) || 0), 0);
+      const attachments = attachmentsRemoved ? (identified.attachments || []) : [];
+      const parts = [];
+      if (title) parts.push(`title "${shorten(title)}"`);
+      if (tagCount > 0) {
+        const names = await readGlobalTags(file);
+        const shown = names && names.length > 0 ? `: ${names.slice(0, 20).join(', ')}${names.length > 20 ? ', ...' : ''}` : '';
+        parts.push(`${tagCount} global tag entr${tagCount === 1 ? 'y' : 'ies'}${shown}`);
+      }
+      if (attachments.length > 0) {
+        parts.push(`${attachments.length} attachment(s): ${attachments.slice(0, 10).map((a) => a.file_name).join(', ')}`
+          + `${attachments.length > 10 ? ', ...' : ''}`);
+      }
+      args.jobLog(`mkvmerge Execute: removed from ${file}: ${parts.length > 0 ? parts.join('; ')
+        : 'nothing (no title, no global tags, no attachments to remove)'}`);
+    } catch (e) {
+      args.jobLog(`mkvmerge Execute: could not list what was removed from ${file}: ${e.message}`);
+    }
+  };
+
   const cmd = args.variables && args.variables.ffmpegCommand;
   const workingFile = args.inputFileObj._id;
   const originalFile = (args.originalLibraryFile && args.originalLibraryFile._id) || workingFile;
@@ -254,6 +300,11 @@ const plugin = async (args) => {
     }
     spawnArgs.push('--no-audio', '--no-subtitles', '--no-attachments', workingFile, '--no-video', audioSubsFile);
     args.jobLog(`mkvmerge Execute (combine): video from ${workingFile}, audio and subtitles from ${audioSubsFile}`);
+    try {
+      await logRemoved(workingFile, await identify(workingFile), true);
+    } catch (e) {
+      args.jobLog(`mkvmerge Execute: could not list what was removed from ${workingFile}: ${e.message}`);
+    }
   } else {
     if (!cmd || !Array.isArray(cmd.streams)) {
       throw new Error('mkvmerge Execute: no ffmpeg command in progress, place this after Begin Command');
@@ -285,6 +336,7 @@ const plugin = async (args) => {
       }
     }
     spawnArgs.push(inputFile);
+    await logRemoved(inputFile, identified, spawnArgs.includes('--no-attachments'));
 
     const ignored = [];
     cmd.streams.forEach((s) => {
