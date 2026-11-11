@@ -1,10 +1,13 @@
 const details = () => ({
   name: 'Repair Language Tags',
-  description: 'Puts a language tag back on audio and subtitle tracks that lost it. Files remuxed with ffmpeg '
-    + '-map_metadata -1 came out with every track language "und". The file is changed ONLY if it carries the damage signature '
-    + '(the container was last written by ffmpeg/libavformat, whose muxing application starts with "Lavf") AND it has at least one '
-    + 'audio track with no language. Then every audio and subtitle track with no language is set to the configured language '
-    + 'in place with mkvpropedit (no remux, the streams are not touched). Tracks that already have a language are never changed. '
+  description: 'Puts a language tag back on audio and subtitle tracks that lost it. A Matroska file is changed in one of two cases, '
+    + 'both done in place with mkvpropedit (no remux, the streams are not touched), and tracks that already have a language are never changed. '
+    + '(1) Damage signature: the container was last written by ffmpeg/libavformat (muxing application starts with "Lavf", as left by '
+    + 'a remux with -map_metadata -1) AND it has at least one audio track with no language. Every audio and subtitle track with no language '
+    + 'is then set to the configured language. '
+    + '(2) Video language: the file has exactly one audio track, that track has no language, and the first video track has a language equal '
+    + 'to the configured language. The audio track is then given the video track\'s language (only the audio track is changed). '
+    + 'A video track with no language, or with a different language, never causes a change, because output 1 is treated as "now has the configured language". '
     + 'Output 1 = tags repaired, output 2 = nothing to do (the reason is in the job log).',
   style: {
     borderColor: 'green',
@@ -21,14 +24,15 @@ const details = () => ({
       type: 'string',
       defaultValue: 'eng',
       inputUI: { type: 'text' },
-      tooltip: 'ISO 639-2 three-letter code written to every untagged audio and subtitle track.',
+      tooltip: 'ISO 639-2 three-letter code. Case 1 writes it to every untagged audio and subtitle track. '
+        + 'Case 2 applies only when the video track already has exactly this language.',
     },
     {
       name: 'encoderPrefix',
       type: 'string',
       defaultValue: 'Lavf',
       inputUI: { type: 'text' },
-      tooltip: 'The file is repaired only if its muxing or writing application starts with this text (case-insensitive). '
+      tooltip: 'Case 1 only: the file is repaired only if its muxing or writing application starts with this text (case-insensitive). '
         + 'Lavf is libavformat, which ffmpeg writes. Leave empty to skip the check and repair any Matroska file with an untagged audio track.',
     },
     {
@@ -41,7 +45,7 @@ const details = () => ({
   ],
   outputs: [
     { number: 1, tooltip: 'Language tags were repaired' },
-    { number: 2, tooltip: 'Nothing to repair (not damaged, not Matroska, or no untagged audio); the file was not changed' },
+    { number: 2, tooltip: 'Nothing to repair (not Matroska, no damage signature and no single untagged audio track under a tagged video track); the file was not changed' },
   ],
 });
 
@@ -110,17 +114,47 @@ const plugin = async (args) => {
   const cp = container.properties || {};
   const apps = [cp.muxing_application, cp.writing_application].filter(Boolean);
   const tracks = info.tracks || [];
-  const untaggedAudio = tracks.filter((t) => t.type === 'audio' && isUntagged(t));
+  const audioTracks = tracks.filter((t) => t.type === 'audio');
+  const untaggedAudio = audioTracks.filter(isUntagged);
   const untaggedSubs = tracks.filter((t) => t.type === 'subtitles' && isUntagged(t));
+  const video = tracks.find((t) => t.type === 'video');
 
-  if (prefix !== '' && !apps.some((a) => String(a).toLowerCase().startsWith(prefix))) {
-    return notRequired(`no damage signature: written by "${apps.join('" / "') || 'unknown'}", not "${args.inputs.encoderPrefix}"`);
-  }
-  if (untaggedAudio.length === 0) {
-    return notRequired('every audio track already has a language');
+  const hasSignature = prefix === '' || apps.some((a) => String(a).toLowerCase().startsWith(prefix));
+
+  let targets;
+  let why;
+  if (hasSignature && untaggedAudio.length > 0) {
+    // Case 1: the damage signature. Every untagged audio and subtitle track gets the configured language.
+    targets = [...untaggedAudio, ...untaggedSubs];
+    const describe = targets.map((t) => `${t.type} #${t.id}${(t.properties || {}).track_name ? ` "${t.properties.track_name}"` : ''}`).join(', ');
+    why = `damage signature found (written by "${apps.join('" / "')}"); ${untaggedAudio.length} untagged audio and ${untaggedSubs.length} untagged subtitle track(s): ${describe}`;
+  } else {
+    // Case 2: exactly one audio track, with no language, in a file whose first video track is tagged with the configured language.
+    const reasons = [];
+    if (hasSignature) {
+      // The signature matched but no audio track is untagged, so the video-language rule has nothing to do either.
+      return notRequired('every audio track already has a language');
+    }
+    reasons.push(`no damage signature: written by "${apps.join('" / "') || 'unknown'}", not "${args.inputs.encoderPrefix}"`);
+    if (audioTracks.length !== 1) {
+      reasons.push(`the video-language rule needs exactly one audio track, the file has ${audioTracks.length}`);
+    } else if (!isUntagged(audioTracks[0])) {
+      reasons.push('the only audio track already has a language');
+    } else if (!video) {
+      reasons.push('the video-language rule found no video track');
+    } else if (isUntagged(video)) {
+      reasons.push('the video-language rule found a video track with no language');
+    } else if (String((video.properties || {}).language || '').toLowerCase() !== language) {
+      reasons.push(`the video track's language is "${(video.properties || {}).language}", not "${language}", so the audio track was not given it`);
+    } else {
+      targets = [audioTracks[0]];
+      why = `the file has exactly one audio track (#${audioTracks[0].id}), it has no language, and the video track (#${video.id}) is tagged "${language}": giving the audio track the video track's language`;
+    }
+    if (!targets) {
+      return notRequired(reasons.join('; '));
+    }
   }
 
-  const targets = [...untaggedAudio, ...untaggedSubs];
   const spawnArgs = [file];
   targets.forEach((t) => {
     const p = t.properties || {};
@@ -131,11 +165,10 @@ const plugin = async (args) => {
     spawnArgs.push('--edit', selector, '--set', `language=${language}`);
   });
 
-  const describe = targets.map((t) => `${t.type} #${t.id}${(t.properties || {}).track_name ? ` "${t.properties.track_name}"` : ''}`).join(', ');
-  log(`damage signature found (written by "${apps.join('" / "')}"); ${untaggedAudio.length} untagged audio and ${untaggedSubs.length} untagged subtitle track(s): ${describe}`);
+  log(why);
 
   if (dryRun) {
-    return notRequired(`dry run: would set language=${language} on those tracks`);
+    return notRequired(`dry run: would set language=${language} on ${targets.length} track(s)`);
   }
 
   const cli = new CLI({
