@@ -24,9 +24,19 @@
  * unreadable output, file shorter than three windows) the ceiling falls back to the same percentage of the
  * average, which is what this plugin did before, and the job log says so.
  *
+ * Which files get the cap: only sources below "Cap only below this source bits per pixel" (default 0.07). The
+ * source's bits per pixel is the Flow Variable tdarrSourceBpp that Check Source Efficiency sets (video bitrate /
+ * (width x height x fps)), so that node has to run before this one and be enabled. A source starved of bits (the
+ * 1080p50 F1 download, 0.059) grows to 233%-301% of its size at plain ICQ 18, which the cap prevents; a source at or
+ * above the threshold (The Boroughs S01E03, 0.095) shrinks at plain ICQ and the cap only holds back quality it needs
+ * (the 70% target left a mean VMAF of 74 over its 90-second title sequence, plain ICQ 18 gave 98). At or above the
+ * threshold nothing is added and the encode stays plain ICQ. When the figure is missing (Check Source Efficiency off
+ * or unable to measure) the cap is applied, as it was before this input existed. 0 = always apply the cap.
+ *
  * Non-QSV encoders (anything whose -c value does not end in _qsv) are left alone: the mode behaviour above is
  * specific to QSV. If the source bitrate cannot be determined, nothing is added and the encode stays ICQ.
- * Any -b:v / -maxrate / -bufsize already on the stream (for example from Set Max Bitrate) is replaced.
+ * Any -b:v / -maxrate / -bufsize already on the stream (for example from Set Max Bitrate) is replaced when the cap
+ * is applied, and left as it is when the bits-per-pixel check keeps the encode as plain ICQ.
  *
  * The source average comes from the stream object Set Video Encoder is working on (stream bit_rate, or the
  * BPS / NUMBER_OF_BYTES + DURATION tags), with the container bitrate minus audio as a last resort.
@@ -35,8 +45,9 @@
 const details = () => ({
   name: 'Set Source-Relative Bitrate',
   description: 'Adds -b:v / -maxrate / -bufsize as percentages of the source video bitrate to QSV '
-    + 'encodes, switching hevc_qsv from ICQ to QVBR (quality target plus ceiling). Place directly '
-    + 'after Set Video Encoder.',
+    + 'encodes, switching hevc_qsv from ICQ to QVBR (quality target plus ceiling), for sources below a '
+    + 'bits-per-pixel threshold (from Check Source Efficiency); sources at or above it stay plain ICQ. '
+    + 'Place directly after Set Video Encoder.',
   style: { borderColor: '#6efefc' },
   tags: 'video',
   isStartPlugin: false,
@@ -52,6 +63,18 @@ const details = () => ({
       defaultValue: 'true',
       inputUI: { type: 'switch' },
       tooltip: 'Off = leave the encode as plain ICQ (no cap).',
+    },
+    {
+      label: 'Cap only below this source bits per pixel',
+      name: 'capBelowBpp',
+      type: 'number',
+      defaultValue: '0.07',
+      inputUI: { type: 'text' },
+      tooltip: 'Source bits per pixel = video bitrate / (width x height x fps), set by Check Source Efficiency '
+        + '(Flow Variable tdarrSourceBpp). A source below this gets the cap; a source at or above it is encoded as '
+        + 'plain ICQ with no -b:v / -maxrate / -bufsize. If Check Source Efficiency has not measured it, the cap is '
+        + 'applied. 0 = always apply the cap. Uncalibrated starting value: the 1080p50 F1 source (0.059) grew to '
+        + '233-301% at plain ICQ 18, a 1080p24 source at 0.095 came out at 59% of the source video.',
     },
     {
       label: 'Target percent of source bitrate',
@@ -345,6 +368,13 @@ const plugin = async (args) => {
     peakWindowSeconds, peakPercentile, peakScanTimeoutSeconds,
   } = args.inputs;
   const wantPeak = String(args.inputs.ceilingBasis) !== 'average';
+  // Bits-per-pixel gate (see the header). An input that is missing or not a number takes the default.
+  const rawCap = args.inputs.capBelowBpp;
+  const capBelowBpp = (rawCap === undefined || rawCap === null || rawCap === '' || !Number.isFinite(Number(rawCap)))
+    ? 0.07 : Number(rawCap);
+  const bppRaw = args.variables.user && args.variables.user.tdarrSourceBpp;
+  const sourceBpp = (bppRaw === undefined || bppRaw === null || bppRaw === '') ? NaN : Number(bppRaw);
+  const bppMeasured = Number.isFinite(sourceBpp) && sourceBpp > 0;
   const { spawn } = require('child_process');
   // A UTF-8 locale so ffprobe opens file names with accented or non-Latin characters (as in the other plugins).
   const env = { ...process.env, LC_ALL: 'C.UTF-8' };
@@ -371,6 +401,18 @@ const plugin = async (args) => {
     // Flow Variables for Tag Output Metadata (TDARR_SOURCE_VIDEO_KBPS, and TDARR_SOURCE_PEAK_KBPS when the peak scan below works).
     if (!args.variables.user) args.variables.user = {};
     args.variables.user.tdarrSourceVideoKbps = String(Math.round(sourceKbps));
+
+    if (capBelowBpp > 0 && bppMeasured && sourceBpp >= capBelowBpp) {
+      args.jobLog(`Set Source-Relative Bitrate: source ${sourceBpp.toFixed(4)} bits/pixel is at or above `
+        + `${capBelowBpp}, so no cap is added: plain ICQ with the existing quality`);
+      continue;
+    }
+    let gateNote = '';
+    if (capBelowBpp > 0) {
+      gateNote = bppMeasured
+        ? `; source ${sourceBpp.toFixed(4)} bits/pixel is below ${capBelowBpp}`
+        : `; source bits/pixel not measured (Check Source Efficiency off or unable to measure), so the cap applies (threshold ${capBelowBpp})`;
+    }
     const targetK = Math.max(Math.round(minTargetKbps), Math.round((sourceKbps * targetPercent) / 100));
 
     let ceilingBaseKbps = sourceKbps;
@@ -416,7 +458,7 @@ const plugin = async (args) => {
 
     args.jobLog(`Set Source-Relative Bitrate: source video ${Math.round(sourceKbps)} kbps (${source}) -> `
       + `-b:v ${targetK}k, -maxrate ${ceilingK}k from ${ceilingPercent}% of ${ceilingBaseNote}`
-      + `${bufK > 0 ? `, -bufsize ${bufK}k` : ''} (QVBR with the existing quality)`);
+      + `${bufK > 0 ? `, -bufsize ${bufK}k` : ''} (QVBR with the existing quality)${gateNote}`);
   }
 
   return done();
