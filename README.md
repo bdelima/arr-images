@@ -358,6 +358,14 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   counts cannot be scored meaningfully. Before taking the GPU lock it counts the video packets of both files with `ffprobe -count_packets`
   (the sibling of Tdarr's ffmpeg, then `tdarr-ffprobe`, then `ffprobe`) and fails the job, naming both counts, when they differ at all. If the
   count cannot be made (no ffprobe, a timeout), it logs a warning and scores as before. The count reads each file once without decoding it.
+- **Quality checks and a failure output in Run VMAF.** Run VMAF Quality Check holds three figures of the per-frame scores to minimums: the mean (`minMean`, default 93),
+  the lowest frame (`minFrameScore`, default 50) and the 1st percentile (`minP1`, default 70); 0 turns the min or p1 check off. Output 1 means every check passed; output 2 means
+  at least one failed, and the job log lists each failed check with its score and minimum. The scores are set as Flow Variables either way. A failed check no longer throws,
+  so the Validator template sends output 2 of each of its four Run VMAF nodes to Fail Flow, which ends the job in error as before; nothing is re-queued. Anything that stops a score
+  from being produced (ffmpeg fails, no log, different frame counts, missing files, a minimum that is not a number) still throws. The min and p1 defaults are uncalibrated starting
+  values: on the scores recorded so far they would fail the two Boroughs encodes made with the 70% bitrate target (min 14-19, p1 55-65) and the F1 runs on min (38-49). A live Validator
+  flow that was not replaced from the new template has nothing wired to output 2, and what Tdarr does with a job that leaves through an unwired output is not verified. Checked in a
+  sandbox with a stand-in for ffmpeg-vmaf-cuda; not yet seen in a real Tdarr job.
 - **Updating a live flow from a template.** Each template carries the flow's own `_id` (the `goToFlow` nodes in the other flows
   point at flows by id), so importing it from Add Flow > Local prompts Replace and keeps the id (observed by the owner,
   2026-11-09). A template without an `_id` (the 0.2.0 ones) made a new flow with a random id next to the live one, and the old
