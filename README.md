@@ -345,6 +345,15 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   encode group, so a later pass keeps them. `TDARR_SOURCE_BPP` (bits per pixel) comes from Check Source Efficiency and is written only when that node is
   enabled; with both its minimums at 0 it never skips a file and only measures. If Check Source Efficiency is enabled it also sets the average-bitrate
   variable, and Set Source-Relative Bitrate then overwrites it with the value it used for the encode.
+- **Bits-per-pixel gate on the cap.** Set Source-Relative Bitrate only adds `-b:v` / `-maxrate` / `-bufsize` (the cap, which turns hevc_qsv ICQ into QVBR)
+  to sources below its input *Cap only below this source bits per pixel* (default 0.07, 0 = always cap). It reads the source's bits per pixel from the
+  Flow Variable `tdarrSourceBpp` that Check Source Efficiency sets earlier in the flow (video bitrate / (width x height x fps)). At or above the
+  threshold nothing is added and the encode stays plain ICQ at the tier's quality, with any `-b:v` / `-maxrate` / `-bufsize` already on the stream left as
+  it is and the peak scan skipped (the average is still recorded, the peak tag is not). When the variable is missing (Check Source Efficiency disabled or
+  unable to measure) the cap is applied, as before. The default is a starting value, not a calibrated one: on one 1080p50 source at 0.059 bits per
+  pixel, plain ICQ 18 grew the file to 233-301% of the original (the reason for the cap), while one 1080p24 episode at 0.095 came out at 59% of its source video bitrate under
+  plain ICQ 18, with a minimum VMAF of 82 against 14 under the 70% target; sources between 0.06 and 0.09 have not been tested. Checked on a sandbox
+  clip with Tdarr's helpers stubbed, not yet seen in a real Tdarr job. The Check Source Efficiency skip thresholds are a separate setting and are unaffected.
 - **Frame-count check before VMAF.** Run VMAF pairs frame N of the original with frame N of the encode, so files with different frame
   counts cannot be scored meaningfully. Before taking the GPU lock it counts the video packets of both files with `ffprobe -count_packets`
   (the sibling of Tdarr's ffmpeg, then `tdarr-ffprobe`, then `ffprobe`) and fails the job, naming both counts, when they differ at all. If the
