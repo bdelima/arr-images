@@ -1,7 +1,13 @@
 /* eslint-disable no-await-in-loop */
 // Run VMAF Quality Check: scores the working file (the encode) against the original library file with the CUDA VMAF
-// build on naples (ffmpeg-vmaf-cuda), one run at a time under a lock file, and fails the job when the mean score is
-// below the minimum.
+// build on naples (ffmpeg-vmaf-cuda), one run at a time under a lock file, and checks the mean, the lowest frame (min) and
+// the 1st percentile (p1) of the per-frame scores against their minimums.
+//
+// Outputs: 1 when every check passes, 2 when at least one check fails (the job log says which, with the score and the
+// minimum). A failed quality check no longer throws, so the flow can decide what to do with the file; wire output 2 to Fail Flow
+// to get the old behaviour (the job ends in error). Anything that stops a score from being produced still throws: ffmpeg
+// failing, no log, a different number of video frames in the two files, missing files or tools, bad input values.
+// Minimums: mean (default 93, as before), min (default 50) and p1 (default 70); min and p1 are off when set to 0.
 //
 // It replaces the four Run CLI nodes the Validator flow used (a /bin/sh -c script each). Tdarr's CLI helper only reads
 // progress from ffmpeg, HandBrake and a few other encoders (it goes by the program name), so a /bin/sh step showed no
@@ -33,7 +39,9 @@ const details = () => ({
   name: 'Run VMAF Quality Check',
   description: 'Scores the working file against the original library file with ffmpeg-vmaf-cuda (one run at a time under a '
     + 'lock file), shows progress in the Tdarr worker, logs "VMAF score: mean= min= harmonic_mean= p1= n=", sets the Flow '
-    + 'Variables user.vmafMean, user.vmafMin and user.vmafP1, and fails the job when the mean is below the minimum or ffmpeg fails. '
+    + 'Variables user.vmafMean, user.vmafMin and user.vmafP1, and checks the mean, the lowest frame (min) and the 1st '
+    + 'percentile (p1) against their minimums: output 1 when all pass, output 2 when any fails. It still fails the job when '
+    + 'ffmpeg fails or no score can be produced. '
     + 'Before scoring it counts the video frames of both files and fails the job when they differ. '
     + 'Choose the pixel format (yuv420p or yuv420p10le) and the model (the default one or the 4K one) per node.',
   style: {
@@ -65,7 +73,23 @@ const details = () => ({
       type: 'number',
       defaultValue: '93',
       inputUI: { type: 'text' },
-      tooltip: 'The job fails when the mean VMAF score is below this.',
+      tooltip: 'The quality check fails (output 2) when the mean VMAF score is below this.',
+    },
+    {
+      name: 'minFrameScore',
+      type: 'number',
+      defaultValue: '50',
+      inputUI: { type: 'text' },
+      tooltip: 'The quality check fails (output 2) when the lowest single-frame VMAF score (min) is below this. 0 = not checked. '
+        + 'Uncalibrated starting value.',
+    },
+    {
+      name: 'minP1',
+      type: 'number',
+      defaultValue: '70',
+      inputUI: { type: 'text' },
+      tooltip: 'The quality check fails (output 2) when the 1st percentile of the per-frame VMAF scores (p1) is below this. '
+        + '0 = not checked. Uncalibrated starting value.',
     },
     {
       name: 'ffmpegPath',
@@ -97,7 +121,8 @@ const details = () => ({
     },
   ],
   outputs: [
-    { number: 1, tooltip: 'VMAF mean is at or above the minimum' },
+    { number: 1, tooltip: 'All checks passed: mean, min and p1 are at or above their minimums' },
+    { number: 2, tooltip: 'At least one check failed: the mean, min or p1 is below its minimum (the job log says which)' },
   ],
 });
 
@@ -223,6 +248,8 @@ const plugin = async (args) => {
   const pixelFormat = String(args.inputs.pixelFormat).trim();
   const model = String(args.inputs.model).trim();
   const minMean = num(args.inputs.minMean);
+  const minFrameScore = num(args.inputs.minFrameScore);
+  const minP1 = num(args.inputs.minP1);
   const ffmpegPath = String(args.inputs.ffmpegPath).trim();
   const flockPath = String(args.inputs.flockPath).trim();
   const lockFile = String(args.inputs.lockFile).trim();
@@ -231,6 +258,8 @@ const plugin = async (args) => {
   if (!['yuv420p', 'yuv420p10le'].includes(pixelFormat)) fail(`unknown pixel format "${pixelFormat}"`);
   if (!['default', 'vmaf_4k_v0.6.1'].includes(model)) fail(`unknown model "${model}"`);
   if (!Number.isFinite(minMean)) fail(`minimum mean "${args.inputs.minMean}" is not a number`);
+  if (!Number.isFinite(minFrameScore)) fail(`minimum frame score "${args.inputs.minFrameScore}" is not a number`);
+  if (!Number.isFinite(minP1)) fail(`minimum p1 "${args.inputs.minP1}" is not a number`);
   // the log path is written into ffmpeg's filter graph, where ':' ',' ';' quotes and spaces are special
   if (!/^[A-Za-z0-9_./-]+$/.test(tempDir)) fail(`tempDir "${tempDir}" may only contain letters, digits, / . _ -`);
 
@@ -312,7 +341,7 @@ const plugin = async (args) => {
   };
   const duration = durationOf();
 
-  log(`${model === 'default' ? 'default model' : model}, ${pixelFormat}, frames paired by number at ${rate.text} fps, minimum mean ${minMean}; `
+  log(`${model === 'default' ? 'default model' : model}, ${pixelFormat}, frames paired by number at ${rate.text} fps, minimum mean ${minMean}, min ${minFrameScore > 0 ? minFrameScore : 'not checked'}, p1 ${minP1 > 0 ? minP1 : 'not checked'}; `
     + `${distorted} against ${reference}${duration > 0 ? '' : ' (duration unknown, so no percentage)'}`);
   log(`waiting for ${lockFile} if another VMAF run holds it, then ${ffmpegPath} runs`);
 
@@ -400,12 +429,21 @@ const plugin = async (args) => {
     args.variables.user.vmafMin = round2(min);
     args.variables.user.vmafP1 = round2(p1);
 
-    if (!(mean >= minMean)) {
-      fail(`the mean VMAF score ${f(mean)} is below the minimum ${minMean}`);
-    }
+    // Quality checks: every check that fails is listed, then the file leaves through output 2 (see the header).
+    const failedChecks = [];
+    if (!(mean >= minMean)) failedChecks.push(`mean ${f(mean)} is below the minimum ${minMean}`);
+    if (minFrameScore > 0 && !(min >= minFrameScore)) failedChecks.push(`min ${f(min)} is below the minimum ${minFrameScore}`);
+    if (minP1 > 0 && !(p1 >= minP1)) failedChecks.push(`p1 ${f(p1)} is below the minimum ${minP1}`);
+
     if (typeof args.updateWorker === 'function') {
       try { args.updateWorker({ percentage: 100 }); } catch (e) { /* cosmetic */ }
     }
+    if (failedChecks.length > 0) {
+      log(`quality check FAILED (${failedChecks.length} of 3): ${failedChecks.join('; ')}; leaving through output 2`);
+      return { outputFileObj: args.inputFileObj, outputNumber: 2, variables: args.variables };
+    }
+    log('quality check passed: mean'
+      + `${minFrameScore > 0 ? ', min' : ''}${minP1 > 0 ? ', p1' : ''} at or above their minimums; leaving through output 1`);
     return { outputFileObj: args.inputFileObj, outputNumber: 1, variables: args.variables };
   } finally {
     try {
