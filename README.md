@@ -339,7 +339,7 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   carried over unchanged. The job log says how many tags were found, where they came from and which were kept. Checked on real Matroska
   files with `mkvpropedit`, `ffprobe` and `ffmpeg` in a sandbox, with Tdarr's helpers stubbed; not yet seen in a real Tdarr job, and whether
   Tdarr's own probe data carries `format.tags` is not confirmed (the ffmpeg read covers it if it does not).
-- **Source bitrate tags.** Set Source-Relative Bitrate records the source video's average bitrate and, when its peak scan works, the busiest
+- **Source bitrate tags.** Set Source-Relative Bitrate records the source video's average bitrate and, when its peak scan works (the scan runs for every QSV encode, whether or not the cap is added), the busiest
   window's bitrate (the window length and percentile are that node's own inputs, 2 s and 100 by default) as Flow Variables; Tag Output Metadata writes
   them as `TDARR_SOURCE_VIDEO_KBPS` and `TDARR_SOURCE_PEAK_KBPS`, whole kbps, for QSV encodes only (the plugin leaves other encoders alone). They are in the
   encode group, so a later pass keeps them. `TDARR_SOURCE_BPP` (bits per pixel) comes from Check Source Efficiency and is written only when that node is
@@ -349,7 +349,7 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   to sources below its input *Cap only below this source bits per pixel* (default 0.07, 0 = always cap). It reads the source's bits per pixel from the
   Flow Variable `tdarrSourceBpp` that Check Source Efficiency sets earlier in the flow (video bitrate / (width x height x fps)). At or above the
   threshold nothing is added and the encode stays plain ICQ at the tier's quality, with any `-b:v` / `-maxrate` / `-bufsize` already on the stream left as
-  it is and the peak scan skipped (the average is still recorded, the peak tag is not). When the variable is missing (Check Source Efficiency disabled or
+  it is; the peak is still measured and recorded (see Source bitrate tags). When the variable is missing (Check Source Efficiency disabled or
   unable to measure) the cap is applied, as before. The default is a starting value, not a calibrated one: on one 1080p50 source at 0.059 bits per
   pixel, plain ICQ 18 grew the file to 233-301% of the original (the reason for the cap), while one 1080p24 episode at 0.095 came out at 59% of its source video bitrate under
   plain ICQ 18, with a minimum VMAF of 82 against 14 under the 70% target; sources between 0.06 and 0.09 have not been tested. Checked on a sandbox
