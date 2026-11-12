@@ -19,8 +19,11 @@ records per absolute path, and a re-download of the same release lands on the sa
 file that is no longer there: left alone it would answer "done" for a fresh download that Tdarr never saw, and the
 arr app would import the raw release. So a finished record is compared with the file on disk (size and modification
 time, the `statSync` Tdarr stored); when they differ, the record is for an older file: it is removed from Tdarr's
-file database and a scan of that file is requested, like for a file Tdarr has never seen. A record with no stored
-size/time, a file not visible on disk, and a record with no decision yet are left as they are.
+file database and a scan of that file is requested, like for a file Tdarr has never seen. Some records (error records
+seen in practice) carry no stored size, so that comparison cannot be made; for those the record's own date (the last
+transcode date, else the creation time) is compared with the file's modification time, and a record that is older than
+the file on disk is for an older file too: it is ignored the same way (removed, file scanned). A file not visible on
+disk, a record with no decision yet, and a record with neither a usable stored size/time nor a date are left as they are.
 
 The arr apps send the download's folder for multi-file downloads and the file itself otherwise. Tdarr keeps its
 records per file, keyed by the file's absolute path, so a folder is answered from the records whose path is under
@@ -250,23 +253,41 @@ class Validator:
         return True
 
     @staticmethod
+    def _record_time_ms(doc):
+        """When Tdarr last wrote the record, in ms since the epoch: the last transcode date, else the creation time
+        (Tdarr stores both as numeric strings). 0 when neither is usable."""
+        for key in ("lastTranscodeDate", "createdAt"):
+            try:
+                value = float(doc.get(key) or 0)
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                return value
+        return 0.0
+
+    @staticmethod
     def _is_stale(doc):
         """True when a finished Tdarr record is for a different file than the one on disk now.
 
-        Only a record with a decision (anything but blank/queued, errors included) is judged, and only when Tdarr
-        stored a size and modification time for it and the file is visible here. Anything else is not stale: the
-        record is trusted as before."""
+        Only a record with a decision (anything but blank/queued, errors included) is judged, and only when the file
+        is visible here. When Tdarr stored both a size and a modification time, they are compared with the file's.
+        When it did not (the error records of the 2026-11-11 Boroughs pack had a modification time but no size), the
+        record's own date is compared instead: a record older than the file's modification time (beyond the same
+        tolerance) was written before this file, so it describes an older one. A record with neither is trusted as
+        before."""
         if _decision(doc).lower() in ("", "queued"):
-            return False
-        stat = doc.get("statSync") or {}
-        size, mtime_ms = stat.get("size"), stat.get("mtimeMs")
-        if not isinstance(size, (int, float)) or not isinstance(mtime_ms, (int, float)) or size <= 0 or mtime_ms <= 0:
             return False
         try:
             disk = os.stat(_norm(doc["_id"]))
         except OSError:
             return False
-        return int(size) != disk.st_size or abs(disk.st_mtime * 1000 - mtime_ms) > STALE_MTIME_TOLERANCE_MS
+        disk_mtime_ms = disk.st_mtime * 1000
+        stat = doc.get("statSync") or {}
+        size, mtime_ms = stat.get("size"), stat.get("mtimeMs")
+        if isinstance(size, (int, float)) and isinstance(mtime_ms, (int, float)) and size > 0 and mtime_ms > 0:
+            return int(size) != disk.st_size or abs(disk_mtime_ms - mtime_ms) > STALE_MTIME_TOLERANCE_MS
+        recorded = Validator._record_time_ms(doc)
+        return recorded > 0 and disk_mtime_ms > recorded + STALE_MTIME_TOLERANCE_MS
 
     def _remove_stale(self, path, stale, library_id):
         """Remove the stale records, then ask for a scan of just those files. Returns the answer for the arr app."""
