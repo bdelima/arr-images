@@ -80,11 +80,15 @@ class FakeTdarr:
         self.server.shutdown()
         self.server.server_close()
 
-    def file(self, path, decision, size=None, mtime_ms=None):
+    def file(self, path, decision, size=None, mtime_ms=None, last=None, created=None):
         doc = {"_id": path, "TranscodeDecisionMaker": decision}
         if size is not None or mtime_ms is not None:
             # what Tdarr stores in a finished record: the file as it was when Tdarr finished with it
             doc["statSync"] = {"size": size, "mtimeMs": mtime_ms}
+        if last is not None:
+            doc["lastTranscodeDate"] = last      # Tdarr stores its dates as strings of ms since the epoch
+        if created is not None:
+            doc["createdAt"] = created
         self.files[path] = doc
 
     def stage(self, path):
@@ -423,6 +427,101 @@ class StaleRecordTests(unittest.TestCase):
         ep = self.make("ep.mkv", 2000, mtime=1793977625)
         self.tdarr.file(ep, "Transcode error", size=2000, mtime_ms=1793977625000.0)
         self.assertTrue(self.check(ep).get("failed"))
+        self.assertEqual(self.tdarr.removed, [])
+
+    # --- records with no stored size (the Boroughs error records): judged by their own date against the file's mtime
+    # make() puts a file's mtime at 1794236663 s by default; these are 1 hour before and after it, in ms
+    OLDER_MS = (1794236663 - 3600) * 1000
+    NEWER_MS = (1794236663 + 3600) * 1000
+
+    def test_error_record_without_a_size_is_ignored_when_older_than_the_download(self):
+        # the 2026-11-11 case: the record has a file mtime but no size, and was written before the re-download
+        ep = self.make("ep.mkv", 2000)
+        self.tdarr.file(ep, "Transcode error", size=None, mtime_ms=1793977625036.548,
+                        created=str(self.OLDER_MS - 600000), last=str(self.OLDER_MS))
+        self.tdarr.files[ep]["statSync"] = {"mtimeMs": 1793977625036.548}
+        r = self.check(ep)
+        self.assertEqual((r["ready"], r.get("failed")), (False, None))
+        self.assertIn("stale Tdarr record removed for 1 file(s)", r["message"])
+        self.assertEqual(self.tdarr.removed, [("FileJSONDB", ep)])
+        self.assertEqual(self.tdarr.scans, [{"dbID": "lib1", "arrayOrPath": [ep], "mode": "scanFolderWatcher"}])
+
+    def test_error_record_newer_than_the_file_still_fails(self):
+        # the first download's own failure: the file was written before Tdarr's record, so the record is current
+        ep = self.make("ep.mkv", 2000)
+        self.tdarr.file(ep, "Transcode error", created=str(self.NEWER_MS - 600000), last=str(self.NEWER_MS))
+        r = self.check(ep)
+        self.assertTrue(r.get("failed"))
+        self.assertEqual((self.tdarr.removed, self.tdarr.scans), ([], []))
+
+    def test_the_creation_time_is_used_when_there_is_no_transcode_date(self):
+        ep = self.make("ep.mkv", 2000)
+        self.tdarr.file(ep, "Transcode error", created=str(self.OLDER_MS))
+        self.assertIn("stale Tdarr record removed", self.check(ep)["message"])
+        # a transcode date of "0" (never transcoded) counts as no transcode date
+        ep2 = self.make("ep2.mkv", 2000)
+        self.tdarr.file(ep2, "Transcode error", created=str(self.OLDER_MS), last="0")
+        self.assertEqual(self.tdarr.removed, [("FileJSONDB", ep)])
+        self.now += validator.STALE_REMOVAL_COOLDOWN_SECONDS
+        self.assertIn("stale Tdarr record removed", self.check(ep2)["message"])
+        self.assertEqual(self.tdarr.removed[-1], ("FileJSONDB", ep2))
+
+    def test_dates_may_be_numbers_or_numeric_strings(self):
+        ep = self.make("ep.mkv", 2000)
+        self.tdarr.file(ep, "Transcode error", last=self.OLDER_MS)
+        self.assertIn("stale Tdarr record removed", self.check(ep)["message"])
+
+    def test_a_record_dated_within_the_tolerance_of_the_file_is_current(self):
+        ep = self.make("ep.mkv", 2000)
+        self.tdarr.file(ep, "Transcode error", last=str(1794236663 * 1000 - 1500))
+        self.assertTrue(self.check(ep).get("failed"))
+        self.assertEqual(self.tdarr.removed, [])
+
+    def test_a_record_with_a_usable_stat_is_judged_by_it_not_by_its_date(self):
+        # the file is exactly the one Tdarr saw (size and mtime agree), so an older record date changes nothing
+        ep = self.make("ep.mkv", 2000, mtime=1793977625)
+        self.tdarr.file(ep, "Transcode success", size=2000, mtime_ms=1793977625000.0, last=str(1793977625000 - 3600000))
+        self.assertTrue(self.check(ep)["ready"])
+        self.assertEqual((self.tdarr.removed, self.tdarr.scans), ([], []))
+
+    def test_success_and_not_required_records_without_a_size_are_ignored_when_older_too(self):
+        a = self.make("one.mkv", 2000)
+        b = self.make("two.mkv", 3000)
+        self.tdarr.file(a, "Not required", last=str(self.OLDER_MS))
+        self.tdarr.file(b, "Transcode success", last=str(self.OLDER_MS))
+        r = self.check(self.dir.name)
+        self.assertIn("stale Tdarr record removed for 2 file(s)", r["message"])
+        self.assertEqual(sorted(self.tdarr.removed), sorted([("FileJSONDB", a), ("FileJSONDB", b)]))
+
+    def test_folder_old_error_record_is_removed_while_a_current_one_is_kept(self):
+        old = self.make("one.mkv", 2000)
+        cur = self.make("two.mkv", 3000)
+        self.tdarr.file(old, "Transcode error", last=str(self.OLDER_MS))
+        self.tdarr.file(cur, "Transcode success", last=str(self.NEWER_MS))
+        r = self.check(self.dir.name)
+        self.assertFalse(r["ready"])
+        self.assertEqual(self.tdarr.removed, [("FileJSONDB", old)])
+        self.assertIn(cur, self.tdarr.files)
+        self.assertEqual(self.tdarr.scans[0]["arrayOrPath"], [old])
+
+    def test_an_unusable_date_is_trusted(self):
+        ep = self.make("ep.mkv", 2000)
+        self.tdarr.file(ep, "Transcode success", last="not a date", created=None)
+        self.assertTrue(self.check(ep)["ready"])
+        self.tdarr.file(ep, "Transcode success", last=None, created="-5")
+        self.assertTrue(self.check(ep)["ready"])
+        self.assertEqual(self.tdarr.removed, [])
+
+    def test_a_queued_record_with_an_old_date_is_not_judged(self):
+        ep = self.make("ep.mkv", 2000)
+        self.tdarr.file(ep, "Queued", created=str(self.OLDER_MS))
+        self.assertEqual(self.check(ep)["message"], "triggered")
+        self.assertEqual(self.tdarr.removed, [])
+
+    def test_a_file_that_is_not_on_disk_is_trusted_whatever_the_record_date(self):
+        gone = os.path.join(self.dir.name, "gone.mkv")
+        self.tdarr.file(gone, "Transcode error", last=str(self.OLDER_MS))
+        self.assertTrue(self.check(gone).get("failed"))
         self.assertEqual(self.tdarr.removed, [])
 
     def test_a_record_without_a_decision_is_never_judged_stale(self):
