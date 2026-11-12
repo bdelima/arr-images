@@ -30,8 +30,10 @@
  * 1080p50 F1 download, 0.059) grows to 233%-301% of its size at plain ICQ 18, which the cap prevents; a source at or
  * above the threshold (The Boroughs S01E03, 0.095) shrinks at plain ICQ and the cap only holds back quality it needs
  * (the 70% target left a mean VMAF of 74 over its 90-second title sequence, plain ICQ 18 gave 98). At or above the
- * threshold nothing is added and the encode stays plain ICQ. When the figure is missing (Check Source Efficiency off
- * or unable to measure) the cap is applied, as it was before this input existed. 0 = always apply the cap.
+ * threshold nothing is added and the encode stays plain ICQ, but the source's peak bitrate is still measured and
+ * recorded (Flow Variable tdarrSourcePeakKbps, TDARR_SOURCE_PEAK_KBPS), because the scan runs for every QSV encode
+ * before this decision. When the figure is missing (Check Source Efficiency off or unable to measure) the cap is
+ * applied, as it was before this input existed. 0 = always apply the cap.
  *
  * Non-QSV encoders (anything whose -c value does not end in _qsv) are left alone: the mode behaviour above is
  * specific to QSV. If the source bitrate cannot be determined, nothing is added and the encode stays ICQ.
@@ -109,7 +111,7 @@ const details = () => ({
       defaultValue: '2',
       inputUI: { type: 'text' },
       tooltip: 'Length of the sliding window the source bitrate is measured over. 2 matches the buffer the '
-        + 'encoder gets (-bufsize / -maxrate with a buffer multiplier of 2). Used when the ceiling is based on peak.',
+        + 'encoder gets (-bufsize / -maxrate with a buffer multiplier of 2). Used for the recorded peak and for a ceiling based on peak.',
     },
     {
       label: 'Peak percentile',
@@ -118,7 +120,7 @@ const details = () => ({
       defaultValue: '100',
       inputUI: { type: 'text' },
       tooltip: 'Which window counts as the peak: 100 = the busiest window, 99.9 = ignore the busiest 0.1% of '
-        + 'windows. Used when the ceiling is based on peak.',
+        + 'windows. Used for the recorded peak and for a ceiling based on peak.',
     },
     {
       label: 'Peak scan timeout seconds',
@@ -126,7 +128,7 @@ const details = () => ({
       type: 'number',
       defaultValue: '300',
       inputUI: { type: 'text' },
-      tooltip: 'Give up on the packet scan after this long and use the average instead.',
+      tooltip: 'Give up on the packet scan after this long: no peak is recorded, and a ceiling based on peak uses the average instead.',
     },
     {
       label: 'Buffer multiplier',
@@ -402,6 +404,31 @@ const plugin = async (args) => {
     if (!args.variables.user) args.variables.user = {};
     args.variables.user.tdarrSourceVideoKbps = String(Math.round(sourceKbps));
 
+    // The peak scan runs for every QSV encode, before the bits-per-pixel decision below, so the peak is recorded
+    // whether or not the cap is added: the figure is a data point for every file (it also feeds the ceiling when
+    // "Ceiling based on" is peak). A failed scan is logged and leaves the peak variable unset.
+    const window = peakWindowSeconds > 0 ? peakWindowSeconds : 2;
+    // eslint-disable-next-line no-await-in-loop
+    const scan = await scanSourcePeak({
+      ffmpegPath: args.ffmpegPath,
+      file: args.inputFileObj._id,
+      streamIndex: stream.index,
+      windowSeconds: window,
+      percentile: peakPercentile >= 0 ? peakPercentile : 100,
+      timeoutMs: (peakScanTimeoutSeconds > 0 ? peakScanTimeoutSeconds : 300) * 1000,
+      env,
+      spawn,
+    });
+    if (scan.error) {
+      args.jobLog(`Set Source-Relative Bitrate: could not measure the source peak (${scan.error}); no peak is recorded`);
+    } else {
+      args.jobLog(`Set Source-Relative Bitrate: scanned ${scan.packets} packets with ${scan.tool} in `
+        + `${scan.seconds.toFixed(1)} s: average ${Math.round(scan.averageKbps)} kbps, peak `
+        + `${Math.round(scan.peakKbps)} kbps (percentile ${peakPercentile} of ${scan.windows} windows of `
+        + `${window} s)`);
+      args.variables.user.tdarrSourcePeakKbps = String(Math.round(scan.peakKbps));
+    }
+
     if (capBelowBpp > 0 && bppMeasured && sourceBpp >= capBelowBpp) {
       args.jobLog(`Set Source-Relative Bitrate: source ${sourceBpp.toFixed(4)} bits/pixel is at or above `
         + `${capBelowBpp}, so no cap is added: plain ICQ with the existing quality`);
@@ -418,29 +445,11 @@ const plugin = async (args) => {
     let ceilingBaseKbps = sourceKbps;
     let ceilingBaseNote = `source average ${Math.round(sourceKbps)} kbps`;
     if (wantPeak) {
-      const window = peakWindowSeconds > 0 ? peakWindowSeconds : 2;
-      // eslint-disable-next-line no-await-in-loop
-      const scan = await scanSourcePeak({
-        ffmpegPath: args.ffmpegPath,
-        file: args.inputFileObj._id,
-        streamIndex: stream.index,
-        windowSeconds: window,
-        percentile: peakPercentile >= 0 ? peakPercentile : 100,
-        timeoutMs: (peakScanTimeoutSeconds > 0 ? peakScanTimeoutSeconds : 300) * 1000,
-        env,
-        spawn,
-      });
       if (scan.error) {
-        args.jobLog(`Set Source-Relative Bitrate: could not measure the source peak (${scan.error}); `
-          + 'the ceiling uses the source average instead');
+        args.jobLog('Set Source-Relative Bitrate: the ceiling uses the source average instead of the peak');
         ceilingBaseNote = `source average ${Math.round(sourceKbps)} kbps (peak scan failed)`;
       } else {
-        args.jobLog(`Set Source-Relative Bitrate: scanned ${scan.packets} packets with ${scan.tool} in `
-          + `${scan.seconds.toFixed(1)} s: average ${Math.round(scan.averageKbps)} kbps, peak `
-          + `${Math.round(scan.peakKbps)} kbps (percentile ${peakPercentile} of ${scan.windows} windows of `
-          + `${window} s)`);
         ceilingBaseKbps = scan.peakKbps;
-        args.variables.user.tdarrSourcePeakKbps = String(Math.round(scan.peakKbps));
         ceilingBaseNote = `source peak ${Math.round(scan.peakKbps)} kbps`;
       }
     }
