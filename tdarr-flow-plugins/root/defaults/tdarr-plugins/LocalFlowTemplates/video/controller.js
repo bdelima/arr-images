@@ -7,6 +7,9 @@
 // Brought up to the live "Controller (v10)" on 2026-11-11: new "Queue to mapped nodes" (Tags: Worker Type, CPU worker on a node tagged mapped) between Input File and
 // "Mark step: controller start". An unmapped encoder node that picks the job up at Input File re-queues it to a mapped node there, and its job log says it did
 // not download the file ("unmapped node, tags plugin after start plugin, no need to download file"). Three node positions moved.
+// Quality tier, 2026-11-12: new "Set Encode Quality" between Check Source Efficiency output 1 and Go To Converter Flow. It sets the Flow Variable tdarrQuality (the baseline quality
+// number: 18, or 31 for a source above 30 fps) and the Converter's "Set Quality With Node Offset" adds the encode node's offset to it. The Check Force Reencode path to the Converter is unchanged
+// (no tdarrQuality there, so the Converter keeps the quality its Set Video Encoder node writes, plus the node offset).
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
@@ -90,6 +93,23 @@ const details = () => ({
         "position": {
           "x": 828,
           "y": -12
+        }
+      },
+      {
+        "name": "Set Encode Quality",
+        "sourceRepo": "Local",
+        "pluginName": "setEncodeQuality",
+        "version": "1.0.0",
+        "inputsDB": {
+          "quality": "18",
+          "highFpsAbove": "30",
+          "highFpsQuality": "31"
+        },
+        "fpEnabled": true,
+        "id": "setEncQuality",
+        "position": {
+          "x": 948,
+          "y": 48
         }
       },
       {
@@ -343,9 +363,16 @@ const details = () => ({
       {
         "source": "chkSrcEff",
         "sourceHandle": "1",
+        "target": "setEncQuality",
+        "targetHandle": null,
+        "id": "effToQuality"
+      },
+      {
+        "source": "setEncQuality",
+        "sourceHandle": "1",
         "target": "V0fhZ7bDk",
         "targetHandle": null,
-        "id": "effToConverter"
+        "id": "qualityToConverter"
       },
       {
         "source": "chkSrcEff",
