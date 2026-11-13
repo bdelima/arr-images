@@ -465,8 +465,7 @@ The build needs `.NET SDK 8` for Radarr and Lidarr, `6` for Sonarr and `10` for 
 
 These images contain modified GPL-3.0 software, so this repository is licensed **GPL-3.0** (see
 [`LICENSE`](LICENSE)). The corresponding source of an image is the upstream tag in its
-`dev.pumapants.upstream-tag` label plus this repository at the commit in its
-`org.opencontainers.image.revision`
+`dev.pumapants.upstream-tag` label plus this repository at the commit in its `org.opencontainers.image.revision`
 label. See [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
 Unofficial and not affiliated with or endorsed by the Radarr, Sonarr, Lidarr or LinuxServer.io projects.
