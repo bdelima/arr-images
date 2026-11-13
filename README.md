@@ -281,9 +281,9 @@ are `0.x` until that has been done on real files.
 ## Tdarr flow plugins (tdarr-flow-plugins)
 
 `bdelima/tdarr-flow-plugins` is a [`DOCKER_MODS`](https://github.com/linuxserver/docker-mods) overlay for the Tdarr **server**
-container. It replaces hand-copying files onto the server: at every container start it puts thirteen Local Flow Plugins
+container. It replaces hand-copying files onto the server: at every container start it puts fifteen Local Flow Plugins
 (`classifySource`, `setMaxBitrate`, `tagEncodeSettings`, `tagOutputMetadata`, `checkSourceEfficiency`,
-`setSourceRelativeBitrate`, `requireEnglishAudio`, `removeUntaggedAudio`, `mkvmergeExecute`, `repairLanguageTags`, `markStep`, `requireTrail`, `runVmaf`) and the flow template files for the Downloads
+`setSourceRelativeBitrate`, `setEncodeQuality`, `setQualityWithNodeOffset`, `requireEnglishAudio`, `removeUntaggedAudio`, `mkvmergeExecute`, `repairLanguageTags`, `markStep`, `requireTrail`, `runVmaf`) and the flow template files for the Downloads
 Flow (Controller, Converter, Validator, Stream Cleanup, Clean-only passthrough) into the server's plugin folder. The files in
 [`tdarr-flow-plugins/root`](tdarr-flow-plugins/root) are the source of truth and are shipped as they are, except that the build appends each flow template's own version to its name (below).
 
@@ -339,21 +339,29 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   carried over unchanged. The job log says how many tags were found, where they came from and which were kept. Checked on real Matroska
   files with `mkvpropedit`, `ffprobe` and `ffmpeg` in a sandbox, with Tdarr's helpers stubbed; not yet seen in a real Tdarr job, and whether
   Tdarr's own probe data carries `format.tags` is not confirmed (the ffmpeg read covers it if it does not).
-- **Source bitrate tags.** Set Source-Relative Bitrate records the source video's average bitrate and, when its peak scan works (the scan runs for every QSV encode, whether or not the cap is added), the busiest
-  window's bitrate (the window length and percentile are that node's own inputs, 2 s and 100 by default) as Flow Variables; Tag Output Metadata writes
-  them as `TDARR_SOURCE_VIDEO_KBPS` and `TDARR_SOURCE_PEAK_KBPS`, whole kbps, for QSV encodes only (the plugin leaves other encoders alone). They are in the
+- **Quality baseline and per-node offset.** The shipped flows no longer cap the bitrate of a standard quality-based encode (no `-b:v` / `-maxrate` / `-bufsize`, so hevc_qsv stays plain
+  ICQ). Two plugins decide the quality number instead. **Set Encode Quality** (Controller, between Check Source Efficiency output 1 and Go To Converter Flow) sets the Flow Variable
+  `tdarrQuality`, the baseline: its input *Quality* (default 18, a whole number from 1 to 51, templatable, so a library variable such as `{{{args.userVariables.library.crf}}}` works), or, for a source above
+  *High frame rate above fps* (default 30, 0 = off), *High frame rate quality* (default 31, the same in every tier). The frame rate is the video stream's `avg_frame_rate`, else `r_frame_rate`; if it cannot be
+  read the normal quality is used. A quality that is not a whole number from 1 to 51 is ignored, and when nothing usable is left the variable is removed so an old value cannot linger.
+  **Set Quality With Node Offset** (Converter, directly after Set Video Encoder, replacing Set Source-Relative Bitrate) adds the offset of the node the job is running on to that baseline and writes the result,
+  kept between 1 and 51, over the quality Set Video Encoder wrote (`-global_quality` for QSV, `-crf` for the software `lib*` encoders, `-qp` for the rest; added if none is there). Its input *Quality offset
+  per node* lists `node=offset` pairs separated by new lines, commas or semicolons (the shipped value is `drakebay-gpu=-3`); names are matched without regard to case, a node that is not listed (or whose name cannot be read) gets 0, a later pair for the same node wins, and
+  an entry that is not `name=whole number` is ignored and named in the job log. A lower number means better quality and a bigger file, so a node that writes fewer bits for the same number gets a negative offset.
+  When `tdarrQuality` is not set (for example on the Check Force Reencode path, which is unchanged and does not pass through Set Encode Quality), the baseline is the number Set Video Encoder wrote, so the
+  offset still applies. A video stream still set to copy is skipped. Why: on one 1080p50 source (the Brazil race, 6142 kbps video), plain ICQ 18 grew the file to 233-301% of the original; ICQ 31 on ojochal
+  (Meteor Lake) gave 4389 kbps at VMAF mean 96.34 / min 68.80, and drakebay (Panther Lake) at ICQ 28 gave 4478 kbps at mean 96.06 / min 71.35, while ojochal at ICQ 28 gave 6821 kbps. Both nodes drop
+  about 14% of the bitrate per step, so a constant offset of 3 matched them on that source. One source and one pair of nodes: the numbers 31 and -3 are starting values, not calibrated, and whether the
+  offset stays the same at other qualities or content has not been tested. Checked in a sandbox with Tdarr's helpers stubbed, not yet seen in a real Tdarr job. Set Source-Relative Bitrate is still shipped but is no longer in the Converter template.
+- **Source bitrate tags.** Set Quality With Node Offset records the source video's average bitrate and, when its peak scan works, the busiest
+  window's bitrate (the window length and percentile are that node's own inputs, 2 s and 100 by default) as Flow Variables, for every encoder it sees (not only QSV); Tag Output Metadata writes
+  them as `TDARR_SOURCE_VIDEO_KBPS` and `TDARR_SOURCE_PEAK_KBPS`, whole kbps. Neither value changes the encode. They are in the
   encode group, so a later pass keeps them. `TDARR_SOURCE_BPP` (bits per pixel) comes from Check Source Efficiency and is written only when that node is
   enabled; with both its minimums at 0 it never skips a file and only measures. If Check Source Efficiency is enabled it also sets the average-bitrate
-  variable, and Set Source-Relative Bitrate then overwrites it with the value it used for the encode.
-- **Bits-per-pixel gate on the cap.** Set Source-Relative Bitrate only adds `-b:v` / `-maxrate` / `-bufsize` (the cap, which turns hevc_qsv ICQ into QVBR)
-  to sources below its input *Cap only below this source bits per pixel* (default 0.07, 0 = always cap). It reads the source's bits per pixel from the
-  Flow Variable `tdarrSourceBpp` that Check Source Efficiency sets earlier in the flow (video bitrate / (width x height x fps)). At or above the
-  threshold nothing is added and the encode stays plain ICQ at the tier's quality, with any `-b:v` / `-maxrate` / `-bufsize` already on the stream left as
-  it is; the peak is still measured and recorded (see Source bitrate tags). When the variable is missing (Check Source Efficiency disabled or
-  unable to measure) the cap is applied, as before. The default is a starting value, not a calibrated one: on one 1080p50 source at 0.059 bits per
-  pixel, plain ICQ 18 grew the file to 233-301% of the original (the reason for the cap), while one 1080p24 episode at 0.095 came out at 59% of its source video bitrate under
-  plain ICQ 18, with a minimum VMAF of 82 against 14 under the 70% target; sources between 0.06 and 0.09 have not been tested. Checked on a sandbox
-  clip with Tdarr's helpers stubbed, not yet seen in a real Tdarr job. The Check Source Efficiency skip thresholds are a separate setting and are unaffected.
+  variable, and Set Quality With Node Offset then overwrites it with its own reading.
+- **Set Source-Relative Bitrate (not in the shipped Converter).** The older plugin, left in the image unchanged. It turns hevc_qsv ICQ into QVBR by adding `-b:v` / `-maxrate` / `-bufsize` to sources below its
+  input *Cap only below this source bits per pixel* (default 0.07, 0 = always cap), reading the source's bits per pixel from the Flow Variable `tdarrSourceBpp` that Check Source Efficiency sets earlier in the flow, and it
+  records the same two source bitrate variables. A flow that still uses it works as before.
 - **Frame-count check before VMAF.** Run VMAF pairs frame N of the original with frame N of the encode, so files with different frame
   counts cannot be scored meaningfully. Before taking the GPU lock it counts the video packets of both files with `ffprobe -count_packets`
   (the sibling of Tdarr's ffmpeg, then `tdarr-ffprobe`, then `ffprobe`) and fails the job, naming both counts, when they differ at all. If the
@@ -457,7 +465,8 @@ The build needs `.NET SDK 8` for Radarr and Lidarr, `6` for Sonarr and `10` for 
 
 These images contain modified GPL-3.0 software, so this repository is licensed **GPL-3.0** (see
 [`LICENSE`](LICENSE)). The corresponding source of an image is the upstream tag in its
-`dev.pumapants.upstream-tag` label plus this repository at the commit in its `org.opencontainers.image.revision`
+`dev.pumapants.upstream-tag` label plus this repository at the commit in its
+`org.opencontainers.image.revision`
 label. See [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
 Unofficial and not affiliated with or endorsed by the Radarr, Sonarr, Lidarr or LinuxServer.io projects.
