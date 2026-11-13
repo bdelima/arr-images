@@ -17,8 +17,10 @@
 // The score is worked out here instead of by grep/sed/awk: the mean, min and harmonic mean come from libvmaf's
 // pooled_metrics, p1 (the 1st percentile of the per-frame scores, linear interpolation between the two nearest frames)
 // from the sorted per-frame scores, exactly as the shell did. The job log gets the same line as before:
-//   VMAF score: mean=.. min=.. harmonic_mean=.. p1=.. n=..
-// and the Flow Variables user.vmafMean, user.vmafMin and user.vmafP1 are set, which Tag Output Metadata writes into the TDARR_VMAF_SCORE tag.
+//   VMAF score: mean=.. min=.. harmonic_mean=.. p1=.. n=.. below60=.. below70=.. below75=..
+// and the Flow Variables user.vmafMean, user.vmafMin, user.vmafP1 and user.vmafBelow are set, which Tag Output Metadata writes into the TDARR_VMAF_SCORE tag.
+// The belowN figures count the frames whose VMAF score is under N, for each number in the countBelow input (default 60,70,75).
+// They are only reported, never checked: a pass or a fail still depends on the mean, min and p1 minimums alone.
 //
 // Frame pairing: libvmaf's filter pairs a reference frame with a distorted frame by timestamp, not by position. Matroska
 // timestamps are rounded to 1 ms, so at 23.976 fps (and other non-integer rates) two files with the same frames can carry
@@ -38,8 +40,9 @@
 const details = () => ({
   name: 'Run VMAF Quality Check',
   description: 'Scores the working file against the original library file with ffmpeg-vmaf-cuda (one run at a time under a '
-    + 'lock file), shows progress in the Tdarr worker, logs "VMAF score: mean= min= harmonic_mean= p1= n=", sets the Flow '
-    + 'Variables user.vmafMean, user.vmafMin and user.vmafP1, and checks the mean, the lowest frame (min) and the 1st '
+    + 'lock file), shows progress in the Tdarr worker, logs "VMAF score: mean= min= harmonic_mean= p1= n=" followed by the number of '
+    + 'frames below each score in Count frames below, sets the Flow '
+    + 'Variables user.vmafMean, user.vmafMin, user.vmafP1 and user.vmafBelow, and checks the mean, the lowest frame (min) and the 1st '
     + 'percentile (p1) against their minimums: output 1 when all pass, output 2 when any fails. It still fails the job when '
     + 'ffmpeg fails or no score can be produced. '
     + 'Before scoring it counts the video frames of both files and fails the job when they differ. '
@@ -92,6 +95,17 @@ const details = () => ({
         + '0 = not checked. Uncalibrated starting value.',
     },
     {
+      name: 'countBelow',
+      label: 'Count frames below',
+      type: 'string',
+      defaultValue: '60,70,75',
+      inputUI: { type: 'text' },
+      tooltip: 'VMAF scores to count frames below: numbers above 0 up to 100, separated by commas, at most 8 (default 60,70,75). '
+        + 'The job log gets belowN=<frames scoring under N> after n=, in ascending order, and Tag Output Metadata adds the same '
+        + 'figures to TDARR_VMAF_SCORE. The counts are only reported; they do not change which output the file leaves through. '
+        + 'Empty = not counted.',
+    },
+    {
       name: 'ffmpegPath',
       type: 'string',
       defaultValue: '/usr/local/bin/ffmpeg-vmaf-cuda',
@@ -127,6 +141,23 @@ const details = () => ({
 });
 
 const num = (s) => Number(String(s).trim());
+
+// "60,70,75" -> [60, 70, 75]: numbers above 0 up to 100, ascending, no duplicates, at most 8. Empty gives []. Anything else
+// gives { error } (the plugin fails the job on a bad input value, as it does for the minimums).
+const parseCountBelow = (text) => {
+  const raw = String(text === undefined || text === null ? '' : text).trim();
+  if (raw === '') return [];
+  const parts = raw.split(',').map((p) => p.trim());
+  const values = [];
+  for (let i = 0; i < parts.length; i += 1) {
+    const v = /^\d+(\.\d+)?$/.test(parts[i]) ? Number(parts[i]) : NaN;
+    if (!(v > 0 && v <= 100)) return { error: `"${parts[i]}" is not a number above 0 up to 100` };
+    values.push(v);
+  }
+  const list = values.filter((v, i) => values.indexOf(v) === i).sort((a, b) => a - b);
+  if (list.length > 8) return { error: `${list.length} scores listed, at most 8 are counted` };
+  return list;
+};
 
 // Reads libvmaf's JSON log (pretty printed: one `"vmaf": <number>` line per frame, then pooled_metrics) without loading
 // the whole file: a 2 hour 50 fps file has about 400,000 frames.
@@ -260,6 +291,8 @@ const plugin = async (args) => {
   if (!Number.isFinite(minMean)) fail(`minimum mean "${args.inputs.minMean}" is not a number`);
   if (!Number.isFinite(minFrameScore)) fail(`minimum frame score "${args.inputs.minFrameScore}" is not a number`);
   if (!Number.isFinite(minP1)) fail(`minimum p1 "${args.inputs.minP1}" is not a number`);
+  const countBelow = parseCountBelow(args.inputs.countBelow);
+  if (!Array.isArray(countBelow)) fail(`Count frames below "${args.inputs.countBelow}": ${countBelow.error}`);
   // the log path is written into ffmpeg's filter graph, where ':' ',' ';' quotes and spaces are special
   if (!/^[A-Za-z0-9_./-]+$/.test(tempDir)) fail(`tempDir "${tempDir}" may only contain letters, digits, / . _ -`);
 
@@ -418,7 +451,10 @@ const plugin = async (args) => {
     const hmean = pooled.harmonic_mean;
     const p1 = percentile(sorted, 1);
     const f = (v) => (Number.isFinite(v) ? String(Number(v.toFixed(6))) : '');
-    log(`VMAF score: mean=${f(mean)} min=${f(min)} harmonic_mean=${f(hmean)} p1=${f(p1)} n=${n}`);
+    // frames scoring under each listed number (strictly below), counted from the per-frame scores
+    const belowParts = countBelow.map((t) => `below${t}=${frames.reduce((c, v) => (v < t ? c + 1 : c), 0)}`);
+    log(`VMAF score: mean=${f(mean)} min=${f(min)} harmonic_mean=${f(hmean)} p1=${f(p1)} n=${n}`
+      + `${belowParts.length > 0 ? ` ${belowParts.join(' ')}` : ''}`);
 
     const round2 = (v) => Math.round(v * 100) / 100;
     // Tag Output Metadata reads these from args.variables.user, the same place the step trail lives. They used to be set
@@ -428,6 +464,8 @@ const plugin = async (args) => {
     args.variables.user.vmafMean = round2(mean);
     args.variables.user.vmafMin = round2(min);
     args.variables.user.vmafP1 = round2(p1);
+    if (belowParts.length > 0) args.variables.user.vmafBelow = belowParts.join(';');
+    else delete args.variables.user.vmafBelow;
 
     // Quality checks: every check that fails is listed, then the file leaves through output 2 (see the header).
     const failedChecks = [];
