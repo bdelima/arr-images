@@ -374,6 +374,14 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   values: on the scores recorded so far they would fail the two Boroughs encodes made with the 70% bitrate target (min 14-19, p1 55-65) and the F1 runs on min (38-49). A live Validator
   flow that was not replaced from the new template has nothing wired to output 2, and what Tdarr does with a job that leaves through an unwired output is not verified. Checked in a
   sandbox with a stand-in for ffmpeg-vmaf-cuda; not yet seen in a real Tdarr job.
+- **Frames below a score, counted in Run VMAF.** The new `countBelow` input (shown as Count frames below, default `60,70,75`) lists VMAF scores, as numbers above 0 up to 100 separated by
+  commas, at most 8. After each score the plugin counts the frames of the per-frame log that scored strictly below it and appends the counts to the existing job log line
+  (`VMAF score: mean=.. min=.. harmonic_mean=.. p1=.. n=.. below60=.. below70=.. below75=..`, in ascending order), sets the Flow Variable `user.vmafBelow` to the same figures
+  joined with `;` (for example `below60=203;below70=981;below75=2712`), and Tag Output Metadata adds that text to the end of `TDARR_VMAF_SCORE`
+  (`mean=..;min=..;p1=..;below60=..;below70=..;below75=..`). The counts are only reported: they never change which output the file leaves through. An empty input counts nothing, and the
+  log line and the tag keep their old form. A value that is not a number in that range fails the job, like the minimums. A tag written by an earlier version has no counts, and
+  the per-frame file is still removed after scoring, so earlier runs cannot be counted afterwards. Checked in a sandbox with stand-ins for the CLI helper and ffmpeg-vmaf-cuda and a
+  made-up per-frame log; Tag Output Metadata's one-line change was checked as a string only, not with `mkvpropedit`; not yet seen in a real Tdarr job.
 - **Updating a live flow from a template.** Each template carries the flow's own `_id` (the `goToFlow` nodes in the other flows
   point at flows by id), so importing it from Add Flow > Local prompts Replace and keeps the id (observed by the owner,
   2026-11-09). A template without an `_id` (the 0.2.0 ones) made a new flow with a random id next to the live one, and the old

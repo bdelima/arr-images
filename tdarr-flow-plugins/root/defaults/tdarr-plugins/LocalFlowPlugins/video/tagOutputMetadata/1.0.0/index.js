@@ -218,7 +218,7 @@ const plugin = async (args) => {
     TDARR_SOURCE_PEAK_KBPS: v.tdarrSourcePeakKbps,
     TDARR_SIZE_RATIO: sizeRatio,
     TDARR_VMAF_SCORE: (v.vmafMean !== undefined)
-      ? `mean=${v.vmafMean};min=${v.vmafMin};p1=${v.vmafP1}`
+      ? `mean=${v.vmafMean};min=${v.vmafMin};p1=${v.vmafP1}${v.vmafBelow ? `;${v.vmafBelow}` : ''}`
       : undefined,
     TDARR_TRAIL: v.tdarrTrail,
   };
