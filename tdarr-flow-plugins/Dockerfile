@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 #
 # tdarr-flow-plugins: a DOCKER_MODS overlay for the Tdarr SERVER container (see the README, "Tdarr flow plugins"). It
-# carries thirteen Local Flow Plugins and the flow template files, and a start-up script that copies them into the server's
+# carries fifteen Local Flow Plugins and the flow template files, and a start-up script that copies them into the server's
 # plugin folder every time the container starts. Nothing is compiled or downloaded; the files in
 # tdarr-flow-plugins/root are the source of truth and are shipped as they are, with one exception: the build appends each
 # flow template's own version to its name ("Controller" becomes "Controller (v12)"). That version is the number of commits
@@ -53,7 +53,7 @@ ARG REVISION=unknown
 COPY --from=buildstage /root-layer/ /
 
 LABEL org.opencontainers.image.title="tdarr-flow-plugins" \
-      org.opencontainers.image.description="DOCKER_MODS overlay: puts thirteen Tdarr Local Flow Plugins and the flow templates into a Tdarr server's plugin folder at every start" \
+      org.opencontainers.image.description="DOCKER_MODS overlay: puts fifteen Tdarr Local Flow Plugins and the flow templates into a Tdarr server's plugin folder at every start" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.source="https://github.com/bdelima/arr-images" \

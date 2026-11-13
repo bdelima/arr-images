@@ -9,6 +9,9 @@
 // Brought up to the live "Converter (v11)" on 2026-11-11: after "Mark step: encode done" new "Route to mapped nodes" (Tags: Worker Type, CPU worker on a node tagged mapped) and
 // "Mark step: landed on mapped node" (label converter-encode-mapped) come before the final mkvmerge combine, so an encode that ran on an unmapped node goes back to a mapped node,
 // which downloads the encoded file from the server, before the combine reads the shared remux cache. "Route to encoder (GPU)" is renamed "Route to encoder nodes"; node positions moved.
+// Quality tier, 2026-11-12: "Set Source-Relative Bitrate" (the QVBR cap) is replaced by "Set Quality With Node Offset", which adds the encode node's offset to the baseline quality (the Flow Variable
+// tdarrQuality from the Controller's "Set Encode Quality", else the number Set Video Encoder wrote) and still records the source average and peak bitrate for the output tags. No bitrate cap is set.
+// The template ships drakebay-gpu=-3: on one 1080p50 source, drakebay ICQ 28 gave 4478 kbps and ojochal ICQ 31 gave 4389 kbps, at near-equal VMAF.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
@@ -152,21 +155,19 @@ const details = () => ({
         }
       },
       {
-        "name": "Set Source-Relative Bitrate",
+        "name": "Set Quality With Node Offset",
         "sourceRepo": "Local",
-        "pluginName": "setSourceRelativeBitrate",
+        "pluginName": "setQualityWithNodeOffset",
         "version": "1.0.0",
         "inputsDB": {
-          "enabled": "true",
-          "targetPercent": "70",
-          "ceilingBasis": "peak",
-          "ceilingPercent": "100",
-          "bufsizeMultiplier": "2",
-          "minTargetKbps": "300",
+          "nodeOffsets": "drakebay-gpu=-3",
+          "peakWindowSeconds": "2",
+          "peakPercentile": "100",
+          "peakScanTimeoutSeconds": "300",
           "assumedAudioKbps": "256"
         },
         "fpEnabled": true,
-        "id": "srcRelCap",
+        "id": "qualOffset",
         "position": {
           "x": 720,
           "y": 468
@@ -334,12 +335,12 @@ const details = () => ({
       {
         "source": "FAc9QeWJK",
         "sourceHandle": "1",
-        "target": "srcRelCap",
+        "target": "qualOffset",
         "targetHandle": null,
         "id": "F8KgIMdGM"
       },
       {
-        "source": "srcRelCap",
+        "source": "qualOffset",
         "sourceHandle": "1",
         "target": "d7QK1TBlh",
         "targetHandle": null,
