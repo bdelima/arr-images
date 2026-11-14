@@ -390,6 +390,20 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   log line and the tag keep their old form. A value that is not a number in that range fails the job, like the minimums. A tag written by an earlier version has no counts, and
   the per-frame file is still removed after scoring, so earlier runs cannot be counted afterwards. Checked in a sandbox with stand-ins for the CLI helper and ffmpeg-vmaf-cuda and a
   made-up per-frame log; Tag Output Metadata's one-line change was checked as a string only, not with `mkvpropedit`; not yet seen in a real Tdarr job.
+- **Run VMAF scores on the GPU or the CPU, whichever the node has.** Run VMAF looks for the file in its input *GPU device file* (default
+  `/dev/nvidiactl`, which a container with the NVIDIA runtime has) and picks the path for that run, logging which and why. With it: the GPU path as
+  before (NVDEC decode, `scale_cuda`, `libvmaf_cuda`, one run at a time under the lock file). Without it: the CPU path (software decode, the `format`
+  filter, the plain `libvmaf` filter, no lock), so a node without a GPU such as drakebay or ojochal can run the Validator's VMAF step too. Both write
+  the same per-frame log and everything after scoring (the mean, min, p1, the counts, the output) is the same. The CPU path is about seven times
+  slower (47 fps on 6 threads at 1080p, one clip, against the GPU), so its threads are limited by the input *CPU path: percent of the node CPUs*
+  (default 50, a whole number from 1 to 100, rounded to whole threads and at least 1, so a 6-CPU node uses 3 and a 16-CPU node uses 8); it takes no lock,
+  so two runs can overlap, and the share is what keeps one from taking the whole node.
+  A GPU node whose CUDA run fails fails the job; it does not quietly score on the CPU. Both paths need `ffmpeg-vmaf-cuda` from the
+  `tdarr-vmaf-cuda` overlay **at version 0.2.0 or later** on nodes without a GPU (earlier builds do not start without an NVIDIA driver). Whether
+  `/dev/nvidiactl` is present in the Tdarr containers on naples (and absent on drakebay and ojochal) has not been checked; the job log line
+  `Run VMAF: scoring on the GPU (...)` or `scoring on the CPU (...)` says what the plugin saw. Software AV1 decoding is not in the binary, so an AV1 file
+  cannot be scored on the CPU path (and the GPU path needs a card that decodes AV1). Checked in a sandbox with stand-ins for the CLI helper and ffmpeg,
+  not yet seen in a real Tdarr job or against a real ffmpeg-vmaf-cuda on either path.
 - **Updating a live flow from a template.** Each template carries the flow's own `_id` (the `goToFlow` nodes in the other flows
   point at flows by id), so importing it from Add Flow > Local prompts Replace and keeps the id (observed by the owner,
   2026-11-09). A template without an `_id` (the 0.2.0 ones) made a new flow with a random id next to the live one, and the old
