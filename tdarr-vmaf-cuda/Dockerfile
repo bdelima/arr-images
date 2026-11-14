@@ -19,19 +19,31 @@ ARG FFMPEG_REF=n7.1
 ARG CUDA_ARCH=75
 
 ENV DEBIAN_FRONTEND=noninteractive
-# The build tools come from an Ubuntu mirror outside the ubuntu.com domain. On 2026-11-11 every ubuntu.com host
-# (archive., security. and azure.archive.ubuntu.com) stopped resolving from GitHub's runner build containers for hours,
-# while other hosts (developer.download.nvidia.com, deb.debian.org) kept resolving, which failed this stage ("Unable to
-# locate package"). The cause is not established. Nothing from this stage is shipped (the final image is built FROM
-# scratch), so the choice of mirror does not change the published image. Override with
-# --build-arg APT_MIRROR=http://archive.ubuntu.com/ubuntu to use the default archive.
-ARG APT_MIRROR=http://mirrors.edge.kernel.org/ubuntu
-RUN sed -i -e "s|http://archive.ubuntu.com/ubuntu|${APT_MIRROR}|g" -e "s|http://security.ubuntu.com/ubuntu|${APT_MIRROR}|g" /etc/apt/sources.list \
-    && grep -q "${APT_MIRROR}" /etc/apt/sources.list \
-    && apt-get update && apt-get install -y --no-install-recommends \
-      build-essential ca-certificates git nasm ninja-build patchelf pkg-config python3-pip xxd \
-    && pip3 install --no-cache-dir meson cmake \
-    && rm -rf /var/lib/apt/lists/*
+# The build tools are installed from a list of Ubuntu mirrors tried in order (APT_MIRRORS, space separated): the first one whose
+# index loads and whose packages install is used, and the next is tried when one fails. Why a list: on 2026-11-11 every
+# ubuntu.com host (archive., security. and azure.archive.ubuntu.com) stopped resolving from GitHub's runner build containers
+# for hours, which failed this stage ("Unable to locate package"), so the first mirror is outside that domain; on 2026-11-14
+# that first mirror (mirrors.edge.kernel.org) timed out from a runner, so the default archive is the second. The causes are not
+# established. Nothing from this stage is shipped (the final image is built FROM scratch), so the choice of mirror does not
+# change the published image. Override the list with --build-arg APT_MIRRORS="http://archive.ubuntu.com/ubuntu" and so on.
+ARG APT_MIRRORS="http://mirrors.edge.kernel.org/ubuntu http://archive.ubuntu.com/ubuntu"
+RUN set -eu; \
+    cp /etc/apt/sources.list /etc/apt/sources.list.orig; \
+    installed=; \
+    for mirror in ${APT_MIRRORS}; do \
+      sed -e "s|http://archive.ubuntu.com/ubuntu|${mirror}|g" -e "s|http://security.ubuntu.com/ubuntu|${mirror}|g" /etc/apt/sources.list.orig > /etc/apt/sources.list; \
+      grep -q "${mirror}" /etc/apt/sources.list || { echo "could not point apt at ${mirror}" >&2; exit 1; }; \
+      echo "apt: trying ${mirror}"; \
+      if apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 update \
+         && apt-get install -y --no-install-recommends \
+              build-essential ca-certificates git nasm ninja-build patchelf pkg-config python3-pip xxd; then \
+        installed=1; break; \
+      fi; \
+      echo "apt: ${mirror} did not work, trying the next one" >&2; rm -rf /var/lib/apt/lists/*; \
+    done; \
+    [ -n "$installed" ] || { echo "apt: none of the mirrors (${APT_MIRRORS}) worked" >&2; exit 1; }; \
+    pip3 install --no-cache-dir meson cmake; \
+    rm -rf /var/lib/apt/lists/*
 
 ENV PATH=/usr/local/cuda/bin:$PATH
 WORKDIR /src
