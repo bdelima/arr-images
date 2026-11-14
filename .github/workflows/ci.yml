@@ -137,7 +137,7 @@ jobs:
           docker logs validator-ci 2>&1 | tail -5
 
   vmaf-cuda:
-    # tdarr-vmaf-cuda: the overlay image is built (CUDA compile, no GPU needed) and smoke-tested on a plain Ubuntu 22.04.
+    # tdarr-vmaf-cuda: the overlay image is built (CUDA compile, no GPU needed) and smoke-tested on a plain Ubuntu 22.04 with no NVIDIA driver.
     # Scoring on a GPU cannot be tested here; that is checked by hand on the Tdarr node.
     needs: changes
     if: needs.changes.outputs.vmaf == 'true'
@@ -152,11 +152,8 @@ jobs:
       - name: Build the overlay image
         run: docker build -f tdarr-vmaf-cuda/Dockerfile --build-arg VERSION="$(cat tdarr-vmaf-cuda/VERSION)" -t arr-test/tdarr-vmaf-cuda:ci .
 
-      - name: The libcuda stub the smoke test needs
-        run: docker build -f tdarr-vmaf-cuda/Dockerfile --target cuda-stub --output type=local,dest=cuda-stub .
-
       - name: Smoke test
-        run: tdarr-vmaf-cuda/smoke-test.sh arr-test/tdarr-vmaf-cuda:ci cuda-stub
+        run: tdarr-vmaf-cuda/smoke-test.sh arr-test/tdarr-vmaf-cuda:ci
 
   dovi-tool:
     # tdarr-dovi-tool: the overlay image is built (a pinned, checksummed download, nothing compiled) and smoke-tested on a

@@ -231,10 +231,15 @@ and Tdarr's own image is never rebuilt.
       - DOCKER_MODS=bdelima/tdarr-vmaf-cuda:latest
 ```
 
-The node also needs a working NVIDIA setup (host driver, `nvidia-container-toolkit`, the GPU passed to the container
-with the `video` driver capability), which provides the driver-level libraries this image deliberately does not carry.
-Unlike Tdarr's own ffmpeg, `ffmpeg-vmaf-cuda` links `libcuda.so.1` directly, so it only starts on a node that has the GPU
-attached.
+The binary starts on a node with or without an NVIDIA GPU. With a GPU (host driver, `nvidia-container-toolkit`, the GPU
+passed to the container with the `video` driver capability) the CUDA filters (`libvmaf_cuda`, `scale_cuda`) work and the
+driver-level libraries come from the host, which this image deliberately does not carry. Without one, the CPU `libvmaf`
+filter works. This is done by a small shim: libvmaf is linked against `libcuda-lazy.so`, generated at build time by
+[Implib.so](https://github.com/yugr/Implib.so) from the CUDA stub library, which exports the driver functions and loads the real
+`libcuda.so.1` with `dlopen` the first time one is called. Nothing calls the driver unless a CUDA filter runs, so the binary no
+longer lists `libcuda.so.1` as a start-up dependency. If a CUDA filter does run on a node with no driver, the process stops with
+a message naming `libcuda.so.1` (it does not hang). Choosing between the two filters is up to the caller: the Run VMAF plugin
+(`tdarr-flow-plugins`) is meant to look for the GPU and pick.
 
 What is in the overlay: the binary, libvmaf and any CUDA runtime library it links in
 `/usr/local/lib/tdarr-vmaf-cuda/` (the binary has an RPATH to it, so no `LD_LIBRARY_PATH` is needed), the VMAF model in
@@ -244,9 +249,12 @@ Decoding goes through NVDEC and scaling through `scale_cuda`; x264, x265 and lib
 It is built for one GPU generation, set by the `CUDA_ARCH` build argument (default `75`, Turing -- the RTX 2060 Super).
 amd64 only. It is published by dispatching [`release-tdarr-vmaf-cuda.yml`](.github/workflows/release-tdarr-vmaf-cuda.yml)
 (it does not follow an upstream release) and built and smoke-tested by [`ci.yml`](.github/workflows/ci.yml). CI has no GPU:
-it checks that the binary starts on a plain Ubuntu 22.04, links everything, reports `--enable-libvmaf`/`--enable-cuda-nvcc`,
-has the `libvmaf_cuda` and `scale_cuda` filters, and that (CPU) libvmaf scores a clip against itself. Scoring on the
-GPU is checked by hand on the node after a release. Versions are `0.x` until that has been done on real files.
+the build checks that no shipped file lists `libcuda.so` as needed and that the shim forwards a call to a real `libcuda.so.1`
+(the stub, which answers with its own error code) and names the library when there is none; the smoke test checks that the
+binary starts on a plain Ubuntu 22.04 with no NVIDIA driver and nothing injected, links everything, reports
+`--enable-libvmaf`/`--enable-cuda-nvcc`, has the `libvmaf_cuda` and `scale_cuda` filters, and that (CPU) libvmaf scores a clip
+against itself. Scoring on the GPU is checked by hand on a node with one after a release (the shim cannot be tried against a
+real driver in CI). Versions are `0.x` until that has been done on real files.
 
 Because it is built with `--enable-gpl --enable-nonfree` it is for your own use; see [`ATTRIBUTION.md`](ATTRIBUTION.md).
 

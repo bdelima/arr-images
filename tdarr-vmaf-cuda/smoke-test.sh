@@ -1,18 +1,16 @@
 #!/usr/bin/env bash
 # What can be checked without a GPU: the overlay's files are where they should be, the binary starts on a plain Ubuntu
-# 22.04 (the Tdarr node image's base) with nothing but the overlay mounted, links everything it needs, was built with
-# CUDA and libvmaf, and libvmaf (CPU) scores a clip against itself.
+# 22.04 (the Tdarr node image's base) with nothing but the overlay mounted and no NVIDIA driver, links everything it
+# needs, was built with CUDA and libvmaf, and libvmaf (CPU) scores a clip against itself.
 #
-# The binary links libcuda.so.1 (libvmaf's CUDA code needs it), which a GPU host provides and a plain Ubuntu does not, so
-# the test is given the CUDA devel image's stub library (see the cuda-stub target in the Dockerfile). A stub only lets
-# the binary start; nothing here can run a CUDA kernel.
+# Nothing is injected: a node without an NVIDIA driver has no libcuda.so.1, and the binary must start there anyway. libvmaf
+# is linked against the libcuda-lazy.so shim (see the Dockerfile), which loads the real driver only when a CUDA filter
+# first runs. Nothing here can run a CUDA kernel; that is checked by hand on a node with a GPU.
 #
-#   tdarr-vmaf-cuda/smoke-test.sh <overlay image> <directory holding the stub libcuda.so.1>
+#   tdarr-vmaf-cuda/smoke-test.sh <overlay image>
 set -euo pipefail
 
-image=${1:?usage: smoke-test.sh <overlay image> <directory holding the stub libcuda.so.1>}
-stub=$(cd "${2:?usage: smoke-test.sh <overlay image> <directory holding the stub libcuda.so.1>}" && pwd)
-[ -s "$stub/libcuda.so.1" ] || { echo "FAIL: no libcuda.so.1 in $stub" >&2; exit 1; }
+image=${1:?usage: smoke-test.sh <overlay image>}
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
@@ -23,8 +21,8 @@ docker rm "$cid" >/dev/null
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-for f in usr-local/bin/ffmpeg-vmaf-cuda usr-local/share/model/vmaf_v0.6.1.json \
-         doc/BUILD-INFO doc/COPYING.ffmpeg-GPLv3 doc/LICENSE.libvmaf doc/LICENSE.nv-codec-headers doc/EULA.cuda-toolkit.txt; do
+for f in usr-local/bin/ffmpeg-vmaf-cuda usr-local/share/model/vmaf_v0.6.1.json usr-local/lib/tdarr-vmaf-cuda/libcuda-lazy.so \
+         doc/BUILD-INFO doc/COPYING.ffmpeg-GPLv3 doc/LICENSE.libvmaf doc/LICENSE.Implib.so doc/LICENSE.nv-codec-headers doc/EULA.cuda-toolkit.txt; do
   [ -s "$work/$f" ] || fail "missing from the image: $f"
 done
 [ ! -e "$work/usr-local/bin/ffmpeg" ] || fail "the overlay must not ship /usr/local/bin/ffmpeg"
@@ -32,12 +30,22 @@ done
 echo "   ok   files"
 cat "$work/doc/BUILD-INFO"
 
-run() { docker run --rm -v "$work/usr-local:/usr/local:ro" -v "$stub:/cuda-stub:ro" -e LD_LIBRARY_PATH=/cuda-stub ubuntu:22.04 "$@"; }
+run() { docker run --rm -v "$work/usr-local:/usr/local:ro" ubuntu:22.04 "$@"; }
 
 ldd_out=$(run ldd /usr/local/bin/ffmpeg-vmaf-cuda)
 echo "$ldd_out"
 if echo "$ldd_out" | grep -q 'not found'; then fail "ffmpeg-vmaf-cuda has unresolved libraries"; fi
-echo "   ok   every library resolves on a plain ubuntu:22.04 (given a libcuda.so.1)"
+# the real driver library must not be a start-up dependency (the shim, libcuda-lazy.so, is not it)
+if echo "$ldd_out" | grep -Eq 'libcuda\.so'; then fail "ffmpeg-vmaf-cuda needs libcuda.so at start-up, so it would not start without an NVIDIA driver"; fi
+echo "   ok   every library resolves on a plain ubuntu:22.04 with no NVIDIA driver, and libcuda.so is not needed"
+
+# the shim stands in for libcuda: it exports the driver functions libvmaf calls, and is what libvmaf is linked to
+run sh -c 'ldd /usr/local/lib/tdarr-vmaf-cuda/libvmaf.so | grep -q libcuda-lazy.so' || fail "libvmaf.so is not linked to the libcuda-lazy.so shim"
+exports=$(readelf --dyn-syms -W "$work/usr-local/lib/tdarr-vmaf-cuda/libcuda-lazy.so")
+for sym in cuInit cuMemAlloc_v2 cuStreamCreateWithPriority cuCtxPushCurrent; do
+  echo "$exports" | grep -qw -- "$sym" || fail "the libcuda-lazy.so shim does not export $sym"
+done
+echo "   ok   libvmaf links the libcuda-lazy.so shim, which exports the driver functions"
 
 banner=$(run /usr/local/bin/ffmpeg-vmaf-cuda -hide_banner -version)
 for flag in --enable-libvmaf --enable-cuda-nvcc --enable-ffnvcodec --enable-cuvid --enable-nvdec; do
