@@ -26,7 +26,7 @@
 // default /dev/nvidiactl, exists inside the container): with one, the CUDA path (NVDEC decode, scale_cuda, libvmaf_cuda, one run
 // at a time under the lock file, as before); without one, the CPU path (software decode, the format filter, the plain libvmaf
 // filter, no lock). The CPU path is about seven times slower than the GPU one (one clip, 6 threads), so its threads are
-// capped by "CPU path: most threads" to leave room on the node. Both write the same per-frame JSON and everything after scoring
+// limited to a share of the node's CPUs ("CPU path: percent of the node's CPUs") to leave room on the node. Both write the same per-frame JSON and everything after scoring
 // is the same. A GPU node whose CUDA run fails fails the job; it does not fall back to the CPU. Both paths need the
 // ffmpeg-vmaf-cuda binary from the tdarr-vmaf-cuda overlay (Tdarr's own ffmpeg has no libvmaf filter).
 //
@@ -145,14 +145,14 @@ const details = () => ({
         + 'If not, the CPU path is used. /dev/nvidiactl is there when the container has the NVIDIA runtime.',
     },
     {
-      name: 'cpuMaxThreads',
-      label: 'CPU path: most threads',
+      name: 'cpuPercent',
+      label: 'CPU path: percent of the node CPUs',
       type: 'number',
-      defaultValue: '4',
+      defaultValue: '50',
       inputUI: { type: 'text' },
-      tooltip: 'Most threads libvmaf uses on the CPU path (never more than the node has). 0 = all of the node\'s CPUs. '
-        + 'The CPU path takes no lock, so a lower number leaves room for other work and for another run at the same time. '
-        + 'One clip scored at 47 fps on 6 threads at 1080p.',
+      tooltip: 'The share of the node CPUs libvmaf may use on the CPU path: a whole number from 1 to 100, rounded to a whole number of '
+        + 'threads and at least 1. 100 = all of them. The CPU path takes no lock, so a lower number leaves room for other work and for '
+        + 'another run at the same time. One clip scored at 47 fps on 6 threads at 1080p.',
     },
     {
       name: 'tempDir',
@@ -314,14 +314,14 @@ const plugin = async (args) => {
   const lockFile = String(args.inputs.lockFile).trim();
   const tempDir = String(args.inputs.tempDir).trim().replace(/\/+$/, '') || '/';
   const gpuDevice = String(args.inputs.gpuDevice).trim();
-  const cpuMaxThreads = num(args.inputs.cpuMaxThreads);
+  const cpuPercent = num(args.inputs.cpuPercent);
 
   if (!['yuv420p', 'yuv420p10le'].includes(pixelFormat)) fail(`unknown pixel format "${pixelFormat}"`);
   if (!['default', 'vmaf_4k_v0.6.1'].includes(model)) fail(`unknown model "${model}"`);
   if (!Number.isFinite(minMean)) fail(`minimum mean "${args.inputs.minMean}" is not a number`);
   if (!Number.isFinite(minFrameScore)) fail(`minimum frame score "${args.inputs.minFrameScore}" is not a number`);
   if (!Number.isFinite(minP1)) fail(`minimum p1 "${args.inputs.minP1}" is not a number`);
-  if (!Number.isInteger(cpuMaxThreads) || cpuMaxThreads < 0) fail(`CPU path: most threads "${args.inputs.cpuMaxThreads}" is not a whole number of 0 or more`);
+  if (!Number.isInteger(cpuPercent) || cpuPercent < 1 || cpuPercent > 100) fail(`CPU path: percent of the node CPUs "${args.inputs.cpuPercent}" is not a whole number from 1 to 100`);
   const countBelow = parseCountBelow(args.inputs.countBelow);
   if (!Array.isArray(countBelow)) fail(`Count frames below "${args.inputs.countBelow}": ${countBelow.error}`);
   // the log path is written into ffmpeg's filter graph, where ':' ',' ';' quotes and spaces are special
@@ -344,7 +344,7 @@ const plugin = async (args) => {
   }
   const os = require('os');
   const nodeCpus = Math.max(1, typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length);
-  const cpuThreads = cpuMaxThreads === 0 ? nodeCpus : Math.max(1, Math.min(cpuMaxThreads, nodeCpus));
+  const cpuThreads = Math.max(1, Math.min(nodeCpus, Math.round((nodeCpus * cpuPercent) / 100)));
   log(useGpu
     ? `scoring on the GPU (libvmaf_cuda): ${gpuDevice} exists on this node`
     : `scoring on the CPU (libvmaf, ${cpuThreads} thread${cpuThreads === 1 ? '' : 's'} of ${nodeCpus}): ${gpuDevice === '' ? 'no GPU device file is set' : `${gpuDevice} does not exist on this node`}`);

@@ -387,8 +387,9 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   before (NVDEC decode, `scale_cuda`, `libvmaf_cuda`, one run at a time under the lock file). Without it: the CPU path (software decode, the `format`
   filter, the plain `libvmaf` filter, no lock), so a node without a GPU such as drakebay or ojochal can run the Validator's VMAF step too. Both write
   the same per-frame log and everything after scoring (the mean, min, p1, the counts, the output) is the same. The CPU path is about seven times
-  slower (47 fps on 6 threads at 1080p, one clip, against the GPU), so its threads are capped by the input *CPU path: most threads* (default 4,
-  never more than the node has, 0 = all of them); it takes no lock, so two runs can overlap, and the cap is what keeps one from taking the whole node.
+  slower (47 fps on 6 threads at 1080p, one clip, against the GPU), so its threads are limited by the input *CPU path: percent of the node CPUs*
+  (default 50, a whole number from 1 to 100, rounded to whole threads and at least 1, so a 6-CPU node uses 3 and a 16-CPU node uses 8); it takes no lock,
+  so two runs can overlap, and the share is what keeps one from taking the whole node.
   A GPU node whose CUDA run fails fails the job; it does not quietly score on the CPU. Both paths need `ffmpeg-vmaf-cuda` from the
   `tdarr-vmaf-cuda` overlay **at version 0.2.0 or later** on nodes without a GPU (earlier builds do not start without an NVIDIA driver). Whether
   `/dev/nvidiactl` is present in the Tdarr containers on naples (and absent on drakebay and ojochal) has not been checked; the job log line
