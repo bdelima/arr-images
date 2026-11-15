@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 #
 # tdarr-flow-plugins: a DOCKER_MODS overlay for the Tdarr SERVER container (see the README, "Tdarr flow plugins"). It
-# carries fifteen Local Flow Plugins and the flow template files, and a start-up script that copies them into the server's
+# carries seventeen Local Flow Plugins and the flow template files, and a start-up script that copies them into the server's
 # plugin folder every time the container starts. Nothing is compiled or downloaded; the files in
 # tdarr-flow-plugins/root are the source of truth and are shipped as they are, with one exception: the build appends each
 # flow template's own version to its name ("Controller" becomes "Controller (v12)"). That version is the number of commits
