@@ -5,12 +5,13 @@
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
+// Synced to Bob's live "Clean-only Passthrough (v5)" on 2026-11-15: only the flow's name changed (it was "Clean only passthrough"); nodes and edges are the same.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
     "_id": "kASAOsE1n",
-    "name": "Clean only passthrough",
-    "description": "Clean only passthrough",
+    "name": "Clean-only Passthrough",
+    "description": "Clean-only Passthrough",
     "tags": "",
     "flowPlugins": [
       {
