@@ -1,53 +1,61 @@
 /**
  * Keep Awake - Local Flow Plugin
  *
- * A configurable replacement for the stock "Prevent Sleep While Encoding" plugin, for the same use: a flow made of
- * Input File -> Keep Awake, run as a Tdarr automation that a transcode flow starts with a Run Automation step right after
- * Input File. While the automation runs it stops the machine from sleeping, and it ends when no other worker on the node
- * is working any more.
+ * Keeps the node from sleeping while a job runs on it. It is used inline in the transcode flow, as two steps with the same
+ * plugin: Keep Awake (action "start") early in the flow, and Keep Awake (action "stop") after the work that must not be
+ * interrupted. Neither step waits for anything, so it cannot deadlock with other jobs on the node.
  *
- * Do not put this plugin (or the stock one) inline in a transcode flow. It waits for every OTHER worker on the node to
- * finish, so two transcode jobs on one node that both reach it wait for each other forever. An automation job is skipped by
- * that check (its input is a dummy file in a .tdarr folder), so automations never wait on each other or on themselves.
- *
- * What it does depends on the node's operating system, and each one has its own setting:
+ * What "start" does depends on the node's operating system, and each one has its own setting:
  *
  *   Windows  "system+display" (default): keeps the system AND the display on (ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED).
  *            "system": keeps the system awake but lets the display turn off. "none": does nothing.
  *   Linux    "none" (default): does nothing. "systemd-inhibit": holds an idle and sleep inhibitor lock.
  *   macOS    "none" (default): does nothing. "caffeinate": runs caffeinate -i.
  *
- * With "none" the plugin returns at once without starting anything and without holding a worker slot, so the same flow can
- * run on every node and only the Windows one does any work.
+ * With "none" the step returns at once and starts nothing, so the same flow can run on every node and only the Windows one
+ * does any work.
  *
- * Otherwise it starts one small helper process that holds the request, then polls the Tdarr server's get-nodes API every
- * "Poll interval" seconds. When no other (non-automation) worker on this node has been seen for "Confirmations" checks in a
- * row it stops the helper and carries on. The helper is also stopped if the plugin fails, and on Windows it ends by itself
- * if the process that started it disappears (a crashed node does not leave the PC awake for good).
+ * How it works. "start" creates a lease file in the job's work folder and starts a small helper process, detached so it
+ * outlives the step. The helper holds the request while the lease file exists and, as a safety limit, for at most "Maximum
+ * hold" minutes. "stop" deletes the job's lease file; the helper notices within about 5 seconds and ends, which ends the
+ * request. Every job has its own lease and its own helper, so two jobs on one node never release each other's hold, and the
+ * operating system keeps the node awake while any of them is active.
  *
- * Windows: the helper is a hidden PowerShell that calls SetThreadExecutionState again every 30 seconds. The state belongs
- * to the thread that sets it, so it must be a process that stays alive; stopping the process ends the request.
+ * The lease's path and the node's name are kept in the job's Flow Variables keepAwakeLease and keepAwakeNode. "stop" only
+ * deletes a lease that belongs to the node it is running on, so a job that hopped to another node leaves it alone.
  *
- * "Maximum hold" is a safety limit in minutes (0 = none). If the helper cannot start or stops by itself, the plugin logs it
- * and carries on instead of holding the worker for nothing.
+ * If a job fails or is cancelled before "stop", the lease is not released by this plugin: it ends when the job's work
+ * folder is cleaned up, or at the latest when "Maximum hold" runs out.
+ *
+ * Windows: the helper is a hidden PowerShell that calls SetThreadExecutionState every 5 seconds. The state belongs to the
+ * thread that sets it, so it must be a process that stays alive; when the process ends, so does the request.
+ *
+ * If the helper cannot start, the plugin logs it and carries on without holding anything.
  *
  * Output 1: always. This plugin never fails the flow.
  */
 
 const details = () => ({
   name: 'Keep Awake',
-  description: 'Keeps this node from sleeping while other workers on it are busy. Use it in a flow of Input File -> Keep '
-    + 'Awake, run as an automation from a Run Automation step; do not put it inline in a transcode flow. Each operating '
-    + 'system has its own setting; "none" does nothing and returns at once. Defaults: Windows keeps the system and display '
-    + 'on, Linux and macOS do nothing.',
+  description: 'Keeps this node from sleeping while a job runs. Put it in the flow twice: action "start" early, action '
+    + '"stop" after the work. Each operating system has its own setting; "none" does nothing. Defaults: Windows keeps '
+    + 'the system and display on, Linux and macOS do nothing.',
   style: { borderColor: '#FF9800' },
   tags: 'video',
   isStartPlugin: false,
   pType: '',
-  requiresVersion: '2.64.01',
+  requiresVersion: '2.11.01',
   sidebarPosition: -1,
   icon: 'faMoon',
   inputs: [
+    {
+      label: 'Action',
+      name: 'action',
+      type: 'string',
+      defaultValue: 'start',
+      inputUI: { type: 'dropdown', options: ['start', 'stop'] },
+      tooltip: 'start = begin keeping the node awake for this job. stop = let go (the settings below are ignored).',
+    },
     {
       label: 'Windows',
       name: 'windowsMode',
@@ -75,39 +83,24 @@ const details = () => ({
       tooltip: 'none = do nothing. caffeinate = run caffeinate -i to prevent idle sleep.',
     },
     {
-      label: 'Poll interval (seconds)',
-      name: 'pollIntervalSeconds',
-      type: 'number',
-      defaultValue: '15',
-      inputUI: { type: 'text' },
-      tooltip: 'How often to ask the server whether other workers on this node are still working. At least 10.',
-    },
-    {
-      label: 'Confirmations',
-      name: 'confirmCount',
-      type: 'number',
-      defaultValue: '3',
-      inputUI: { type: 'text' },
-      tooltip: 'How many checks in a row must find no other worker before the machine is allowed to sleep again.',
-    },
-    {
       label: 'Maximum hold (minutes)',
       name: 'maxHoldMinutes',
       type: 'number',
-      defaultValue: '0',
+      defaultValue: '480',
       inputUI: { type: 'text' },
-      tooltip: 'Safety limit: let go after this long even if other workers are still running. 0 = no limit.',
+      tooltip: 'Safety limit: the helper lets go after this long even if "stop" never ran (a failed or cancelled job). '
+        + 'Make it longer than your longest job.',
     },
   ],
   outputs: [
-    { number: 1, tooltip: 'Continue (nothing to keep awake for, or no other workers are running)' },
+    { number: 1, tooltip: 'Continue' },
   ],
 });
 
-const MIN_POLL_SECONDS = 10;
 const STARTUP_CHECK_MS = 2000;
-// How often the Windows helper repeats its request.
-const WINDOWS_REFRESH_SECONDS = 30;
+// How often the helper looks at the lease file (and, on Windows, repeats its request).
+const HELPER_POLL_SECONDS = 5;
+const DEFAULT_MAX_HOLD_MINUTES = 480;
 // ES_CONTINUOUS | ES_SYSTEM_REQUIRED, and the same with ES_DISPLAY_REQUIRED. Written in decimal on purpose: PowerShell
 // reads 0x80000001 as a negative Int32, which does not convert to the uint the API takes.
 const WINDOWS_FLAGS = { system: 2147483649, 'system+display': 2147483651 };
@@ -128,109 +121,146 @@ const modeFor = (platform, inputs) => {
   return { label: p.label, mode: 'none', note: `"${wanted}" is not one of ${p.modes.join(', ')}` };
 };
 
-// The PowerShell script the Windows helper runs. It ends when the process that started it is gone.
-const windowsScript = (flags, parentPid) => 'Add-Type -MemberDefinition '
+// The PowerShell script the Windows helper runs: hold while the lease file exists and the deadline has not passed.
+const windowsScript = (flags, leasePath, maxSeconds) => 'Add-Type -MemberDefinition '
   + '\'[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);\' '
   + '-Name KeepAwake -Namespace Win32; '
-  + `$parent = ${Number(parentPid)}; `
-  + `while (Get-Process -Id $parent -ErrorAction SilentlyContinue) { [Win32.KeepAwake]::SetThreadExecutionState(${flags}) `
-  + `| Out-Null; Start-Sleep -Seconds ${WINDOWS_REFRESH_SECONDS} }`;
+  + `$lease = '${String(leasePath).replace(/'/g, "''")}'; `
+  + `$end = (Get-Date).AddSeconds(${Number(maxSeconds)}); `
+  + 'while ((Test-Path -LiteralPath $lease) -and ((Get-Date) -lt $end)) { '
+  + `[Win32.KeepAwake]::SetThreadExecutionState(${flags}) | Out-Null; Start-Sleep -Seconds ${HELPER_POLL_SECONDS} }`;
 
-// The command that holds the request for a platform and mode.
-const helperCommand = (platform, mode, parentPid) => {
+// The same loop for Linux and macOS: runs under systemd-inhibit or caffeinate, which hold their request while it runs.
+const SH_LOOP = 'end=$(( $(date +%s) + $2 )); while [ -e "$1" ] && [ "$(date +%s)" -lt "$end" ]; do '
+  + `sleep ${HELPER_POLL_SECONDS}; done`;
+
+// The command that holds the request for a platform and mode until the lease is gone or the deadline passes.
+const helperCommand = (platform, mode, leasePath, maxSeconds) => {
   if (platform === 'win32') {
     // -EncodedCommand (UTF-16LE, base64) avoids every quoting problem with the quotes inside the script.
-    const encoded = Buffer.from(windowsScript(WINDOWS_FLAGS[mode], parentPid), 'utf16le').toString('base64');
+    const encoded = Buffer.from(windowsScript(WINDOWS_FLAGS[mode], leasePath, maxSeconds), 'utf16le').toString('base64');
     return {
       command: 'powershell',
       args: ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
-      options: { stdio: 'ignore', windowsHide: true, detached: false },
-      what: `Windows SetThreadExecutionState (${mode}), refreshed every ${WINDOWS_REFRESH_SECONDS} s`,
+      what: `Windows SetThreadExecutionState (${mode})`,
     };
   }
-  if (platform === 'darwin') {
-    return {
-      command: 'caffeinate', args: ['-i'], options: { stdio: 'ignore', detached: false }, what: 'caffeinate -i',
-    };
-  }
+  const wait = ['sh', '-c', SH_LOOP, 'sh', leasePath, String(maxSeconds)];
+  if (platform === 'darwin') return { command: 'caffeinate', args: ['-i', ...wait], what: 'caffeinate -i' };
   return {
     command: 'systemd-inhibit',
-    args: ['--what=idle:sleep', '--who=Tdarr', '--why=Encoding in progress', 'sleep', 'infinity'],
-    options: { stdio: 'ignore', detached: false },
+    args: ['--what=idle:sleep', '--who=Tdarr', '--why=Encoding in progress', ...wait],
     what: 'systemd-inhibit idle:sleep',
   };
 };
 
-// Starts the helper. alive() is false once it has failed to start or has ended without being stopped; why() says how.
-const startHelper = (spawn, cmd) => {
-  let state = 'running';
-  let detail = '';
+// Starts the helper detached, so it outlives this step. Resolves { ok, why } after a short check that it is running.
+const startHelper = async (spawn, cmd) => {
   let child;
+  let problem = '';
   try {
-    child = spawn(cmd.command, cmd.args, cmd.options);
+    child = spawn(cmd.command, cmd.args, { stdio: 'ignore', detached: true, windowsHide: true });
   } catch (e) {
-    return { alive: () => false, why: () => `could not start ${cmd.command}: ${e.message}`, stop: () => {} };
+    return { ok: false, why: `could not start ${cmd.command}: ${e.message}` };
   }
-  child.on('error', (e) => {
-    if (state === 'running') {
-      state = 'failed';
-      detail = e.code === 'ENOENT' ? `${cmd.command} was not found` : e.message;
-    }
-  });
-  child.on('exit', (code, signal) => {
-    if (state === 'running') {
-      state = 'ended';
-      detail = `${cmd.command} ended on its own (exit code ${code}${signal ? `, signal ${signal}` : ''})`;
-    }
-  });
-  return {
-    alive: () => state === 'running',
-    why: () => detail,
-    stop: () => {
-      const wasRunning = state === 'running';
-      state = 'stopped';
-      if (!wasRunning) return;
-      try { child.kill(); } catch (e) { /* already gone */ }
-    },
+  const onError = (e) => { problem = e.code === 'ENOENT' ? `${cmd.command} was not found` : e.message; };
+  const onExit = (code, signal) => {
+    problem = `${cmd.command} ended at once (exit code ${code}${signal ? `, signal ${signal}` : ''})`;
   };
+  child.on('error', onError);
+  child.on('exit', onExit);
+  await new Promise((resolve) => setTimeout(resolve, STARTUP_CHECK_MS));
+  child.removeListener('error', onError);
+  child.removeListener('exit', onExit);
+  if (problem) return { ok: false, why: problem };
+  // let this process finish without waiting for the helper
+  if (typeof child.unref === 'function') child.unref();
+  return { ok: true };
 };
 
-// The same test the stock automation helpers use for an automation job's dummy input file, accepting both separators.
-const isAutomationFile = (filepath) => /[\\/]\.tdarr[\\/]automation-.+-.+\.txt$/.test(String(filepath || ''));
-
-// true = other non-automation workers are running on this node, false = none, 'error' = could not ask the server.
-const otherWorkersRunning = async (args, log) => {
-  const config = (args.configVars && args.configVars.config) || {};
-  const axios = args.deps && args.deps.axios;
-  if (!config.nodeID || !axios) {
-    log(`cannot ask the server about other workers (node id ${config.nodeID || 'unknown'}, `
-      + `${axios ? 'axios present' : 'no axios'}); treating the node as idle`);
+const removeFile = (fs, file) => {
+  try {
+    fs.unlinkSync(file);
+    return true;
+  } catch (e) {
     return false;
   }
+};
+
+const nodeNameOf = (args) => {
   try {
-    const res = await axios.get(`${config.serverURL || ''}/api/v2/get-nodes`, {
-      timeout: 30000,
-      headers: { 'content-Type': 'application/json', 'x-api-key': config.apiKey || '' },
-    });
-    const node = res.data && res.data[config.nodeID];
-    if (!node || !node.workers) {
-      log(`node ${config.nodeID} is not in the server's answer; treating the node as idle`);
-      return false;
-    }
-    const myJobId = (args.job && args.job.jobId) || '';
-    return Object.keys(node.workers).some((id) => {
-      const worker = node.workers[id];
-      if (worker.job && worker.job.jobId === myJobId) return false;
-      if (worker.file && isAutomationFile(worker.file)) return false;
-      return true;
-    });
+    return String((args.configVars && args.configVars.config && args.configVars.config.nodeName)
+      || (args.config && args.config.nodeName) || '').trim();
   } catch (e) {
-    log(`could not ask the server about other workers: ${e.message}`);
-    return 'error';
+    return '';
   }
 };
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const start = async (args, log, done) => {
+  const fs = require('fs');
+  const path = require('path');
+  const setting = modeFor(args.platform, args.inputs);
+  if (setting.mode === 'none') {
+    log(`${setting.label}: mode is none${setting.note ? ` (${setting.note})` : ''}, nothing to do`);
+    return done();
+  }
+  if (!args.workDir) {
+    log('this job has no work folder to put the lease in; not holding anything');
+    return done();
+  }
+  if (!args.variables.user) args.variables.user = {};
+  const nodeName = nodeNameOf(args);
+
+  // a lease this job already holds on this node is replaced, not left behind
+  const old = args.variables.user.keepAwakeLease;
+  if (old && args.variables.user.keepAwakeNode === nodeName && removeFile(fs, old)) {
+    log(`replaced this job's earlier lease ${old}`);
+  }
+
+  const minutes = Number(args.inputs.maxHoldMinutes);
+  const maxSeconds = Math.round((minutes > 0 ? minutes : DEFAULT_MAX_HOLD_MINUTES) * 60);
+  const lease = path.join(args.workDir, `keepawake-${Date.now()}.lease`);
+  try {
+    fs.writeFileSync(lease, `Keep Awake lease for ${nodeName || 'this node'}, ${new Date().toISOString()}\n`);
+  } catch (e) {
+    log(`could not write the lease ${lease} (${e.message}); not holding anything`);
+    return done();
+  }
+
+  const cmd = helperCommand(args.platform, setting.mode, lease, maxSeconds);
+  const result = await startHelper(require('child_process').spawn, cmd);
+  if (!result.ok) {
+    removeFile(fs, lease);
+    log(`the helper did not start (${result.why}); not holding anything, carrying on`);
+    return done();
+  }
+  args.variables.user.keepAwakeLease = lease;
+  args.variables.user.keepAwakeNode = nodeName;
+  log(`${setting.label}: mode ${setting.mode}, holding with ${cmd.what} until the lease ${lease} is released `
+    + `(at most ${Math.round(maxSeconds / 60)} min)`);
+  return done();
+};
+
+const stop = (args, log, done) => {
+  const fs = require('fs');
+  const user = args.variables.user || {};
+  const lease = user.keepAwakeLease;
+  if (!lease) {
+    log('no lease recorded for this job, nothing to release');
+    return done();
+  }
+  const nodeName = nodeNameOf(args);
+  if (user.keepAwakeNode && nodeName && user.keepAwakeNode !== nodeName) {
+    log(`the lease belongs to node ${user.keepAwakeNode}, this is ${nodeName}; leaving it alone`);
+    return done();
+  }
+  const removed = removeFile(fs, lease);
+  user.keepAwakeLease = '';
+  user.keepAwakeNode = '';
+  log(removed ? `released ${lease}; the helper ends within about ${HELPER_POLL_SECONDS} s`
+    : `${lease} was already gone (the helper has ended or is about to)`);
+  return done();
+};
 
 const plugin = async (args) => {
   const lib = require('../../../../../methods/lib')();
@@ -239,60 +269,10 @@ const plugin = async (args) => {
   const done = () => ({ outputFileObj: args.inputFileObj, outputNumber: 1, variables: args.variables });
   const log = (text) => args.jobLog(`Keep Awake: ${text}`);
 
-  const setting = modeFor(args.platform, args.inputs);
-  if (setting.mode === 'none') {
-    log(`${setting.label}: mode is none${setting.note ? ` (${setting.note})` : ''}, nothing to do`);
-    return done();
-  }
-
-  const pollMs = Math.max(MIN_POLL_SECONDS, Number(args.inputs.pollIntervalSeconds) || 15) * 1000;
-  const confirmCount = Math.max(1, Math.floor(Number(args.inputs.confirmCount)) || 3);
-  const maxHoldMs = Math.max(0, Number(args.inputs.maxHoldMinutes) || 0) * 60000;
-
-  const cmd = helperCommand(args.platform, setting.mode, process.pid);
-  const helper = startHelper(require('child_process').spawn, cmd);
-  const started = Date.now();
-  log(`${setting.label}: mode ${setting.mode}, holding with ${cmd.what}`);
-
-  try {
-    await sleep(STARTUP_CHECK_MS);
-    if (!helper.alive()) {
-      log(`the helper is not running (${helper.why()}); not holding the worker, carrying on`);
-      return done();
-    }
-
-    let percentage = 0;
-    let confirmed = 0;
-    for (;;) {
-      if (typeof args.updateWorker === 'function') args.updateWorker({ percentage });
-      percentage = (percentage + 1) % 100;
-      // eslint-disable-next-line no-await-in-loop
-      await sleep(pollMs);
-
-      if (!helper.alive()) {
-        log(`the helper stopped (${helper.why()}); letting go`);
-        break;
-      }
-      if (maxHoldMs > 0 && Date.now() - started >= maxHoldMs) {
-        log(`reached the maximum hold of ${Math.round(maxHoldMs / 60000)} min; letting go`);
-        break;
-      }
-      // eslint-disable-next-line no-await-in-loop
-      const others = await otherWorkersRunning(args, log);
-      if (others === 'error' || others === true) {
-        confirmed = 0;
-      } else {
-        confirmed += 1;
-        if (confirmed >= confirmCount) {
-          log(`no other workers running (confirmed ${confirmCount} times); letting go`);
-          break;
-        }
-      }
-    }
-  } finally {
-    helper.stop();
-  }
-  return done();
+  const action = String(args.inputs.action).trim();
+  if (action === 'stop') return stop(args, log, done);
+  if (action !== 'start') log(`unknown action "${action}", treating it as start`);
+  return start(args, log, done);
 };
 
 module.exports = { details, plugin };
