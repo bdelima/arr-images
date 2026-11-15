@@ -100,7 +100,7 @@ not an upstream image with a replaced assembly. It is a `FROM scratch` overlay; 
   (`NV_CODEC_HEADERS_REF`). MIT; headers only, built into the binaries (no separate library).
 - **NVIDIA CUDA Toolkit** -- proprietary, governed by NVIDIA's CUDA EULA (copied to
   `/usr/share/doc/tdarr-vmaf-cuda/EULA.cuda-toolkit.txt`), **not open source**. The build image is
-  `nvidia/cuda:12.4.1-devel-ubuntu22.04`. Only what the EULA lists as redistributable is carried (the CUDA runtime
+  `nvidia/cuda:${CUDA_VERSION}-devel-ubuntu22.04` (build argument, default 12.4.1, which is what is published). Only what the EULA lists as redistributable is carried (the CUDA runtime
   library, if the binaries link it), for use with NVIDIA hardware; `nvcc` and the headers stay in the build stage. The
   NVIDIA driver libraries (`libcuda`, `libnvcuvid`, ...) are not in the image; the host supplies them through the
   NVIDIA container toolkit.

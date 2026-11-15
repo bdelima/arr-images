@@ -9,7 +9,12 @@
 # Everything the overlay installs is under /usr/local (the binary and a private library directory) and
 # /usr/share/doc/tdarr-vmaf-cuda, so it cannot replace anything the Tdarr image already has.
 
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS buildstage
+# The CUDA toolkit of the build image. 12.4.1 is what is published (sm_75 PTX, which newer GPUs JIT-compile, so it runs on Blackwell too).
+# A newer toolkit is needed only for a GPU architecture the old nvcc cannot target, and libvmaf must then be checked: its PTX arrays are
+# embedded with `xxd --include`, which adds no terminating NUL, so a toolkit whose PTX size is a multiple of 32 bytes fails at run time.
+ARG CUDA_VERSION=12.4.1
+FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu22.04 AS buildstage
+ARG CUDA_VERSION
 
 # Pinned so a build is reproducible, and so the corresponding source of what is published is exactly these revisions.
 ARG VMAF_REF=v3.0.0
@@ -266,7 +271,7 @@ RUN doc=/root-layer/usr/share/doc/tdarr-vmaf-cuda && mkdir -p "$doc" \
          echo "nv-codec-headers $NV_CODEC_HEADERS_REF ($(git -C /src/nv-codec-headers rev-parse HEAD))"; \
          echo "FFmpeg $FFMPEG_REF ($(git -C /src/ffmpeg rev-parse HEAD)) + local patch: native yuv420p10le CUDA VMAF scoring (see SPEC-native-10bit.md)"; \
          echo "Implib.so ($(git -C /src/implib rev-parse HEAD)): generated libcuda-lazy.so, which libvmaf links instead of libcuda.so (the real libcuda.so.1 is loaded on the first CUDA call)"; \
-         echo "CUDA architecture sm_$CUDA_ARCH; base image nvidia/cuda:12.4.1-devel-ubuntu22.04"; } > "$doc/BUILD-INFO"
+         echo "CUDA architecture sm_$CUDA_ARCH; base image nvidia/cuda:${CUDA_VERSION}-devel-ubuntu22.04"; } > "$doc/BUILD-INFO"
 
 FROM scratch
 ARG VERSION=unknown
