@@ -7,7 +7,7 @@
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
-// Synced to Bob's live "Validator (v12)" on 2026-11-15: a job that passes VMAF now goes through a new Require Review node, then Route to local node (CPU worker, tags mapped,local) and Mark step validator-on-local, before Tag Output Metadata; the passthrough path, once the health check gate passes, takes the same route. "Queue back to VMAF node" is now "Route to VMAF node" (GPU worker, tag vmaf). Compare File Size Ratio is 25 to 100 on the re-encode path and 60 to 101 on the passthrough path (was greater than 70 with no upper bound). The 8-bit Run VMAF node scores every 2nd frame at 38% of the CPU with minimums mean 92, frame 60, p1 70, and the 4K 10-bit mean minimum is 92.
+// Synced to Bob's live "Validator (v12)" on 2026-11-15: a job that passes VMAF now goes through a new Require Review node, then Route to local node (CPU worker, tags mapped,local) and Mark step validator-on-local, before Tag Output Metadata; the passthrough path, once the health check gate passes, takes the same route. "Queue back to VMAF node" is now "Route to VMAF node" (GPU worker, tag vmaf). Compare File Size Ratio is 25 to 100 on the re-encode path and 60 to 101 on the passthrough path (was greater than 70 with no upper bound). The 8-bit Run VMAF node scores every 2nd frame at 50% of the CPU (the live flow had 38, a test value that was not restored) with minimums mean 92, frame 60, p1 70, and the 4K 10-bit mean minimum is 92.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
@@ -116,7 +116,7 @@ const details = () => ({
           "minFrameScore": "60",
           "minP1": "70",
           "frameStep": "2",
-          "cpuPercent": "38"
+          "cpuPercent": "50"
         },
         "fpEnabled": true,
         "id": "vmafCheck1",
