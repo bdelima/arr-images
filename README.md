@@ -289,9 +289,9 @@ are `0.x` until that has been done on real files.
 ## Tdarr flow plugins (tdarr-flow-plugins)
 
 `bdelima/tdarr-flow-plugins` is a [`DOCKER_MODS`](https://github.com/linuxserver/docker-mods) overlay for the Tdarr **server**
-container. It replaces hand-copying files onto the server: at every container start it puts fifteen Local Flow Plugins
+container. It replaces hand-copying files onto the server: at every container start it puts seventeen Local Flow Plugins
 (`classifySource`, `setMaxBitrate`, `tagEncodeSettings`, `tagOutputMetadata`, `checkSourceEfficiency`,
-`setSourceRelativeBitrate`, `setEncodeQuality`, `setQualityWithNodeOffset`, `requireEnglishAudio`, `removeUntaggedAudio`, `mkvmergeExecute`, `repairLanguageTags`, `markStep`, `requireTrail`, `runVmaf`) and the flow template files for the Downloads
+`setSourceRelativeBitrate`, `setEncodeQuality`, `setQualityWithNodeOffset`, `requireEnglishAudio`, `removeUntaggedAudio`, `mkvmergeExecute`, `repairLanguageTags`, `markStep`, `requireTrail`, `runVmaf`, `keepAwake`, `setQualityWithTierOffset`) and the flow template files for the Downloads
 Flow (Controller, Converter, Validator, Stream Cleanup, Clean-only passthrough) into the server's plugin folder. The files in
 [`tdarr-flow-plugins/root`](tdarr-flow-plugins/root) are the source of truth and are shipped as they are, except that the build appends each flow template's own version to its name (below).
 
@@ -361,6 +361,25 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   (Meteor Lake) gave 4389 kbps at VMAF mean 96.34 / min 68.80, and drakebay (Panther Lake) at ICQ 28 gave 4478 kbps at mean 96.06 / min 71.35, while ojochal at ICQ 28 gave 6821 kbps. Both nodes drop
   about 14% of the bitrate per step, so a constant offset of 3 matched them on that source. One source and one pair of nodes: the numbers 31 and -3 are starting values, not calibrated, and whether the
   offset stays the same at other qualities or content has not been tested. Checked in a sandbox with Tdarr's helpers stubbed, not yet seen in a real Tdarr job. Set Source-Relative Bitrate is still shipped but is no longer in the Converter template.
+- **Set Quality With Tier Offset (not in the shipped flows).** Adds an offset for the library's quality tier to the quality number already on the encode command, so it stacks on
+  Set Quality With Node Offset: place it after Set Video Encoder and Set Quality With Node Offset, before Tag Encode Settings. The tier is the library variable `qualityTier`
+  (`args.userVariables.library.qualityTier`); the input *Quality offset per tier* lists `tier=offset` pairs separated by new lines, commas or semicolons (default
+  `best=0`, `better=+1`, `balanced=+2`, `smallest=+4`, each on its own line). Names are matched without regard to case; a tier that is not listed, or no `qualityTier`, gets 0; a later pair
+  for the same tier wins; an entry that is not `name=whole number` is ignored and named in the job log. The result is kept between 1 and 51. It changes the `-global_quality`, `-crf` or `-qp`
+  already on each video stream Set Video Encoder is transcoding (streams set to copy are skipped); it does not read `tdarrQuality`, and a stream with no usable quality flag is left alone and
+  logged. A higher number means a smaller file and lower quality. It never fails the flow (one output). Added by PR #71 and released in 0.9.0; not yet used by any shipped template and not yet
+  seen in a real Tdarr job.
+- **Keep Awake (not in the shipped flows).** Keeps the node from sleeping while a job runs, used inline as the same plugin twice: action `start` early in the flow, action `stop` after the work
+  that must not be interrupted. Neither step waits for anything, so it cannot deadlock with other jobs on the node (the stock *Prevent Sleep While Encoding* plugin waits for every other worker on
+  the node to finish). Each operating system has its own input: *Windows* `system+display` (default, system and display kept on), `system` (display may turn off) or `none`; *Linux* `none`
+  (default) or `systemd-inhibit`; *macOS* `none` (default) or `caffeinate`. With `none` the step returns at once and starts nothing, so one flow can run on every node and only the Windows one
+  does any work. `start` writes a lease file in the job's work folder and starts a small detached helper (a hidden PowerShell calling `SetThreadExecutionState` every 5 seconds on Windows;
+  `systemd-inhibit` or `caffeinate` around a shell loop elsewhere) that holds the request while the lease exists and, as a safety limit, for at most *Maximum hold (minutes)* (default 480, make it longer
+  than your longest job). `stop` deletes the job's lease and the helper ends within about 5 seconds. Every job has its own lease and helper, so jobs on one node never release each other's hold, and the
+  node stays awake while any is active. The lease path and node name are kept in the Flow Variables `keepAwakeLease` and `keepAwakeNode`; `stop` leaves a lease that belongs to another node alone.
+  A job that fails or is cancelled before `stop` does not release its lease: it ends when the work folder is cleaned up (not verified) or when the maximum hold runs out. If the helper cannot
+  start the step logs why and carries on holding nothing; it never fails the flow (one output). Added by PR #70 and released in 0.9.0 for the Windows encode node `samara-encoder`; not yet used by any
+  shipped template and not yet run on a real node.
 - **Source bitrate tags.** Set Quality With Node Offset records the source video's average bitrate and, when its peak scan works, the busiest
   window's bitrate (the window length and percentile are that node's own inputs, 2 s and 100 by default) as Flow Variables, for every encoder it sees (not only QSV); Tag Output Metadata writes
   them as `TDARR_SOURCE_VIDEO_KBPS` and `TDARR_SOURCE_PEAK_KBPS`, whole kbps. Neither value changes the encode. They are in the
