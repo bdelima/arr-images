@@ -30,6 +30,14 @@
 // is the same. A GPU node whose CUDA run fails fails the job; it does not fall back to the CPU. Both paths need the
 // ffmpeg-vmaf-cuda binary from the tdarr-vmaf-cuda overlay (Tdarr's own ffmpeg has no libvmaf filter).
 //
+// Scoring every Nth frame (CPU path only): the input "CPU path: score every Nth frame" (default 1 = every frame) passes n_subsample=N to
+// libvmaf, which then scores frame 0, N, 2N and so on. Both files are still decoded in full, so the run is not N times faster. Measured on 60 s
+// of one 1080p episode, 16 threads: every 2nd frame took 56% of the CPU time and 64% of the wall time, every 4th 35% and 52%; the mean moved by
+// 0.003 and 0.013, min was the same, p1 was 0.10 and 0.24 lower. A bad frame that is not scored is not seen, so min and p1 are less reliable than
+// with every frame; a run of N or more bad frames is always seen. The per-frame figures (min, p1, the mean) come from the frames scored. The
+// belowN counts are the counts among the frames scored times N, an estimate for the whole file, so they compare with a GPU node's. The job log
+// says so, and Tag Output Metadata adds every=N to TDARR_VMAF_SCORE when N is above 1. The GPU path always scores every frame.
+//
 // Frame pairing: libvmaf's filter pairs a reference frame with a distorted frame by timestamp, not by position. Matroska
 // timestamps are rounded to 1 ms, so at 23.976 fps (and other non-integer rates) two files with the same frames can carry
 // slightly different timestamps, and some frames get paired with a neighbour. That shows up as isolated frames scoring far
@@ -155,6 +163,17 @@ const details = () => ({
         + 'another run at the same time. One clip scored at 47 fps on 6 threads at 1080p.',
     },
     {
+      name: 'frameStep',
+      label: 'CPU path: score every Nth frame',
+      type: 'number',
+      defaultValue: '1',
+      inputUI: { type: 'text' },
+      tooltip: 'CPU path only: 1 = score every frame. 2 = every 2nd frame (libvmaf n_subsample), about 1.5 times faster and about 45% less CPU '
+        + 'time; 4 = every 4th frame, about 1.9 times faster. A whole number from 1 to 10. Both files are still decoded in full. The mean barely '
+        + 'moves, but a single bad frame can be skipped, so min and p1 are less reliable. The "frames below" counts are scaled by N to estimate the '
+        + 'whole file. Ignored on the GPU path, which scores every frame.',
+    },
+    {
       name: 'tempDir',
       type: 'string',
       defaultValue: '/temp',
@@ -169,6 +188,9 @@ const details = () => ({
 });
 
 const num = (s) => Number(String(s).trim());
+
+// 2 -> "2nd", 3 -> "3rd", 4 -> "4th" (the steps are 2 to 10)
+const ordinal = (n) => `${n}${n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'}`;
 
 // "60,70,75" -> [60, 70, 75]: numbers above 0 up to 100, ascending, no duplicates, at most 8. Empty gives []. Anything else
 // gives { error } (the plugin fails the job on a bad input value, as it does for the minimums).
@@ -315,6 +337,7 @@ const plugin = async (args) => {
   const tempDir = String(args.inputs.tempDir).trim().replace(/\/+$/, '') || '/';
   const gpuDevice = String(args.inputs.gpuDevice).trim();
   const cpuPercent = num(args.inputs.cpuPercent);
+  const frameStep = num(args.inputs.frameStep);
 
   if (!['yuv420p', 'yuv420p10le'].includes(pixelFormat)) fail(`unknown pixel format "${pixelFormat}"`);
   if (!['default', 'vmaf_4k_v0.6.1'].includes(model)) fail(`unknown model "${model}"`);
@@ -322,6 +345,7 @@ const plugin = async (args) => {
   if (!Number.isFinite(minFrameScore)) fail(`minimum frame score "${args.inputs.minFrameScore}" is not a number`);
   if (!Number.isFinite(minP1)) fail(`minimum p1 "${args.inputs.minP1}" is not a number`);
   if (!Number.isInteger(cpuPercent) || cpuPercent < 1 || cpuPercent > 100) fail(`CPU path: percent of the node CPUs "${args.inputs.cpuPercent}" is not a whole number from 1 to 100`);
+  if (!Number.isInteger(frameStep) || frameStep < 1 || frameStep > 10) fail(`CPU path: score every Nth frame "${args.inputs.frameStep}" is not a whole number from 1 to 10`);
   const countBelow = parseCountBelow(args.inputs.countBelow);
   if (!Array.isArray(countBelow)) fail(`Count frames below "${args.inputs.countBelow}": ${countBelow.error}`);
   // the log path is written into ffmpeg's filter graph, where ':' ',' ';' quotes and spaces are special
@@ -343,6 +367,8 @@ const plugin = async (args) => {
     }
   }
   const os = require('os');
+  const step = useGpu ? 1 : frameStep; // the GPU path scores every frame
+  if (useGpu && frameStep > 1) log(`"score every Nth frame" is ${frameStep}, but the GPU path scores every frame`);
   const nodeCpus = Math.max(1, typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length);
   const cpuThreads = Math.max(1, Math.min(nodeCpus, Math.round((nodeCpus * cpuPercent) / 100)));
   log(useGpu
@@ -399,7 +425,7 @@ const plugin = async (args) => {
     ? `[0:v]${retime},scale_cuda=format=${pixelFormat}[ref];[1:v]${retime},scale_cuda=format=${pixelFormat}[dist];`
       + `[dist][ref]libvmaf_cuda=${modelPart}log_path=${vmafLog}:log_fmt=json`
     : `[0:v]${retime},format=${pixelFormat}[ref];[1:v]${retime},format=${pixelFormat}[dist];`
-      + `[dist][ref]libvmaf=${modelPart}n_threads=${cpuThreads}:log_path=${vmafLog}:log_fmt=json`;
+      + `[dist][ref]libvmaf=${modelPart}n_threads=${cpuThreads}${step > 1 ? `:n_subsample=${step}` : ''}:log_path=${vmafLog}:log_fmt=json`;
   const ffArgs = [
     '-xerror', '-stats_period', '5',
     ...(useGpu ? ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda'] : []), '-i', reference,
@@ -419,7 +445,7 @@ const plugin = async (args) => {
   };
   const duration = durationOf();
 
-  log(`${model === 'default' ? 'default model' : model}, ${pixelFormat}, frames paired by number at ${rate.text} fps, minimum mean ${minMean}, min ${minFrameScore > 0 ? minFrameScore : 'not checked'}, p1 ${minP1 > 0 ? minP1 : 'not checked'}; `
+  log(`${model === 'default' ? 'default model' : model}, ${pixelFormat}, frames paired by number at ${rate.text} fps${step > 1 ? `, every ${ordinal(step)} frame scored` : ''}, minimum mean ${minMean}, min ${minFrameScore > 0 ? minFrameScore : 'not checked'}, p1 ${minP1 > 0 ? minP1 : 'not checked'}; `
     + `${distorted} against ${reference}${duration > 0 ? '' : ' (duration unknown, so no percentage)'}`);
   log(useGpu ? `waiting for ${lockFile} if another VMAF run holds it, then ${ffmpegPath} runs` : `${ffmpegPath} runs now (the CPU path takes no lock)`);
 
@@ -497,9 +523,14 @@ const plugin = async (args) => {
     const p1 = percentile(sorted, 1);
     const f = (v) => (Number.isFinite(v) ? String(Number(v.toFixed(6))) : '');
     // frames scoring under each listed number (strictly below), counted from the per-frame scores
-    const belowParts = countBelow.map((t) => `below${t}=${frames.reduce((c, v) => (v < t ? c + 1 : c), 0)}`);
+    // (with every Nth frame scored: the count among the frames scored times N, an estimate for the whole file)
+    const belowParts = countBelow.map((t) => `below${t}=${frames.reduce((c, v) => (v < t ? c + 1 : c), 0) * step}`);
     log(`VMAF score: mean=${f(mean)} min=${f(min)} harmonic_mean=${f(hmean)} p1=${f(p1)} n=${n}`
       + `${belowParts.length > 0 ? ` ${belowParts.join(' ')}` : ''}`);
+    if (step > 1) {
+      log(`every ${ordinal(step)} frame was scored: n is the number of frames scored, the below counts are the counts among them times ${step} `
+        + '(an estimate for the whole file), and min and p1 come from the frames scored only');
+    }
 
     const round2 = (v) => Math.round(v * 100) / 100;
     // Tag Output Metadata reads these from args.variables.user, the same place the step trail lives. They used to be set
@@ -509,6 +540,8 @@ const plugin = async (args) => {
     args.variables.user.vmafMean = round2(mean);
     args.variables.user.vmafMin = round2(min);
     args.variables.user.vmafP1 = round2(p1);
+    if (step > 1) args.variables.user.vmafStep = step;
+    else delete args.variables.user.vmafStep;
     if (belowParts.length > 0) args.variables.user.vmafBelow = belowParts.join(';');
     else delete args.variables.user.vmafBelow;
 
