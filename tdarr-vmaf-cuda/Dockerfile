@@ -93,12 +93,21 @@ RUN git clone https://github.com/FFmpeg/nv-codec-headers.git \
     && make -C nv-codec-headers install \
     && make -C nv-codec-headers DESTDIR=/root-layer install
 
+# Local patch, not upstream (found and written by Defender, see ATTRIBUTION.md): libvmaf v3.0.0 embeds each nvcc --ptx output with
+# `xxd --include`, which writes the byte array WITHOUT a terminating NUL, but cuModuleLoadData() needs a NUL-terminated PTX string.
+# It works only while the byte after the array happens to be 0. With CUDA 12.4.1 (the default here) it does; with 12.8.1 the ADM kernel's
+# PTX is an exact multiple of 32 bytes and CUDA scoring dies with CUDA_ERROR_INVALID_PTX. The shim runs ahead of /usr/bin/xxd, adds a
+# 0x00 element to the array of every .ptx and passes everything else (the model embeds) through unchanged; see the file's own comments.
+# The libvmaf step below checks that the shim is the xxd meson finds and that every generated PTX array got the terminator.
+COPY --chmod=0755 tdarr-vmaf-cuda/xxd-shim.sh /usr/local/bin/xxd
+
 # libvmaf, with CUDA. Installed into /usr/local/lib/tdarr-vmaf-cuda (its own directory) in the build, and the same into
 # the layer; headers, pkg-config files and the command line tool are left out of the layer.
 # Local patch, not upstream: libvmaf's meson.build links the CUDA driver with -lcuda; here it links the libcuda-lazy.so
 # shim built above instead (see there). The line must be found exactly once, so a moved VMAF_REF fails the build here
 # instead of quietly shipping the old link.
-RUN git clone https://github.com/Netflix/vmaf.git \
+RUN [ "$(command -v xxd)" = /usr/local/bin/xxd ] \
+    && git clone https://github.com/Netflix/vmaf.git \
     && git -C vmaf checkout "$VMAF_REF" \
     && f=vmaf/libvmaf/src/meson.build \
     && [ "$(grep -cF "link_args : ['-lcuda']" "$f")" = 1 ] \
@@ -109,6 +118,8 @@ RUN git clone https://github.com/Netflix/vmaf.git \
     && meson setup build --prefix=/usr/local --libdir=lib/tdarr-vmaf-cuda --buildtype=release \
          --default-library=shared -Denable_cuda=true -Denable_tests=false -Dbuilt_in_models=true \
     && ninja -C build install \
+    && [ "$(find build -name '*.ptx.c' | wc -l)" -gt 0 ] \
+    && ! find build -name '*.ptx.c' -exec grep -L '^  ,0x00$' {} + | grep . \
     && DESTDIR=/root-layer ninja -C build install \
     && mkdir -p /root-layer/usr/local/share/model \
     && cp /src/vmaf/model/vmaf_v0.6.1.json /root-layer/usr/local/share/model/

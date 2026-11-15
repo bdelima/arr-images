@@ -91,7 +91,9 @@ not an upstream image with a replaced assembly. It is a `FROM scratch` overlay; 
   (`/usr/share/doc/tdarr-vmaf-cuda/COPYING.ffmpeg-GPLv3`).
 - **libvmaf** -- [Netflix/vmaf](https://github.com/Netflix/vmaf), pinned tag (`VMAF_REF`). BSD-2-Clause-Patent (verify
   against `/usr/share/doc/tdarr-vmaf-cuda/LICENSE.libvmaf`, copied from the pinned revision). The model file
-  `vmaf_v0.6.1.json` comes from the same repository and licence.
+  `vmaf_v0.6.1.json` comes from the same repository and licence. The build also applies a small patch to how libvmaf's CUDA kernels are
+  embedded, `tdarr-vmaf-cuda/xxd-shim.sh`, found and written by **Defender** (contributed 2026-11-15 to be used under this repository's licence,
+  GPL-3.0): it appends the terminating NUL byte the CUDA driver needs after each embedded PTX array.
 - **Implib.so** -- [yugr/Implib.so](https://github.com/yugr/Implib.so), pinned to an exact commit (`IMPLIB_REF`). MIT, Yury
   Gribov. A build-time tool (a Python script run in the build stage, not shipped); it generates `libcuda-lazy.so`, the shim
   that loads the NVIDIA driver library on the first CUDA call, and that generated code ships in the image. Its licence text is in
