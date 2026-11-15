@@ -404,6 +404,17 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   `Run VMAF: scoring on the GPU (...)` or `scoring on the CPU (...)` says what the plugin saw. Software AV1 decoding is not in the binary, so an AV1 file
   cannot be scored on the CPU path (and the GPU path needs a card that decodes AV1). Checked in a sandbox with stand-ins for the CLI helper and ffmpeg,
   not yet seen in a real Tdarr job or against a real ffmpeg-vmaf-cuda on either path.
+- **Run VMAF can score every Nth frame on the CPU path.** The new input *CPU path: score every Nth frame* (`frameStep`, default 1 = every frame, a whole
+  number from 1 to 10) passes `n_subsample=N` to libvmaf. Measured on 60 s of one 1080p episode with 16 threads on drakebay (both files are still
+  decoded in full, so the saving is smaller than the frame count suggests): every 2nd frame took 56% of the CPU time and 64% of the wall time (9.4x
+  real time against 6.0x), every 4th 35% and 52% (11.6x); the mean moved by 0.003 and 0.013, min was the same, p1 was 0.10 and 0.24 lower. The
+  catch is that a bad frame that is not scored is not seen (a run of N or more bad frames is always seen), so min and p1 are less reliable.
+  `n=` in the log is the number of frames scored; the *frames below* counts are the counts among them times N, an estimate for the whole file
+  that compares with a GPU node's; the job log says so, and `TDARR_VMAF_SCORE` gets `;every=N` at the end when N is above 1 (the Flow Variable
+  `user.vmafStep`). The GPU path always scores every frame and logs a note if the input is above 1. With the default 1 nothing changes. Checked
+  in a sandbox with a stand-in for ffmpeg-vmaf-cuda (the filter, the counts, the log and the variables), and the figures above on one real clip;
+  not yet seen in a real Tdarr job. Hardware decode (VAAPI/QSV) was also measured and not pursued: it saves about 6 CPU-seconds per 60 s clip per
+  file, about 4.5% of the 137 CPU-seconds one full-frame scoring takes.
 - **Updating a live flow from a template.** Each template carries the flow's own `_id` (the `goToFlow` nodes in the other flows
   point at flows by id), so importing it from Add Flow > Local prompts Replace and keeps the id (observed by the owner,
   2026-11-09). A template without an `_id` (the 0.2.0 ones) made a new flow with a random id next to the live one, and the old
