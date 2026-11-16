@@ -256,6 +256,20 @@ binary starts on a plain Ubuntu 22.04 with no NVIDIA driver and nothing injected
 against itself. Scoring on the GPU is checked by hand on a node with one after a release (the shim cannot be tried against a
 real driver in CI). Versions are `0.x` until that has been done on real files.
 
+**Newer GPUs and the first-run delay.** The CUDA kernels (libvmaf's and FFmpeg's `scale_cuda`) are shipped as PTX, which the
+driver compiles for whatever GPU it finds, so the default `sm_75` build also runs on newer generations without a rebuild;
+a Blackwell card (RTX 5060 Ti) was reported to run it unmodified. The price is a one-off compile by the driver (JIT) the first
+time each kernel is loaded: about 15 s on that card, against about 4 s once the driver's compute cache is warm. The cache lives
+in the container (`~/.nv/ComputeCache`), so a container started with `docker run --rm` pays the 15 s on every run. To keep it,
+point `CUDA_CACHE_PATH` at a mounted directory (and raise `CUDA_CACHE_MAXSIZE` if the default is small). Building for the
+card's own architecture (`--build-arg CUDA_ARCH=...`, and `CUDA_VERSION` if that architecture needs a newer CUDA toolkit than
+the default 12.4.1) avoids the JIT, at the cost of an image that no longer runs on older GPUs. For a Tdarr node this only
+lengthens the first scored file after a container is created; it does not change the score.
+
+CUDA scores are not guaranteed to be bit-identical from run to run: in one repeat reported on the RTX 5060 Ti the single lowest
+frame (`min`) moved from 82.18 to 81.44. Judge a file by the mean and the low percentile, and keep any minimum-frame threshold
+well clear of the limit (the Run VMAF defaults are far from it).
+
 Because it is built with `--enable-gpl --enable-nonfree` it is for your own use; see [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
 ## DoVi/HDR10+ toolkit (tdarr-dovi-tool)
