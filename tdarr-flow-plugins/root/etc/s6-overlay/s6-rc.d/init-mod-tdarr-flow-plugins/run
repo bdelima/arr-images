@@ -23,6 +23,7 @@ TAG='[mod-tdarr-flow-plugins]'
 # start if it is there. Add a line when a plugin or template is dropped from the repo; never list a file the image ships.
 RETIRED=(
   LocalFlowTemplates/video/languageTagRepair.js
+  LocalFlowTemplates/video/cleanOnlyPassthrough.js
 )
 # for testing only: a replacement list from the environment
 if [ -n "${TDARR_FLOW_PLUGINS_RETIRED:-}" ]; then read -r -a RETIRED <<< "$TDARR_FLOW_PLUGINS_RETIRED"; fi
