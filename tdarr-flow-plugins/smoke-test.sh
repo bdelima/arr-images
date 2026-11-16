@@ -55,8 +55,8 @@ while IFS= read -r f; do
   esac
   count=$((count + 1))
 done < <(cd tdarr-flow-plugins/root && find defaults -type f | sort)
-[ "$count" -ge 22 ] || fail "only $count plugin/template files shipped (expected at least 17 plugins and 5 templates)"
-for p in classifySource setMaxBitrate tagEncodeSettings tagOutputMetadata checkSourceEfficiency setSourceRelativeBitrate setEncodeQuality setQualityWithNodeOffset requireEnglishAudio removeUntaggedAudio mkvmergeExecute repairLanguageTags markStep requireTrail runVmaf keepAwake setQualityWithTierOffset; do
+[ "$count" -ge 22 ] || fail "only $count plugin/template files shipped (expected at least 18 plugins and 4 templates)"
+for p in classifySource setMaxBitrate tagEncodeSettings tagOutputMetadata checkSourceEfficiency setSourceRelativeBitrate setEncodeQuality setQualityWithNodeOffset requireEnglishAudio removeUntaggedAudio mkvmergeExecute ffmpegSplitStreams repairLanguageTags markStep requireTrail runVmaf keepAwake setQualityWithTierOffset; do
   [ -s "$work/defaults/tdarr-plugins/LocalFlowPlugins/video/$p/1.0.0/index.js" ] || fail "plugin $p is missing at LocalFlowPlugins/video/$p/1.0.0/index.js"
 done
 ls "$work"/defaults/tdarr-plugins/LocalFlowTemplates/video/*.js >/dev/null 2>&1 || fail "no flow templates shipped"
