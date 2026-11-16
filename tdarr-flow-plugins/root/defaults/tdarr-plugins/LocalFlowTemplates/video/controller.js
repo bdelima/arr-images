@@ -14,6 +14,7 @@
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
 // Synced to Bob's live "Controller (v12)" on 2026-11-15: Set Encode Quality is gone (Check Source Efficiency output 1 now goes straight to Go To Converter Flow), "Queue to mapped nodes" is now "Queue to local node" with node tags mapped,local, and three nodes moved.
+// Demux restructure, 2026-11-16: the Clean-only Passthrough flow is retired. Every route that went to Go To Clean Flow (sources that are not re-encoded) now goes straight to Go To Validator Flow (passthrough); Stream Cleanup has already split the file, and the Validator's mkvmerge combine puts it back together. "Go To Clean Flow" and "Returned from Clean Flow" are gone.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
@@ -113,23 +114,7 @@ const details = () => ({
         }
       },
       {
-        "name": "Go To Clean Flow",
-        "sourceRepo": "Community",
-        "pluginName": "goToFlow",
-        "version": "2.0.0",
-        "inputsDB": {
-          "flowId": "kASAOsE1n",
-          "pluginId": "YWo6oScBV"
-        },
-        "fpEnabled": true,
-        "id": "JUvzFjlQc",
-        "position": {
-          "x": 1272,
-          "y": 168
-        }
-      },
-      {
-        "name": "🛬 Returned from Converter Flow",
+        "name": "🚬 Returned from Converter Flow",
         "sourceRepo": "Community",
         "pluginName": "comment",
         "version": "1.0.0",
@@ -137,18 +122,6 @@ const details = () => ({
         "id": "retFromConv",
         "position": {
           "x": 1440,
-          "y": -312
-        }
-      },
-      {
-        "name": "🛬 Returned from Clean Flow",
-        "sourceRepo": "Community",
-        "pluginName": "comment",
-        "version": "1.0.0",
-        "fpEnabled": true,
-        "id": "retFromClean",
-        "position": {
-          "x": 1212,
           "y": -312
         }
       },
@@ -185,7 +158,7 @@ const details = () => ({
         }
       },
       {
-        "name": "🛬 Returned from Stream Cleanup Flow",
+        "name": "🚬 Returned from Stream Cleanup Flow",
         "sourceRepo": "Community",
         "pluginName": "comment",
         "version": "1.0.0",
@@ -270,7 +243,7 @@ const details = () => ({
       {
         "source": "classifySrc",
         "sourceHandle": "2",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "h264HdrToClean"
       },
@@ -284,21 +257,21 @@ const details = () => ({
       {
         "source": "classifySrc",
         "sourceHandle": "4",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "hevcHdrToClean"
       },
       {
         "source": "classifySrc",
         "sourceHandle": "5",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "av1NotHdrToClean"
       },
       {
         "source": "classifySrc",
         "sourceHandle": "6",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "av1HdrToClean"
       },
@@ -312,21 +285,21 @@ const details = () => ({
       {
         "source": "classifySrc",
         "sourceHandle": "8",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "legacyHdrToClean"
       },
       {
         "source": "classifySrc",
         "sourceHandle": "9",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "otherNotHdrToClean"
       },
       {
         "source": "classifySrc",
         "sourceHandle": "10",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "otherHdrToClean"
       },
@@ -340,14 +313,14 @@ const details = () => ({
       {
         "source": "chkForceReencode",
         "sourceHandle": "2",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "forceToClean"
       },
       {
         "source": "chkSrcEff",
         "sourceHandle": "2",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "effToClean"
       },
@@ -357,13 +330,6 @@ const details = () => ({
         "target": "goToValidator",
         "targetHandle": null,
         "id": "convToValid"
-      },
-      {
-        "source": "retFromClean",
-        "sourceHandle": "1",
-        "target": "goToValidatorPT",
-        "targetHandle": null,
-        "id": "cleanToValid"
       },
       {
         "source": "Pu7lH9MsN",

@@ -1,7 +1,7 @@
 'use strict';
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
-// Live Tdarr flow "Stream Cleanup" (original flow _id: StreamCleanup_PENDING), exported 2026-11-08, plus a Require English Audio check (id scRequireEng) and a Fail Flow node (id scFailNoEng) in front of Begin Command, and a Remove Untagged Audio step (id scRemoveUntagged) after Remove non-english audio. Bob added a Repair Language Tags node (id AmdPMw1wc, no inputs set, so the plugin defaults: language eng, encoder prefix Lavf, dryRun off) in the live flow on 2026-11-10: Require English Audio output 2 now goes to it instead of straight to Fail Flow; its output 1 (tags repaired) goes to Begin Command and its output 2 (nothing to repair) goes to Fail Flow. Node positions are the live ones. It only decides which streams stay (the command is run by the mkvmerge Execute node in the Clean and Converter flows); the old Remove title metadata and Set Container nodes are gone because mkvmerge removes the title and global tags and always writes mkv.
+// Live Tdarr flow "Stream Cleanup" (original flow _id: StreamCleanup_PENDING), exported 2026-11-08, plus a Require English Audio check (id scRequireEng) and a Fail Flow node (id scFailNoEng) in front of Begin Command, and a Remove Untagged Audio step (id scRemoveUntagged) after Remove non-english audio. Bob added a Repair Language Tags node (id AmdPMw1wc, no inputs set, so the plugin defaults: language eng, encoder prefix Lavf, dryRun off) in the live flow on 2026-11-10: Require English Audio output 2 now goes to it instead of straight to Fail Flow; its output 1 (tags repaired) goes to Begin Command and its output 2 (nothing to repair) goes to Fail Flow. Node positions are the live ones. It decides which streams stay and then splits the file: the Split Streams (ffmpeg) node (id scSplit) reads the file once and writes a video-only file (the working file from here on) plus an audio+subs file in /temp/.tdarr-remux-cache; the mkvmerge Execute node (mode combine) at the top of the Validator puts them back together, and removes the title and global tags. The old Remove title metadata and Set Container nodes are gone because mkvmerge removes the title and global tags and always writes mkv.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
@@ -14,7 +14,7 @@ const details = () => ({
     "tags": "",
     "flowPlugins": [
       {
-        "name": "Entry from Clean or Converter Flow",
+        "name": "Entry from Controller Flow",
         "sourceRepo": "Community",
         "pluginName": "comment",
         "version": "1.0.0",
@@ -146,6 +146,22 @@ const details = () => ({
         "id": "scReturnToController",
         "position": {
           "x": 996,
+          "y": 168
+        }
+      },
+      {
+        "name": "Split Streams (ffmpeg)",
+        "sourceRepo": "Local",
+        "pluginName": "ffmpegSplitStreams",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "inputsDB": {
+          "audioSubsDir": "/temp/.tdarr-remux-cache",
+          "defaultMode": "passthrough"
+        },
+        "id": "scSplit",
+        "position": {
+          "x": 996,
           "y": 96
         }
       },
@@ -229,9 +245,16 @@ const details = () => ({
       {
         "source": "scRemoveSubs",
         "sourceHandle": "1",
-        "target": "scReturnToController",
+        "target": "scSplit",
         "targetHandle": null,
         "id": "scE6"
+      },
+      {
+        "source": "scSplit",
+        "sourceHandle": "1",
+        "target": "scReturnToController",
+        "targetHandle": null,
+        "id": "scE7"
       }
     ]
   });
