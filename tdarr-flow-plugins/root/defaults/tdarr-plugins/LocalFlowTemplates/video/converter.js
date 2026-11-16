@@ -16,6 +16,7 @@
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
 // Synced to Bob's live "Encoder (v13)" on 2026-11-15; the flow is now named Encoder (it was Converter). The single encode path is split by frame rate (Check Video Framerate, less than 31 fps): under 30 fps it goes to nodes tagged encoder and a Check Node Hardware Encoder (hevc_vaapi) picks the VAAPI encoder (quality 20) or the QSV encoder (quality 18); above 30 fps it goes to nodes tagged encoder,high-fps and the VAAPI encoder (quality 29). Each path has its own Set Quality Node Offset (drakebay-gpu=0, samara-encoder=-2 under 30 fps and -6 above). Keep Awake nodes stop and allow Windows sleep around the encode, "Route to mapped nodes" is now "Route to local node" (mapped,local), and the nodes were laid out again.
+// Demux restructure, 2026-11-16: the Encoder works on video only. The Stream Cleanup flow now splits the file (video-only working file plus an audio+subs file in /temp/.tdarr-remux-cache), so the audio+subs step, the stable-path copy, the video-from-original step, the Route to local node / Mark step, the final mkvmerge combine and the cache cleanup are gone from here; Entry goes straight to Check Video Framerate and, after Mark step: encode done and Allow sleep, back to the Controller. The Validator puts the file back together (mkvmerge combine) at its top.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
@@ -24,21 +25,6 @@ const details = () => ({
     "description": "Encoder",
     "tags": "",
     "flowPlugins": [
-      {
-        "name": "Mark step: landed on local node",
-        "sourceRepo": "Local",
-        "pluginName": "markStep",
-        "version": "1.0.0",
-        "inputsDB": {
-          "label": "converter-encode-mapped"
-        },
-        "fpEnabled": true,
-        "id": "qwYEerynw",
-        "position": {
-          "x": 432,
-          "y": 468
-        }
-      },
       {
         "name": "Entry from Controller Flow",
         "sourceRepo": "Community",
@@ -49,59 +35,6 @@ const details = () => ({
         "position": {
           "x": 432,
           "y": -24
-        }
-      },
-      {
-        "name": "mkvmerge (audio+subs only)",
-        "sourceRepo": "Local",
-        "pluginName": "mkvmergeExecute",
-        "version": "1.0.0",
-        "inputsDB": {
-          "mode": "audioSubs",
-          "source": "working"
-        },
-        "fpEnabled": true,
-        "id": "JTeKdNnFR",
-        "position": {
-          "x": 432,
-          "y": 12
-        }
-      },
-      {
-        "name": "Preserve audio+subs (stable path)",
-        "sourceRepo": "Community",
-        "pluginName": "runCli",
-        "version": "1.0.0",
-        "inputsDB": {
-          "useCustomCliPath": "true",
-          "userCli": "mkvmerge",
-          "customCliPath": "/bin/sh",
-          "doesCommandCreateOutputFile": "true",
-          "userOutputFilePath": "/temp/.tdarr-remux-cache/{{{args.originalLibraryFile.fileNameWithoutExtension}}}-audiosubs.mkv",
-          "cliArguments": "-c mkdir -p \"/temp/.tdarr-remux-cache\"; cp \"{{{args.inputFileObj._id}}}\" \"${outputFilePath}\"",
-          "outputFileBecomesWorkingFile": "false"
-        },
-        "fpEnabled": true,
-        "id": "IBXuDL7Dx",
-        "position": {
-          "x": 432,
-          "y": 60
-        }
-      },
-      {
-        "name": "mkvmerge (video from original)",
-        "sourceRepo": "Local",
-        "pluginName": "mkvmergeExecute",
-        "version": "1.0.0",
-        "inputsDB": {
-          "mode": "video",
-          "source": "original"
-        },
-        "fpEnabled": true,
-        "id": "tpYlSXpfK",
-        "position": {
-          "x": 432,
-          "y": 108
         }
       },
       {
@@ -199,42 +132,6 @@ const details = () => ({
         }
       },
       {
-        "name": "mkvmerge (final combine)",
-        "sourceRepo": "Local",
-        "pluginName": "mkvmergeExecute",
-        "version": "1.0.0",
-        "inputsDB": {
-          "mode": "combine",
-          "audioSubsDir": "/temp/.tdarr-remux-cache"
-        },
-        "fpEnabled": true,
-        "id": "SQedUStPK",
-        "position": {
-          "x": 432,
-          "y": 516
-        }
-      },
-      {
-        "name": "Cleanup audio+subs cache file",
-        "sourceRepo": "Community",
-        "pluginName": "runCli",
-        "version": "1.0.0",
-        "inputsDB": {
-          "useCustomCliPath": "true",
-          "userCli": "mkvmerge",
-          "customCliPath": "/bin/sh",
-          "doesCommandCreateOutputFile": "false",
-          "cliArguments": "-c rm -f \"/temp/.tdarr-remux-cache/{{{args.originalLibraryFile.fileNameWithoutExtension}}}-audiosubs.mkv\"",
-          "outputFileBecomesWorkingFile": "false"
-        },
-        "fpEnabled": true,
-        "id": "R0CsTy4Qw",
-        "position": {
-          "x": 432,
-          "y": 552
-        }
-      },
-      {
         "name": "🛫 Returning to Controller Flow",
         "sourceRepo": "Community",
         "pluginName": "goToFlow",
@@ -278,22 +175,6 @@ const details = () => ({
         "position": {
           "x": 672,
           "y": 564
-        }
-      },
-      {
-        "name": "Route to local node",
-        "sourceRepo": "Community",
-        "pluginName": "tagsWorkerType",
-        "version": "1.0.0",
-        "inputsDB": {
-          "requiredNodeTags": "mapped,local",
-          "requiredWorkerType": "CPU"
-        },
-        "fpEnabled": true,
-        "id": "qyqzR1Ocm",
-        "position": {
-          "x": 432,
-          "y": 432
         }
       },
       {
@@ -468,20 +349,6 @@ const details = () => ({
     ],
     "flowEdges": [
       {
-        "source": "JTeKdNnFR",
-        "sourceHandle": "1",
-        "target": "IBXuDL7Dx",
-        "targetHandle": null,
-        "id": "mTVJWcMTG"
-      },
-      {
-        "source": "IBXuDL7Dx",
-        "sourceHandle": "1",
-        "target": "tpYlSXpfK",
-        "targetHandle": null,
-        "id": "3VXdY7ayD"
-      },
-      {
         "source": "d7QK1TBlh",
         "sourceHandle": "1",
         "target": "Y40uvSwMF",
@@ -496,41 +363,6 @@ const details = () => ({
         "id": "Vu9HtsSNH"
       },
       {
-        "source": "R0CsTy4Qw",
-        "sourceHandle": "1",
-        "target": "b8n51xYj4",
-        "targetHandle": null,
-        "id": "O0ZWCGN8b"
-      },
-      {
-        "source": "X4ANCc9vI",
-        "sourceHandle": "1",
-        "target": "JTeKdNnFR",
-        "targetHandle": null,
-        "id": "vE6"
-      },
-      {
-        "source": "qyqzR1Ocm",
-        "sourceHandle": "1",
-        "target": "qwYEerynw",
-        "targetHandle": null,
-        "id": "dZY17ylsS"
-      },
-      {
-        "source": "SQedUStPK",
-        "sourceHandle": "1",
-        "target": "R0CsTy4Qw",
-        "targetHandle": null,
-        "id": "_zXcfY6xK"
-      },
-      {
-        "source": "qwYEerynw",
-        "sourceHandle": "1",
-        "target": "SQedUStPK",
-        "targetHandle": null,
-        "id": "4oldrn25C"
-      },
-      {
         "source": "qualOffset",
         "sourceHandle": "1",
         "target": "d7QK1TBlh",
@@ -543,13 +375,6 @@ const details = () => ({
         "target": "d7QK1TBlh",
         "targetHandle": null,
         "id": "VxJVhl3T1"
-      },
-      {
-        "source": "tpYlSXpfK",
-        "sourceHandle": "1",
-        "target": "YbKi7dgS7",
-        "targetHandle": null,
-        "id": "13bZT7XGD"
       },
       {
         "source": "YbKi7dgS7",
@@ -664,11 +489,18 @@ const details = () => ({
         "id": "74D1x5vB0"
       },
       {
+        "source": "X4ANCc9vI",
+        "sourceHandle": "1",
+        "target": "YbKi7dgS7",
+        "targetHandle": null,
+        "id": "encEntryToFps"
+      },
+      {
         "source": "yCde19y26",
         "sourceHandle": "1",
-        "target": "qyqzR1Ocm",
+        "target": "b8n51xYj4",
         "targetHandle": null,
-        "id": "HknPWkrMr"
+        "id": "encDoneToReturn"
       }
     ]
   });
