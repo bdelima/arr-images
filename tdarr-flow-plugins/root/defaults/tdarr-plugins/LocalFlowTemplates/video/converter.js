@@ -15,29 +15,16 @@
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
+// Synced to Bob's live "Encoder (v13)" on 2026-11-15; the flow is now named Encoder (it was Converter). The single encode path is split by frame rate (Check Video Framerate, less than 31 fps): under 30 fps it goes to nodes tagged encoder and a Check Node Hardware Encoder (hevc_vaapi) picks the VAAPI encoder (quality 20) or the QSV encoder (quality 18); above 30 fps it goes to nodes tagged encoder,high-fps and the VAAPI encoder (quality 29). Each path has its own Set Quality Node Offset (drakebay-gpu=0, samara-encoder=-2 under 30 fps and -6 above). Keep Awake nodes stop and allow Windows sleep around the encode, "Route to mapped nodes" is now "Route to local node" (mapped,local), and the nodes were laid out again.
+// Demux restructure, 2026-11-16: the Encoder works on video only. The Stream Cleanup flow now splits the file (video-only working file plus an audio+subs file in /temp/.tdarr-remux-cache), so the audio+subs step, the stable-path copy, the video-from-original step, the Route to local node / Mark step, the final mkvmerge combine and the cache cleanup are gone from here; Entry goes straight to Check Video Framerate and, after Mark step: encode done and Allow sleep, back to the Controller. The Validator puts the file back together (mkvmerge combine) at its top.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
     "_id": "20ZN6oc41",
-    "name": "Converter",
-    "description": "Converter",
+    "name": "Encoder",
+    "description": "Encoder",
     "tags": "",
     "flowPlugins": [
-      {
-        "name": "Mark step: landed on mapped node",
-        "sourceRepo": "Local",
-        "pluginName": "markStep",
-        "version": "1.0.0",
-        "inputsDB": {
-          "label": "converter-encode-mapped"
-        },
-        "fpEnabled": true,
-        "id": "qwYEerynw",
-        "position": {
-          "x": 456,
-          "y": 552
-        }
-      },
       {
         "name": "Entry from Controller Flow",
         "sourceRepo": "Community",
@@ -46,77 +33,24 @@ const details = () => ({
         "fpEnabled": true,
         "id": "X4ANCc9vI",
         "position": {
-          "x": 456,
-          "y": 192
+          "x": 432,
+          "y": -24
         }
       },
       {
-        "name": "mkvmerge (audio+subs only)",
-        "sourceRepo": "Local",
-        "pluginName": "mkvmergeExecute",
-        "version": "1.0.0",
-        "inputsDB": {
-          "mode": "audioSubs",
-          "source": "working"
-        },
-        "fpEnabled": true,
-        "id": "JTeKdNnFR",
-        "position": {
-          "x": 456,
-          "y": 264
-        }
-      },
-      {
-        "name": "Preserve audio+subs (stable path)",
-        "sourceRepo": "Community",
-        "pluginName": "runCli",
-        "version": "1.0.0",
-        "inputsDB": {
-          "useCustomCliPath": "true",
-          "userCli": "mkvmerge",
-          "customCliPath": "/bin/sh",
-          "doesCommandCreateOutputFile": "true",
-          "userOutputFilePath": "/temp/.tdarr-remux-cache/{{{args.originalLibraryFile.fileNameWithoutExtension}}}-audiosubs.mkv",
-          "cliArguments": "-c mkdir -p \"/temp/.tdarr-remux-cache\"; cp \"{{{args.inputFileObj._id}}}\" \"${outputFilePath}\"",
-          "outputFileBecomesWorkingFile": "false"
-        },
-        "fpEnabled": true,
-        "id": "IBXuDL7Dx",
-        "position": {
-          "x": 456,
-          "y": 312
-        }
-      },
-      {
-        "name": "mkvmerge (video from original)",
-        "sourceRepo": "Local",
-        "pluginName": "mkvmergeExecute",
-        "version": "1.0.0",
-        "inputsDB": {
-          "mode": "video",
-          "source": "original"
-        },
-        "fpEnabled": true,
-        "id": "tpYlSXpfK",
-        "position": {
-          "x": 456,
-          "y": 360
-        }
-      },
-      {
-        "name": "Route to encoder nodes",
+        "name": "Route to >30fps encoder nodes",
         "sourceRepo": "Community",
         "pluginName": "tagsWorkerType",
         "version": "1.0.0",
         "inputsDB": {
           "requiredWorkerType": "GPU",
-          "requiredNodeTags": "encoder"
+          "requiredNodeTags": "encoder,high-fps"
         },
         "fpEnabled": true,
         "id": "tHF4vUCsM",
         "position": {
-          "x": 456,
-          "y": 408
+          "x": 672,
+          "y": 12
         }
       },
       {
@@ -127,12 +61,124 @@ const details = () => ({
         "fpEnabled": true,
         "id": "ehGAkWvj7",
         "position": {
-          "x": 720,
-          "y": 372
+          "x": 756,
+          "y": 168
         }
       },
       {
-        "name": "Set Video Encoder",
+        "name": "<30fps VAAPI Encoder",
+        "sourceRepo": "Community",
+        "pluginName": "ffmpegCommandSetVideoEncoder",
+        "version": "1.0.0",
+        "inputsDB": {
+          "outputCodec": "hevc",
+          "ffmpegPresetEnabled": "true",
+          "ffmpegPreset": "slow",
+          "ffmpegQualityEnabled": "true",
+          "ffmpegQuality": "20",
+          "hardwareEncoding": "true",
+          "hardwareType": "vaapi",
+          "hardwareDecoding": "true",
+          "forceEncoding": "true"
+        },
+        "fpEnabled": true,
+        "id": "FAc9QeWJK",
+        "position": {
+          "x": 828,
+          "y": 312
+        }
+      },
+      {
+        "name": "Set Quality Node Offset (<30fps)",
+        "sourceRepo": "Local",
+        "pluginName": "setQualityWithNodeOffset",
+        "version": "1.0.0",
+        "inputsDB": {
+          "nodeOffsets": "drakebay-gpu=0\nsamara-encoder=-2",
+          "peakWindowSeconds": "2",
+          "peakPercentile": "100",
+          "peakScanTimeoutSeconds": "300",
+          "assumedAudioKbps": "256"
+        },
+        "fpEnabled": true,
+        "id": "qualOffset",
+        "position": {
+          "x": 912,
+          "y": 396
+        }
+      },
+      {
+        "name": "Tag Encode Settings",
+        "sourceRepo": "Local",
+        "pluginName": "tagEncodeSettings",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "d7QK1TBlh",
+        "position": {
+          "x": 672,
+          "y": 480
+        }
+      },
+      {
+        "name": "Execute (encode)",
+        "sourceRepo": "Community",
+        "pluginName": "ffmpegCommandExecute",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "Y40uvSwMF",
+        "position": {
+          "x": 672,
+          "y": 516
+        }
+      },
+      {
+        "name": "🛫 Returning to Controller Flow",
+        "sourceRepo": "Community",
+        "pluginName": "goToFlow",
+        "version": "2.0.0",
+        "inputsDB": {
+          "flowId": "HWxfel7zZ",
+          "pluginId": "retFromConv"
+        },
+        "fpEnabled": true,
+        "id": "b8n51xYj4",
+        "position": {
+          "x": 432,
+          "y": 600
+        }
+      },
+      {
+        "name": "Mark step: landed on standard fps encoder",
+        "sourceRepo": "Local",
+        "pluginName": "markStep",
+        "version": "1.0.0",
+        "inputsDB": {
+          "label": "converter-encode-start"
+        },
+        "fpEnabled": true,
+        "id": "cnvMarkEnc",
+        "position": {
+          "x": 408,
+          "y": 276
+        }
+      },
+      {
+        "name": "Mark step: encode done",
+        "sourceRepo": "Local",
+        "pluginName": "markStep",
+        "version": "1.0.0",
+        "inputsDB": {
+          "label": "converter-encode-done"
+        },
+        "fpEnabled": true,
+        "id": "cnvMarkEncDone",
+        "position": {
+          "x": 672,
+          "y": 564
+        }
+      },
+      {
+        "name": "<30fps QSV Encoder",
         "sourceRepo": "Community",
         "pluginName": "ffmpegCommandSetVideoEncoder",
         "version": "1.0.0",
@@ -148,109 +194,14 @@ const details = () => ({
           "forceEncoding": "true"
         },
         "fpEnabled": true,
-        "id": "FAc9QeWJK",
+        "id": "8V9_07K-F",
         "position": {
-          "x": 720,
-          "y": 420
+          "x": 996,
+          "y": 312
         }
       },
       {
-        "name": "Set Quality With Node Offset",
-        "sourceRepo": "Local",
-        "pluginName": "setQualityWithNodeOffset",
-        "version": "1.0.0",
-        "inputsDB": {
-          "nodeOffsets": "drakebay-gpu=-3",
-          "peakWindowSeconds": "2",
-          "peakPercentile": "100",
-          "peakScanTimeoutSeconds": "300",
-          "assumedAudioKbps": "256"
-        },
-        "fpEnabled": true,
-        "id": "qualOffset",
-        "position": {
-          "x": 720,
-          "y": 468
-        }
-      },
-      {
-        "name": "Tag Encode Settings",
-        "sourceRepo": "Local",
-        "pluginName": "tagEncodeSettings",
-        "version": "1.0.0",
-        "fpEnabled": true,
-        "id": "d7QK1TBlh",
-        "position": {
-          "x": 720,
-          "y": 504
-        }
-      },
-      {
-        "name": "Execute (encode)",
-        "sourceRepo": "Community",
-        "pluginName": "ffmpegCommandExecute",
-        "version": "1.0.0",
-        "fpEnabled": true,
-        "id": "Y40uvSwMF",
-        "position": {
-          "x": 720,
-          "y": 540
-        }
-      },
-      {
-        "name": "mkvmerge (final combine)",
-        "sourceRepo": "Local",
-        "pluginName": "mkvmergeExecute",
-        "version": "1.0.0",
-        "inputsDB": {
-          "mode": "combine",
-          "audioSubsDir": "/temp/.tdarr-remux-cache"
-        },
-        "fpEnabled": true,
-        "id": "SQedUStPK",
-        "position": {
-          "x": 456,
-          "y": 600
-        }
-      },
-      {
-        "name": "Cleanup audio+subs cache file",
-        "sourceRepo": "Community",
-        "pluginName": "runCli",
-        "version": "1.0.0",
-        "inputsDB": {
-          "useCustomCliPath": "true",
-          "userCli": "mkvmerge",
-          "customCliPath": "/bin/sh",
-          "doesCommandCreateOutputFile": "false",
-          "cliArguments": "-c rm -f \"/temp/.tdarr-remux-cache/{{{args.originalLibraryFile.fileNameWithoutExtension}}}-audiosubs.mkv\"",
-          "outputFileBecomesWorkingFile": "false"
-        },
-        "fpEnabled": true,
-        "id": "R0CsTy4Qw",
-        "position": {
-          "x": 456,
-          "y": 636
-        }
-      },
-      {
-        "name": "🛫 Returning to Controller Flow",
-        "sourceRepo": "Community",
-        "pluginName": "goToFlow",
-        "version": "2.0.0",
-        "inputsDB": {
-          "flowId": "HWxfel7zZ",
-          "pluginId": "retFromConv"
-        },
-        "fpEnabled": true,
-        "id": "b8n51xYj4",
-        "position": {
-          "x": 456,
-          "y": 684
-        }
-      },
-      {
-        "name": "Mark step: landed on encoder",
+        "name": "Mark step: landed on high fps encoder",
         "sourceRepo": "Local",
         "pluginName": "markStep",
         "version": "1.0.0",
@@ -258,94 +209,145 @@ const details = () => ({
           "label": "converter-encode-start"
         },
         "fpEnabled": true,
-        "id": "cnvMarkEnc",
+        "id": "7D1MRCH2-",
         "position": {
-          "x": 720,
-          "y": 324
+          "x": 672,
+          "y": 60
         }
       },
       {
-        "name": "Mark step: encode done",
-        "sourceRepo": "Local",
-        "pluginName": "markStep",
+        "name": "Set >30fps Video Encoder",
+        "sourceRepo": "Community",
+        "pluginName": "ffmpegCommandSetVideoEncoder",
         "version": "1.0.0",
         "inputsDB": {
-          "label": "converter-encode-done"
+          "outputCodec": "hevc",
+          "ffmpegPresetEnabled": "true",
+          "ffmpegPreset": "slow",
+          "ffmpegQualityEnabled": "true",
+          "ffmpegQuality": "29",
+          "hardwareEncoding": "true",
+          "hardwareType": "vaapi",
+          "hardwareDecoding": "true",
+          "forceEncoding": "true"
         },
         "fpEnabled": true,
-        "id": "cnvMarkEncDone",
+        "id": "Rn3WUT-NN",
         "position": {
-          "x": 720,
-          "y": 588
+          "x": 1176,
+          "y": 312
         }
       },
       {
-        "name": "Route to mapped nodes",
+        "name": "Route to <30fps encoder nodes",
         "sourceRepo": "Community",
         "pluginName": "tagsWorkerType",
         "version": "1.0.0",
-        "id": "qyqzR1Ocm",
+        "inputsDB": {
+          "requiredWorkerType": "GPU",
+          "requiredNodeTags": "encoder"
+        },
+        "fpEnabled": true,
+        "id": "-RGSfdo8K",
         "position": {
-          "x": 456,
-          "y": 516
+          "x": 408,
+          "y": 228
+        }
+      },
+      {
+        "name": "Set Quality Node Offset (>30fps)",
+        "sourceRepo": "Local",
+        "pluginName": "setQualityWithNodeOffset",
+        "version": "1.0.0",
+        "inputsDB": {
+          "nodeOffsets": "drakebay-gpu=0\nsamara-encoder=-6",
+          "peakWindowSeconds": "2",
+          "peakPercentile": "100",
+          "peakScanTimeoutSeconds": "300",
+          "assumedAudioKbps": "256"
+        },
+        "fpEnabled": true,
+        "id": "N2YufVfRT",
+        "position": {
+          "x": 1176,
+          "y": 396
+        }
+      },
+      {
+        "name": "Check Video Framerate",
+        "sourceRepo": "Community",
+        "pluginName": "CheckVideoFramerate",
+        "version": "1.0.0",
+        "id": "EuW3bnW-x",
+        "position": {
+          "x": 984,
+          "y": 120
         },
         "fpEnabled": true,
         "inputsDB": {
-          "requiredNodeTags": "mapped",
-          "requiredWorkerType": "CPU"
+          "lessThan": "31"
+        }
+      },
+      {
+        "name": "Check Video Framerate",
+        "sourceRepo": "Community",
+        "pluginName": "CheckVideoFramerate",
+        "version": "1.0.0",
+        "id": "YbKi7dgS7",
+        "position": {
+          "x": 432,
+          "y": 168
+        },
+        "fpEnabled": true,
+        "inputsDB": {
+          "greaterThan": "0",
+          "lessThan": "31"
+        }
+      },
+      {
+        "name": "Check Node Hardware Encoder VAAPI",
+        "sourceRepo": "Community",
+        "pluginName": "checkNodeHardwareEncoder",
+        "version": "1.0.0",
+        "id": "wEp4vfM6B",
+        "position": {
+          "x": 912,
+          "y": 240
+        },
+        "fpEnabled": true,
+        "inputsDB": {
+          "hardwareEncoder": "hevc_vaapi"
+        }
+      },
+      {
+        "name": "Prevent sleep (Windows)",
+        "sourceRepo": "Local",
+        "pluginName": "keepAwake",
+        "version": "1.0.0",
+        "id": "iIepjcd-i",
+        "position": {
+          "x": 984,
+          "y": 84
+        },
+        "fpEnabled": true
+      },
+      {
+        "name": "Allow sleep (Windows)",
+        "sourceRepo": "Local",
+        "pluginName": "keepAwake",
+        "version": "1.0.0",
+        "id": "yCde19y26",
+        "position": {
+          "x": 672,
+          "y": 600
+        },
+        "fpEnabled": true,
+        "inputsDB": {
+          "action": "stop"
         }
       }
     ],
     "flowEdges": [
-      {
-        "source": "JTeKdNnFR",
-        "sourceHandle": "1",
-        "target": "IBXuDL7Dx",
-        "targetHandle": null,
-        "id": "mTVJWcMTG"
-      },
-      {
-        "source": "IBXuDL7Dx",
-        "sourceHandle": "1",
-        "target": "tpYlSXpfK",
-        "targetHandle": null,
-        "id": "3VXdY7ayD"
-      },
-      {
-        "source": "tpYlSXpfK",
-        "sourceHandle": "1",
-        "target": "tHF4vUCsM",
-        "targetHandle": null,
-        "id": "3ezWKl2To"
-      },
-      {
-        "source": "tHF4vUCsM",
-        "sourceHandle": "1",
-        "target": "cnvMarkEnc",
-        "targetHandle": null,
-        "id": "q9SMuVcpy"
-      },
-      {
-        "source": "ehGAkWvj7",
-        "sourceHandle": "1",
-        "target": "FAc9QeWJK",
-        "targetHandle": null,
-        "id": "jtU5s0GZJ"
-      },
-      {
-        "source": "FAc9QeWJK",
-        "sourceHandle": "1",
-        "target": "qualOffset",
-        "targetHandle": null,
-        "id": "F8KgIMdGM"
-      },
-      {
-        "source": "qualOffset",
-        "sourceHandle": "1",
-        "target": "d7QK1TBlh",
-        "targetHandle": null,
-        "id": "capToTag"
-      },
       {
         "source": "d7QK1TBlh",
         "sourceHandle": "1",
@@ -361,53 +363,144 @@ const details = () => ({
         "id": "Vu9HtsSNH"
       },
       {
-        "source": "R0CsTy4Qw",
+        "source": "qualOffset",
         "sourceHandle": "1",
-        "target": "b8n51xYj4",
+        "target": "d7QK1TBlh",
         "targetHandle": null,
-        "id": "O0ZWCGN8b"
+        "id": "QX1zhAsW1"
       },
       {
-        "source": "X4ANCc9vI",
+        "source": "N2YufVfRT",
         "sourceHandle": "1",
-        "target": "JTeKdNnFR",
+        "target": "d7QK1TBlh",
         "targetHandle": null,
-        "id": "vE6"
+        "id": "VxJVhl3T1"
+      },
+      {
+        "source": "YbKi7dgS7",
+        "sourceHandle": "1",
+        "target": "-RGSfdo8K",
+        "targetHandle": null,
+        "id": "HJP6K6E5p"
+      },
+      {
+        "source": "YbKi7dgS7",
+        "sourceHandle": "2",
+        "target": "tHF4vUCsM",
+        "targetHandle": null,
+        "id": "4DaK-Pwmt"
+      },
+      {
+        "source": "-RGSfdo8K",
+        "sourceHandle": "1",
+        "target": "cnvMarkEnc",
+        "targetHandle": null,
+        "id": "vKgslqElF"
+      },
+      {
+        "source": "FAc9QeWJK",
+        "sourceHandle": "1",
+        "target": "qualOffset",
+        "targetHandle": null,
+        "id": "faE1dVp4J"
+      },
+      {
+        "source": "EuW3bnW-x",
+        "sourceHandle": "2",
+        "target": "Rn3WUT-NN",
+        "targetHandle": null,
+        "id": "BKx9P5i9u"
+      },
+      {
+        "source": "Rn3WUT-NN",
+        "sourceHandle": "1",
+        "target": "N2YufVfRT",
+        "targetHandle": null,
+        "id": "_AT4rG44X"
+      },
+      {
+        "source": "tHF4vUCsM",
+        "sourceHandle": "1",
+        "target": "7D1MRCH2-",
+        "targetHandle": null,
+        "id": "OoKwvGsGw"
       },
       {
         "source": "cnvMarkEnc",
         "sourceHandle": "1",
         "target": "ehGAkWvj7",
         "targetHandle": null,
-        "id": "q9SMuVcpyb"
+        "id": "H1O1JVelz"
+      },
+      {
+        "source": "7D1MRCH2-",
+        "sourceHandle": "1",
+        "target": "ehGAkWvj7",
+        "targetHandle": null,
+        "id": "OCYfqfsoe"
+      },
+      {
+        "source": "EuW3bnW-x",
+        "sourceHandle": "1",
+        "target": "wEp4vfM6B",
+        "targetHandle": null,
+        "id": "8eTBTou_k"
+      },
+      {
+        "source": "8V9_07K-F",
+        "sourceHandle": "1",
+        "target": "qualOffset",
+        "targetHandle": null,
+        "id": "PlS1fiYxS"
+      },
+      {
+        "source": "wEp4vfM6B",
+        "sourceHandle": "2",
+        "target": "8V9_07K-F",
+        "targetHandle": null,
+        "id": "Gpdeh9ofI"
+      },
+      {
+        "source": "wEp4vfM6B",
+        "sourceHandle": "1",
+        "target": "FAc9QeWJK",
+        "targetHandle": null,
+        "id": "KlaZJdm3S"
+      },
+      {
+        "source": "ehGAkWvj7",
+        "sourceHandle": "1",
+        "target": "iIepjcd-i",
+        "targetHandle": null,
+        "id": "FGHzvB2k7"
+      },
+      {
+        "source": "iIepjcd-i",
+        "sourceHandle": "1",
+        "target": "EuW3bnW-x",
+        "targetHandle": null,
+        "id": "tI2qp0lle"
       },
       {
         "source": "cnvMarkEncDone",
         "sourceHandle": "1",
-        "target": "qyqzR1Ocm",
+        "target": "yCde19y26",
         "targetHandle": null,
-        "id": "spm0GzRIZ"
+        "id": "74D1x5vB0"
       },
       {
-        "source": "qyqzR1Ocm",
+        "source": "X4ANCc9vI",
         "sourceHandle": "1",
-        "target": "qwYEerynw",
+        "target": "YbKi7dgS7",
         "targetHandle": null,
-        "id": "dZY17ylsS"
+        "id": "encEntryToFps"
       },
       {
-        "source": "SQedUStPK",
+        "source": "yCde19y26",
         "sourceHandle": "1",
-        "target": "R0CsTy4Qw",
+        "target": "b8n51xYj4",
         "targetHandle": null,
-        "id": "_zXcfY6xK"
-      },
-      {
-        "source": "qwYEerynw",
-        "sourceHandle": "1",
-        "target": "SQedUStPK",
-        "targetHandle": null,
-        "id": "4oldrn25C"
+        "id": "encDoneToReturn"
       }
     ]
   });

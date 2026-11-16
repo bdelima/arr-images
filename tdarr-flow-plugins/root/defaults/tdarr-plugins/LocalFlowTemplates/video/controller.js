@@ -13,6 +13,8 @@
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
+// Synced to Bob's live "Controller (v12)" on 2026-11-15: Set Encode Quality is gone (Check Source Efficiency output 1 now goes straight to Go To Converter Flow), "Queue to mapped nodes" is now "Queue to local node" with node tags mapped,local, and three nodes moved.
+// Demux restructure, 2026-11-16: the Clean-only Passthrough flow is retired. Every route that went to Go To Clean Flow (sources that are not re-encoded) now goes straight to Go To Validator Flow (passthrough); Stream Cleanup has already split the file, and the Validator's mkvmerge combine puts it back together. "Go To Clean Flow" and "Returned from Clean Flow" are gone.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
@@ -91,25 +93,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "chkSrcEff",
         "position": {
-          "x": 828,
-          "y": -12
-        }
-      },
-      {
-        "name": "Set Encode Quality",
-        "sourceRepo": "Local",
-        "pluginName": "setEncodeQuality",
-        "version": "1.0.0",
-        "inputsDB": {
-          "quality": "18",
-          "highFpsAbove": "30",
-          "highFpsQuality": "31"
-        },
-        "fpEnabled": true,
-        "id": "setEncQuality",
-        "position": {
-          "x": 948,
-          "y": 48
+          "x": 780,
+          "y": -72
         }
       },
       {
@@ -124,24 +109,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "V0fhZ7bDk",
         "position": {
-          "x": 1080,
-          "y": 108
-        }
-      },
-      {
-        "name": "Go To Clean Flow",
-        "sourceRepo": "Community",
-        "pluginName": "goToFlow",
-        "version": "2.0.0",
-        "inputsDB": {
-          "flowId": "kASAOsE1n",
-          "pluginId": "YWo6oScBV"
-        },
-        "fpEnabled": true,
-        "id": "JUvzFjlQc",
-        "position": {
-          "x": 1260,
-          "y": 108
+          "x": 948,
+          "y": 120
         }
       },
       {
@@ -153,18 +122,6 @@ const details = () => ({
         "id": "retFromConv",
         "position": {
           "x": 1440,
-          "y": -312
-        }
-      },
-      {
-        "name": "🛬 Returned from Clean Flow",
-        "sourceRepo": "Community",
-        "pluginName": "comment",
-        "version": "1.0.0",
-        "fpEnabled": true,
-        "id": "retFromClean",
-        "position": {
-          "x": 1212,
           "y": -312
         }
       },
@@ -259,19 +216,19 @@ const details = () => ({
         }
       },
       {
-        "name": "Queue to mapped nodes",
+        "name": "Queue to local node",
         "sourceRepo": "Community",
         "pluginName": "tagsWorkerType",
         "version": "1.0.0",
+        "inputsDB": {
+          "requiredWorkerType": "CPU",
+          "requiredNodeTags": "mapped,local"
+        },
+        "fpEnabled": true,
         "id": "ps-ThIC3R",
         "position": {
           "x": 612,
           "y": -276
-        },
-        "fpEnabled": true,
-        "inputsDB": {
-          "requiredWorkerType": "CPU",
-          "requiredNodeTags": "mapped"
         }
       }
     ],
@@ -286,7 +243,7 @@ const details = () => ({
       {
         "source": "classifySrc",
         "sourceHandle": "2",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "h264HdrToClean"
       },
@@ -300,21 +257,21 @@ const details = () => ({
       {
         "source": "classifySrc",
         "sourceHandle": "4",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "hevcHdrToClean"
       },
       {
         "source": "classifySrc",
         "sourceHandle": "5",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "av1NotHdrToClean"
       },
       {
         "source": "classifySrc",
         "sourceHandle": "6",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "av1HdrToClean"
       },
@@ -328,21 +285,21 @@ const details = () => ({
       {
         "source": "classifySrc",
         "sourceHandle": "8",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "legacyHdrToClean"
       },
       {
         "source": "classifySrc",
         "sourceHandle": "9",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "otherNotHdrToClean"
       },
       {
         "source": "classifySrc",
         "sourceHandle": "10",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "otherHdrToClean"
       },
@@ -356,28 +313,14 @@ const details = () => ({
       {
         "source": "chkForceReencode",
         "sourceHandle": "2",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "forceToClean"
       },
       {
         "source": "chkSrcEff",
-        "sourceHandle": "1",
-        "target": "setEncQuality",
-        "targetHandle": null,
-        "id": "effToQuality"
-      },
-      {
-        "source": "setEncQuality",
-        "sourceHandle": "1",
-        "target": "V0fhZ7bDk",
-        "targetHandle": null,
-        "id": "qualityToConverter"
-      },
-      {
-        "source": "chkSrcEff",
         "sourceHandle": "2",
-        "target": "JUvzFjlQc",
+        "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "effToClean"
       },
@@ -387,13 +330,6 @@ const details = () => ({
         "target": "goToValidator",
         "targetHandle": null,
         "id": "convToValid"
-      },
-      {
-        "source": "retFromClean",
-        "sourceHandle": "1",
-        "target": "goToValidatorPT",
-        "targetHandle": null,
-        "id": "cleanToValid"
       },
       {
         "source": "Pu7lH9MsN",
@@ -436,6 +372,13 @@ const details = () => ({
         "target": "ps-ThIC3R",
         "targetHandle": null,
         "id": "Kd_QSFHUx"
+      },
+      {
+        "source": "chkSrcEff",
+        "sourceHandle": "1",
+        "target": "V0fhZ7bDk",
+        "targetHandle": null,
+        "id": "-lDwGniMI"
       }
     ]
   });

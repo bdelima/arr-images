@@ -7,6 +7,8 @@
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
+// Synced to Bob's live "Validator (v12)" on 2026-11-15: a job that passes VMAF now goes through a new Require Review node, then Route to local node (CPU worker, tags mapped,local) and Mark step validator-on-local, before Tag Output Metadata; the passthrough path, once the health check gate passes, takes the same route. "Queue back to VMAF node" is now "Route to VMAF node" (GPU worker, tag vmaf). Compare File Size Ratio is 25 to 100 on the re-encode path and 60 to 101 on the passthrough path (was greater than 70 with no upper bound). The 8-bit Run VMAF node scores every 2nd frame at 50% of the CPU (the live flow had 38, a test value that was not restored) with minimums mean 92, frame 60, p1 70, and the 4K 10-bit mean minimum is 92.
+// Demux restructure, 2026-11-16: both entries now start with the merge. Route to local node (CPU worker, tags mapped,local), Mark step, mkvmerge Execute in combine mode (reads the audio+subs file the Stream Cleanup flow wrote to /temp/.tdarr-remux-cache and puts it together with the working file, which is the video-only file or the encode of it; removes the title and global tags), then a cleanup of the cache file; after that each entry continues with the node it started with before. The merge is duplicated for the two entries (valRoute/valMark/valMerge/valClean, and the same with the PT suffix).
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
@@ -33,7 +35,8 @@ const details = () => ({
         "pluginName": "compareFileSizeRatio",
         "version": "2.0.0",
         "inputsDB": {
-          "greaterThan": "25"
+          "greaterThan": "25",
+          "lessThan": "100"
         },
         "fpEnabled": true,
         "id": "01GZNv02y",
@@ -110,9 +113,11 @@ const details = () => ({
         "inputsDB": {
           "pixelFormat": "yuv420p",
           "model": "default",
-          "minMean": "93",
-          "minFrameScore": "50",
-          "minP1": "70"
+          "minMean": "92",
+          "minFrameScore": "60",
+          "minP1": "70",
+          "frameStep": "2",
+          "cpuPercent": "50"
         },
         "fpEnabled": true,
         "id": "vmafCheck1",
@@ -156,7 +161,7 @@ const details = () => ({
         "id": "vmafCheck4k",
         "position": {
           "x": 732,
-          "y": 444
+          "y": 456
         }
       },
       {
@@ -167,7 +172,7 @@ const details = () => ({
         "inputsDB": {
           "pixelFormat": "yuv420p10le",
           "model": "vmaf_4k_v0.6.1",
-          "minMean": "93",
+          "minMean": "92",
           "minFrameScore": "50",
           "minP1": "70"
         },
@@ -175,7 +180,7 @@ const details = () => ({
         "id": "vmafCheck4k_10bit",
         "position": {
           "x": 564,
-          "y": 444
+          "y": 456
         }
       },
       {
@@ -186,8 +191,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "tagOutMeta",
         "position": {
-          "x": 936,
-          "y": 600
+          "x": 996,
+          "y": 624
         }
       },
       {
@@ -198,8 +203,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "1g5GNL1MP",
         "position": {
-          "x": 936,
-          "y": 648
+          "x": 996,
+          "y": 660
         }
       },
       {
@@ -220,7 +225,8 @@ const details = () => ({
         "pluginName": "compareFileSizeRatio",
         "version": "2.0.0",
         "inputsDB": {
-          "greaterThan": "70"
+          "greaterThan": "60",
+          "lessThan": "101"
         },
         "fpEnabled": true,
         "id": "01GZNv02yPT",
@@ -274,12 +280,12 @@ const details = () => ({
         }
       },
       {
-        "name": "Queue back to VMAF node",
+        "name": "Route to VMAF node",
         "sourceRepo": "Community",
         "pluginName": "tagsWorkerType",
         "version": "1.0.0",
         "inputsDB": {
-          "requiredWorkerType": "CPU",
+          "requiredWorkerType": "GPU",
           "requiredNodeTags": "vmaf"
         },
         "fpEnabled": true,
@@ -320,7 +326,7 @@ const details = () => ({
         }
       },
       {
-        "name": "Mark step: back on local",
+        "name": "Mark step: on vmaf node",
         "sourceRepo": "Local",
         "pluginName": "markStep",
         "version": "1.0.0",
@@ -346,7 +352,184 @@ const details = () => ({
         "id": "valRequireHc",
         "position": {
           "x": 1104,
-          "y": 396
+          "y": 288
+        }
+      },
+      {
+        "name": "Mark step: on vmaf node",
+        "sourceRepo": "Local",
+        "pluginName": "markStep",
+        "version": "1.0.0",
+        "inputsDB": {
+          "label": "validator-on-local"
+        },
+        "fpEnabled": true,
+        "id": "JbNGlNa6-",
+        "position": {
+          "x": 996,
+          "y": 588
+        }
+      },
+      {
+        "name": "Route to local node",
+        "sourceRepo": "Community",
+        "pluginName": "tagsWorkerType",
+        "version": "1.0.0",
+        "inputsDB": {
+          "requiredWorkerType": "CPU",
+          "requiredNodeTags": "mapped,local"
+        },
+        "fpEnabled": true,
+        "id": "rvn34_UFh",
+        "position": {
+          "x": 996,
+          "y": 552
+        }
+      },
+      {
+        "name": "Require Review",
+        "sourceRepo": "Community",
+        "pluginName": "requireReview",
+        "version": "1.0.0",
+        "id": "aeudfBdxG",
+        "position": {
+          "x": 456,
+          "y": 564
+        },
+        "fpEnabled": true
+      },
+      {
+        "name": "Route to local node (merge)",
+        "sourceRepo": "Community",
+        "pluginName": "tagsWorkerType",
+        "version": "1.0.0",
+        "inputsDB": {
+          "requiredNodeTags": "mapped,local",
+          "requiredWorkerType": "CPU"
+        },
+        "fpEnabled": true,
+        "id": "valRoute",
+        "position": {
+          "x": -120,
+          "y": -96
+        }
+      },
+      {
+        "name": "Mark step: on local node (merge)",
+        "sourceRepo": "Local",
+        "pluginName": "markStep",
+        "version": "1.0.0",
+        "inputsDB": {
+          "label": "validator-merged"
+        },
+        "fpEnabled": true,
+        "id": "valMark",
+        "position": {
+          "x": -120,
+          "y": -48
+        }
+      },
+      {
+        "name": "mkvmerge (final combine)",
+        "sourceRepo": "Local",
+        "pluginName": "mkvmergeExecute",
+        "version": "1.0.0",
+        "inputsDB": {
+          "mode": "combine",
+          "audioSubsDir": "/temp/.tdarr-remux-cache"
+        },
+        "fpEnabled": true,
+        "id": "valMerge",
+        "position": {
+          "x": -120,
+          "y": 0
+        }
+      },
+      {
+        "name": "Cleanup audio+subs cache file",
+        "sourceRepo": "Community",
+        "pluginName": "runCli",
+        "version": "1.0.0",
+        "inputsDB": {
+          "useCustomCliPath": "true",
+          "userCli": "mkvmerge",
+          "customCliPath": "/bin/sh",
+          "doesCommandCreateOutputFile": "false",
+          "cliArguments": "-c rm -f \"/temp/.tdarr-remux-cache/{{{args.originalLibraryFile.fileNameWithoutExtension}}}-audiosubs.mkv\"",
+          "outputFileBecomesWorkingFile": "false"
+        },
+        "fpEnabled": true,
+        "id": "valClean",
+        "position": {
+          "x": -120,
+          "y": 48
+        }
+      },
+      {
+        "name": "Route to local node (merge)",
+        "sourceRepo": "Community",
+        "pluginName": "tagsWorkerType",
+        "version": "1.0.0",
+        "inputsDB": {
+          "requiredNodeTags": "mapped,local",
+          "requiredWorkerType": "CPU"
+        },
+        "fpEnabled": true,
+        "id": "valRoutePT",
+        "position": {
+          "x": 1560,
+          "y": -96
+        }
+      },
+      {
+        "name": "Mark step: on local node (merge)",
+        "sourceRepo": "Local",
+        "pluginName": "markStep",
+        "version": "1.0.0",
+        "inputsDB": {
+          "label": "validator-merged-pt"
+        },
+        "fpEnabled": true,
+        "id": "valMarkPT",
+        "position": {
+          "x": 1560,
+          "y": -48
+        }
+      },
+      {
+        "name": "mkvmerge (final combine)",
+        "sourceRepo": "Local",
+        "pluginName": "mkvmergeExecute",
+        "version": "1.0.0",
+        "inputsDB": {
+          "mode": "combine",
+          "audioSubsDir": "/temp/.tdarr-remux-cache"
+        },
+        "fpEnabled": true,
+        "id": "valMergePT",
+        "position": {
+          "x": 1560,
+          "y": 0
+        }
+      },
+      {
+        "name": "Cleanup audio+subs cache file",
+        "sourceRepo": "Community",
+        "pluginName": "runCli",
+        "version": "1.0.0",
+        "inputsDB": {
+          "useCustomCliPath": "true",
+          "userCli": "mkvmerge",
+          "customCliPath": "/bin/sh",
+          "doesCommandCreateOutputFile": "false",
+          "cliArguments": "-c rm -f \"/temp/.tdarr-remux-cache/{{{args.originalLibraryFile.fileNameWithoutExtension}}}-audiosubs.mkv\"",
+          "outputFileBecomesWorkingFile": "false"
+        },
+        "fpEnabled": true,
+        "id": "valCleanPT",
+        "position": {
+          "x": 1560,
+          "y": 48
         }
       }
     ],
@@ -479,34 +662,6 @@ const details = () => ({
       },
       {
         "source": "vmafCheck1",
-        "sourceHandle": "1",
-        "target": "tagOutMeta",
-        "targetHandle": null,
-        "id": "vmafPassEdge"
-      },
-      {
-        "source": "vmafCheck1_10bit",
-        "sourceHandle": "1",
-        "target": "tagOutMeta",
-        "targetHandle": null,
-        "id": "vmaf10bitPassEdge"
-      },
-      {
-        "source": "vmafCheck4k",
-        "sourceHandle": "1",
-        "target": "tagOutMeta",
-        "targetHandle": null,
-        "id": "vmaf4kPassEdge"
-      },
-      {
-        "source": "vmafCheck4k_10bit",
-        "sourceHandle": "1",
-        "target": "tagOutMeta",
-        "targetHandle": null,
-        "id": "vmaf4k10bitPassEdge"
-      },
-      {
-        "source": "vmafCheck1",
         "sourceHandle": "2",
         "target": "WrieN1BV1",
         "targetHandle": null,
@@ -532,13 +687,6 @@ const details = () => ({
         "target": "WrieN1BV1",
         "targetHandle": null,
         "id": "vmaf4k10bitFailEdge"
-      },
-      {
-        "source": "FShP88xbjPT",
-        "sourceHandle": "1",
-        "target": "01GZNv02yPT",
-        "targetHandle": null,
-        "id": "rTL0zUBDZPT"
       },
       {
         "source": "01GZNv02yPT",
@@ -611,25 +759,11 @@ const details = () => ({
         "id": "jTlWGHyso"
       },
       {
-        "source": "tagOutMeta",
-        "sourceHandle": "1",
-        "target": "1g5GNL1MP",
-        "targetHandle": null,
-        "id": "tagMetaToReplace"
-      },
-      {
         "source": "valMarkHcQueue",
         "sourceHandle": "1",
         "target": "healthCheckPT",
         "targetHandle": null,
         "id": "reqOjochalToHCb"
-      },
-      {
-        "source": "valRequireHc",
-        "sourceHandle": "1",
-        "target": "tagOutMeta",
-        "targetHandle": null,
-        "id": "gateToTagMeta"
       },
       {
         "source": "valRequireHc",
@@ -646,18 +780,144 @@ const details = () => ({
         "id": "iR16UZ4VY"
       },
       {
-        "source": "FShP88xbj",
-        "sourceHandle": "1",
-        "target": "reqLocalPT",
-        "targetHandle": null,
-        "id": "qofAT2mS5"
-      },
-      {
         "source": "valMarkBackLocal",
         "sourceHandle": "1",
         "target": "01GZNv02y",
         "targetHandle": null,
         "id": "EZe8LFgOg"
+      },
+      {
+        "source": "tagOutMeta",
+        "sourceHandle": "1",
+        "target": "1g5GNL1MP",
+        "targetHandle": null,
+        "id": "451iXsWSo"
+      },
+      {
+        "source": "vmafCheck4k",
+        "sourceHandle": "1",
+        "target": "aeudfBdxG",
+        "targetHandle": null,
+        "id": "UC2r1oRbu"
+      },
+      {
+        "source": "vmafCheck4k_10bit",
+        "sourceHandle": "1",
+        "target": "aeudfBdxG",
+        "targetHandle": null,
+        "id": "UJEpTEnpK"
+      },
+      {
+        "source": "vmafCheck1",
+        "sourceHandle": "1",
+        "target": "aeudfBdxG",
+        "targetHandle": null,
+        "id": "VwOOUa6xp"
+      },
+      {
+        "source": "vmafCheck1_10bit",
+        "sourceHandle": "1",
+        "target": "aeudfBdxG",
+        "targetHandle": null,
+        "id": "RSFrtePrf"
+      },
+      {
+        "source": "aeudfBdxG",
+        "sourceHandle": "1",
+        "target": "rvn34_UFh",
+        "targetHandle": null,
+        "id": "WAJ5WW2eL"
+      },
+      {
+        "source": "valRequireHc",
+        "sourceHandle": "1",
+        "target": "rvn34_UFh",
+        "targetHandle": null,
+        "id": "jJ00OkqOj"
+      },
+      {
+        "source": "rvn34_UFh",
+        "sourceHandle": "1",
+        "target": "JbNGlNa6-",
+        "targetHandle": null,
+        "id": "OYzhHw0HF"
+      },
+      {
+        "source": "JbNGlNa6-",
+        "sourceHandle": "1",
+        "target": "tagOutMeta",
+        "targetHandle": null,
+        "id": "_DTW22_4d"
+      },
+      {
+        "source": "FShP88xbj",
+        "sourceHandle": "1",
+        "target": "valRoute",
+        "targetHandle": null,
+        "id": "eRE0"
+      },
+      {
+        "source": "valRoute",
+        "sourceHandle": "1",
+        "target": "valMark",
+        "targetHandle": null,
+        "id": "eRE1"
+      },
+      {
+        "source": "valMark",
+        "sourceHandle": "1",
+        "target": "valMerge",
+        "targetHandle": null,
+        "id": "eRE2"
+      },
+      {
+        "source": "valMerge",
+        "sourceHandle": "1",
+        "target": "valClean",
+        "targetHandle": null,
+        "id": "eRE3"
+      },
+      {
+        "source": "valClean",
+        "sourceHandle": "1",
+        "target": "reqLocalPT",
+        "targetHandle": null,
+        "id": "eRE4"
+      },
+      {
+        "source": "FShP88xbjPT",
+        "sourceHandle": "1",
+        "target": "valRoutePT",
+        "targetHandle": null,
+        "id": "ePT0"
+      },
+      {
+        "source": "valRoutePT",
+        "sourceHandle": "1",
+        "target": "valMarkPT",
+        "targetHandle": null,
+        "id": "ePT1"
+      },
+      {
+        "source": "valMarkPT",
+        "sourceHandle": "1",
+        "target": "valMergePT",
+        "targetHandle": null,
+        "id": "ePT2"
+      },
+      {
+        "source": "valMergePT",
+        "sourceHandle": "1",
+        "target": "valCleanPT",
+        "targetHandle": null,
+        "id": "ePT3"
+      },
+      {
+        "source": "valCleanPT",
+        "sourceHandle": "1",
+        "target": "01GZNv02yPT",
+        "targetHandle": null,
+        "id": "ePT4"
       }
     ]
   });
