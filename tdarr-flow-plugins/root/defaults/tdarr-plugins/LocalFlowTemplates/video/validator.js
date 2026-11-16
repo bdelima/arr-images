@@ -9,6 +9,7 @@
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
 // Synced to Bob's live "Validator (v12)" on 2026-11-15: a job that passes VMAF now goes through a new Require Review node, then Route to local node (CPU worker, tags mapped,local) and Mark step validator-on-local, before Tag Output Metadata; the passthrough path, once the health check gate passes, takes the same route. "Queue back to VMAF node" is now "Route to VMAF node" (GPU worker, tag vmaf). Compare File Size Ratio is 25 to 100 on the re-encode path and 60 to 101 on the passthrough path (was greater than 70 with no upper bound). The 8-bit Run VMAF node scores every 2nd frame at 50% of the CPU (the live flow had 38, a test value that was not restored) with minimums mean 92, frame 60, p1 70, and the 4K 10-bit mean minimum is 92.
 // Demux restructure, 2026-11-16: both entries now start with the merge. Route to local node (CPU worker, tags mapped,local), Mark step, mkvmerge Execute in combine mode (reads the audio+subs file the Stream Cleanup flow wrote to /temp/.tdarr-remux-cache and puts it together with the working file, which is the video-only file or the encode of it; removes the title and global tags), then a cleanup of the cache file; after that each entry continues with the node it started with before. The merge is duplicated for the two entries (valRoute/valMark/valMerge/valClean, and the same with the PT suffix).
+// 2026-11-16, later: on the re-encode path the merge now comes after VMAF, not before it (Run VMAF Quality Check reads only the video stream of the original and of the working file, so the video-only encode scores the same). Entry (re-encoded) goes straight to Route to VMAF node. After Require Review the re-encode path has its own Route to local node (valRoute), Mark step (valMark), mkvmerge combine (valMerge) and cache cleanup (valClean), then Tag Output Metadata; the shared Route to local node and Mark step validator-on-local now serve the passthrough path only. The Compare File Size Ratio node on the re-encode path is removed: it failed jobs wrongly, since a file can really compress to around 10% and still score high on VMAF. Compare File Duration Ratio stays, on the video-only file. The four Run VMAF Quality Check nodes score against the video-only file Split Streams (ffmpeg) wrote (Reference file = {{{args.variables.user.videoOnlySource}}}), not against the original library file; they fall back to the original if that file is gone. The passthrough path is unchanged (merge at the top, its own size ratio check).
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
@@ -27,22 +28,6 @@ const details = () => ({
         "position": {
           "x": 504,
           "y": -96
-        }
-      },
-      {
-        "name": "Compare File Size Ratio",
-        "sourceRepo": "Community",
-        "pluginName": "compareFileSizeRatio",
-        "version": "2.0.0",
-        "inputsDB": {
-          "greaterThan": "25",
-          "lessThan": "100"
-        },
-        "fpEnabled": true,
-        "id": "01GZNv02y",
-        "position": {
-          "x": 504,
-          "y": 24
         }
       },
       {
@@ -111,6 +96,7 @@ const details = () => ({
         "pluginName": "runVmaf",
         "version": "1.0.0",
         "inputsDB": {
+          "referenceFile": "{{{args.variables.user.videoOnlySource}}}",
           "pixelFormat": "yuv420p",
           "model": "default",
           "minMean": "92",
@@ -132,6 +118,7 @@ const details = () => ({
         "pluginName": "runVmaf",
         "version": "1.0.0",
         "inputsDB": {
+          "referenceFile": "{{{args.variables.user.videoOnlySource}}}",
           "pixelFormat": "yuv420p10le",
           "model": "default",
           "minMean": "93",
@@ -151,6 +138,7 @@ const details = () => ({
         "pluginName": "runVmaf",
         "version": "1.0.0",
         "inputsDB": {
+          "referenceFile": "{{{args.variables.user.videoOnlySource}}}",
           "pixelFormat": "yuv420p",
           "model": "vmaf_4k_v0.6.1",
           "minMean": "93",
@@ -170,6 +158,7 @@ const details = () => ({
         "pluginName": "runVmaf",
         "version": "1.0.0",
         "inputsDB": {
+          "referenceFile": "{{{args.variables.user.videoOnlySource}}}",
           "pixelFormat": "yuv420p10le",
           "model": "vmaf_4k_v0.6.1",
           "minMean": "92",
@@ -410,8 +399,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valRoute",
         "position": {
-          "x": -120,
-          "y": -96
+          "x": 456,
+          "y": 600
         }
       },
       {
@@ -425,8 +414,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valMark",
         "position": {
-          "x": -120,
-          "y": -48
+          "x": 456,
+          "y": 636
         }
       },
       {
@@ -441,8 +430,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valMerge",
         "position": {
-          "x": -120,
-          "y": 0
+          "x": 456,
+          "y": 672
         }
       },
       {
@@ -461,8 +450,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valClean",
         "position": {
-          "x": -120,
-          "y": 48
+          "x": 456,
+          "y": 708
         }
       },
       {
@@ -534,20 +523,6 @@ const details = () => ({
       }
     ],
     "flowEdges": [
-      {
-        "source": "01GZNv02y",
-        "sourceHandle": "1",
-        "target": "CUsET8PD3",
-        "targetHandle": null,
-        "id": "pzyuFoO69"
-      },
-      {
-        "source": "01GZNv02y",
-        "sourceHandle": "3",
-        "target": "WrieN1BV1",
-        "targetHandle": null,
-        "id": "4nXCOOWNQ"
-      },
       {
         "source": "CUsET8PD3",
         "sourceHandle": "2",
@@ -752,13 +727,6 @@ const details = () => ({
         "id": "reqLocalToReplace"
       },
       {
-        "source": "01GZNv02y",
-        "sourceHandle": "2",
-        "target": "WrieN1BV1",
-        "targetHandle": null,
-        "id": "jTlWGHyso"
-      },
-      {
         "source": "valMarkHcQueue",
         "sourceHandle": "1",
         "target": "healthCheckPT",
@@ -778,13 +746,6 @@ const details = () => ({
         "target": "valRequireHc",
         "targetHandle": null,
         "id": "iR16UZ4VY"
-      },
-      {
-        "source": "valMarkBackLocal",
-        "sourceHandle": "1",
-        "target": "01GZNv02y",
-        "targetHandle": null,
-        "id": "EZe8LFgOg"
       },
       {
         "source": "tagOutMeta",
@@ -822,13 +783,6 @@ const details = () => ({
         "id": "RSFrtePrf"
       },
       {
-        "source": "aeudfBdxG",
-        "sourceHandle": "1",
-        "target": "rvn34_UFh",
-        "targetHandle": null,
-        "id": "WAJ5WW2eL"
-      },
-      {
         "source": "valRequireHc",
         "sourceHandle": "1",
         "target": "rvn34_UFh",
@@ -850,13 +804,6 @@ const details = () => ({
         "id": "_DTW22_4d"
       },
       {
-        "source": "FShP88xbj",
-        "sourceHandle": "1",
-        "target": "valRoute",
-        "targetHandle": null,
-        "id": "eRE0"
-      },
-      {
         "source": "valRoute",
         "sourceHandle": "1",
         "target": "valMark",
@@ -876,13 +823,6 @@ const details = () => ({
         "target": "valClean",
         "targetHandle": null,
         "id": "eRE3"
-      },
-      {
-        "source": "valClean",
-        "sourceHandle": "1",
-        "target": "reqLocalPT",
-        "targetHandle": null,
-        "id": "eRE4"
       },
       {
         "source": "FShP88xbjPT",
@@ -918,6 +858,34 @@ const details = () => ({
         "target": "01GZNv02yPT",
         "targetHandle": null,
         "id": "ePT4"
+      },
+      {
+        "source": "FShP88xbj",
+        "sourceHandle": "1",
+        "target": "reqLocalPT",
+        "targetHandle": null,
+        "id": "eREntryToVmafNode"
+      },
+      {
+        "source": "valMarkBackLocal",
+        "sourceHandle": "1",
+        "target": "CUsET8PD3",
+        "targetHandle": null,
+        "id": "eREMarkToDuration"
+      },
+      {
+        "source": "aeudfBdxG",
+        "sourceHandle": "1",
+        "target": "valRoute",
+        "targetHandle": null,
+        "id": "eRERevToRoute"
+      },
+      {
+        "source": "valClean",
+        "sourceHandle": "1",
+        "target": "tagOutMeta",
+        "targetHandle": null,
+        "id": "eRECleanToTag"
       }
     ]
   });
