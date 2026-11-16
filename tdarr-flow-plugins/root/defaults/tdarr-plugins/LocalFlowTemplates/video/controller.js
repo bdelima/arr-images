@@ -114,7 +114,7 @@ const details = () => ({
         }
       },
       {
-        "name": "🚬 Returned from Converter Flow",
+        "name": "🛬 Returned from Converter Flow",
         "sourceRepo": "Community",
         "pluginName": "comment",
         "version": "1.0.0",
@@ -158,7 +158,7 @@ const details = () => ({
         }
       },
       {
-        "name": "🚬 Returned from Stream Cleanup Flow",
+        "name": "🛬 Returned from Stream Cleanup Flow",
         "sourceRepo": "Community",
         "pluginName": "comment",
         "version": "1.0.0",
