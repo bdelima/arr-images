@@ -1,7 +1,13 @@
 /* eslint-disable no-await-in-loop */
-// Run VMAF Quality Check: scores the working file (the encode) against the original library file with the CUDA VMAF
+// Run VMAF Quality Check: scores the working file (the encode) against a reference file with the CUDA VMAF
 // build on naples (ffmpeg-vmaf-cuda), one run at a time under a lock file, and checks the mean, the lowest frame (min) and
 // the 1st percentile (p1) of the per-frame scores against their minimums.
+//
+// Reference file: by default the original library file. The "Reference file" input can name another file, and the Validator
+// names the video-only file Split Streams (ffmpeg) wrote (Flow Variable user.videoOnlySource), which is the exact file the
+// encode was made from: it is a fraction of the size of a remux, so the read is much shorter, and it holds the same video
+// stream as the original, so the score is the same. The reference is only read for its video stream. A reference that is
+// empty, or that does not exist on this node, falls back to the original library file, and the job log says so.
 //
 // Outputs: 1 when every check passes, 2 when at least one check fails (the job log says which, with the score and the
 // minimum). A failed quality check no longer throws, so the flow can decide what to do with the file; wire output 2 to Fail Flow
@@ -55,7 +61,7 @@
 
 const details = () => ({
   name: 'Run VMAF Quality Check',
-  description: 'Scores the working file against the original library file with ffmpeg-vmaf-cuda: on a node with an NVIDIA GPU '
+  description: 'Scores the working file against the original library file (or the file named in Reference file) with ffmpeg-vmaf-cuda: on a node with an NVIDIA GPU '
     + 'with libvmaf_cuda (one run at a time under a lock file), on a node without one with the CPU libvmaf filter (no lock, '
     + 'threads capped). Shows progress in the Tdarr worker, logs "VMAF score: mean= min= harmonic_mean= p1= n=" followed by the number of '
     + 'frames below each score in Count frames below, sets the Flow '
@@ -74,6 +80,16 @@ const details = () => ({
   sidebarPosition: -1,
   icon: '',
   inputs: [
+    {
+      name: 'referenceFile',
+      label: 'Reference file',
+      type: 'string',
+      defaultValue: '',
+      inputUI: { type: 'text' },
+      tooltip: 'Full path of the file to score against. Empty = the original library file. The Validator sets this to '
+        + '{{{args.variables.user.videoOnlySource}}}, the video-only file Split Streams (ffmpeg) wrote, which the encode was made from. '
+        + 'If the file does not exist on this node, the original library file is used and the job log says so.',
+    },
     {
       name: 'pixelFormat',
       type: 'string',
@@ -351,8 +367,21 @@ const plugin = async (args) => {
   // the log path is written into ffmpeg's filter graph, where ':' ',' ';' quotes and spaces are special
   if (!/^[A-Za-z0-9_./-]+$/.test(tempDir)) fail(`tempDir "${tempDir}" may only contain letters, digits, / . _ -`);
 
-  const reference = args.originalLibraryFile && args.originalLibraryFile._id;
+  const originalFile = args.originalLibraryFile && args.originalLibraryFile._id;
   const distorted = args.inputFileObj._id;
+  // the reference: the file named in the input when it is there, else the original library file
+  let reference = originalFile;
+  let referenceKind = 'original';
+  const wanted = String(args.inputs.referenceFile === undefined || args.inputs.referenceFile === null ? '' : args.inputs.referenceFile).trim();
+  if (wanted === '' || wanted === 'undefined' || wanted === 'null') {
+    log('no reference file set (no video-only file from Split Streams): scoring against the original library file');
+  } else if (!fs.existsSync(wanted)) {
+    log(`warning: the reference file ${wanted} does not exist on this node: scoring against the original library file instead`);
+  } else {
+    reference = wanted;
+    referenceKind = 'video-only';
+    log(`reference file: ${wanted}`);
+  }
   if (!reference || !fs.existsSync(reference)) fail(`the original file ${reference} does not exist on this node`);
   if (!fs.existsSync(distorted)) fail(`the working file ${distorted} does not exist on this node`);
   if (!fs.existsSync(ffmpegPath)) fail(`${ffmpegPath} does not exist on this node (is the tdarr-vmaf-cuda overlay installed?)`);
@@ -406,11 +435,11 @@ const plugin = async (args) => {
       tdarrFfmpegPath: args.ffmpegPath, file, timeoutMs: 30 * 60 * 1000,
     })));
     if (refCount.error || distCount.error) {
-      log(`warning: could not compare frame counts (original: ${refCount.error || refCount.frames}; working file: ${distCount.error || distCount.frames}); scoring anyway`);
+      log(`warning: could not compare frame counts (reference: ${refCount.error || refCount.frames}; working file: ${distCount.error || distCount.frames}); scoring anyway`);
     } else if (refCount.frames !== distCount.frames) {
       const diff = distCount.frames - refCount.frames;
-      log(`frame counts differ: original ${refCount.frames}, working file ${distCount.frames} (${diff > 0 ? '+' : ''}${diff})`);
-      fail(`the original has ${refCount.frames} video frames and the working file has ${distCount.frames}; frames are paired by number, so `
+      log(`frame counts differ: reference (${referenceKind}) ${refCount.frames}, working file ${distCount.frames} (${diff > 0 ? '+' : ''}${diff})`);
+      fail(`the reference (${referenceKind}) has ${refCount.frames} video frames and the working file has ${distCount.frames}; frames are paired by number, so `
         + 'a score would not mean anything. Not running VMAF.');
     } else {
       log(`both files have ${refCount.frames} video frames (counted in ${Math.round((Date.now() - countStarted) / 100) / 10} s)`);

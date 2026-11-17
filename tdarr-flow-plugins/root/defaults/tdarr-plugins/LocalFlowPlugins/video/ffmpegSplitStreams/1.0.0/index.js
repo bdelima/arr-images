@@ -18,6 +18,9 @@
  * by the combine step (mkvmerge --title "" --no-global-tags). Stream language, title and default/forced flags are
  * copied. Chapters are copied into both files (mkvmerge Execute combine keeps one set, checked on a real file).
  *
+ * The path of the video-only file is also stored in the Flow Variable user.videoOnlySource, so the Validator can score the
+ * encode against it (Run VMAF Quality Check, Reference file) instead of against the much larger original.
+ *
  * Only stream selection is translated from the command. Other ffmpeg arguments in it (output arguments, overall
  * arguments) cannot apply to a stream copy and are logged as ignored.
  *
@@ -234,6 +237,12 @@ const plugin = async (args) => {
 
   // the next Begin Command starts a fresh command on the new working file
   cmd.init = false;
+
+  // Where the video-only file is, for later steps that want the exact file the encode is made from: Run VMAF Quality Check's
+  // Reference file input reads {{{args.variables.user.videoOnlySource}}}. The file stays in the job's work directory.
+  args.variables = args.variables || {};
+  if (!args.variables.user) args.variables.user = {};
+  args.variables.user.videoOnlySource = videoOut;
 
   return { outputFileObj: { _id: videoOut }, outputNumber: 1, variables: args.variables };
 };
