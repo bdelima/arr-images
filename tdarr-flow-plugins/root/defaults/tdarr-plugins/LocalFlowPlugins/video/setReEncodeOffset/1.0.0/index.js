@@ -2,15 +2,19 @@
  * Set Re-Encode Offset — Local Flow Plugin
  *
  * A sibling of Set Quality With Node Offset. Where that plugin adds the encode node's own offset to the baseline
- * quality once, this one lowers the quality number a further step every time the flow reaches it, so a re-encode
- * (for example after the Validator's VMAF score came in under its threshold) is run at a better quality than the pass
- * before it. A lower number means better quality and a bigger file, so the offset only ever goes down.
+ * quality once, this one changes the quality number by a further step every time the flow reaches it, so a re-encode
+ * (for example after a VMAF score came in under its threshold) is run at a better quality than the pass before it. A
+ * lower number means better quality and a bigger file, so with the default settings the offset only ever goes down.
  *
  * Each run:
  *
- *   1. Adds "Quality steps per re-encode" (default 1) to a running offset kept in the Flow Variable reEncodeOffset
- *      (a whole number, 0 or below; missing counts as 0). The new value is written back, so it carries to the next pass
- *      and across Go To Flow like tdarrQuality does.
+ *   1. Works out the offset for this pass. The offset is kept in the Flow Variable reEncodeOffset (a whole number), so it
+ *      carries to the next pass and across Go To Flow like tdarrQuality does:
+ *
+ *        - The first time the flow reaches this plugin (the variable is not set, or is not a whole number), the offset is
+ *          "Starting offset" (default 0), so the first pass runs at the quality that is already on the stream.
+ *        - Every later time it is the previous offset minus "Quality steps per re-encode" (default 1).
+ *
  *   2. Applies it to the first video stream Set Video Encoder is transcoding (a stream still set to copy is skipped):
  *
  *        final quality = base quality + reEncodeOffset, kept between 1 and 51
@@ -27,8 +31,9 @@
  *   recorded and the job log says so.
  *
  * Output 1: the offset was recorded (and applied, where there was a stream to apply it to).
- * Output 2: the quality was already at 1 before this run, so there is nothing lower to try. The offset is still
- *           recorded. Wire it to Fail Flow, or leave it unwired to stop the loop where it is.
+ * Output 2: the quality on the previous pass was already at 1, so there is nothing lower to try. The first pass never
+ *           leaves through output 2. The offset is still recorded. Wire it to Fail Flow, or leave it unwired to stop
+ *           the loop where it is.
  *
  * Only the first transcoded video stream is changed: the Converter works on a video-only file, so there is one.
  * This plugin never fails the flow.
@@ -36,8 +41,8 @@
 
 const details = () => ({
   name: 'Set Re-Encode Offset',
-  description: 'Lowers the quality number by a step each time the flow reaches it (Flow Variable reEncodeOffset) and '
-    + 'applies it to the first transcoded video stream, for re-encoding at a better quality after a low VMAF score. '
+  description: 'On the first pass applies a starting offset (default 0) to the quality number, and on every later pass '
+    + 'lowers it by a step (Flow Variable reEncodeOffset), for re-encoding at a better quality after a low VMAF score. '
     + 'Place it just above Tag Encode Settings.',
   style: { borderColor: '#6efefc' },
   tags: 'video',
@@ -48,18 +53,29 @@ const details = () => ({
   icon: '',
   inputs: [
     {
+      label: 'Starting offset',
+      name: 'startOffset',
+      type: 'number',
+      defaultValue: '0',
+      inputUI: { type: 'text' },
+      tooltip: 'The offset applied to the quality number on the first pass, the first time the flow reaches this plugin '
+        + 'for a job. A whole number. 0 runs the first pass at the quality already on the stream; a negative number '
+        + 'lowers the quality number (better quality, bigger file) from the first pass. Anything else counts as 0.',
+    },
+    {
       label: 'Quality steps per re-encode',
       name: 'step',
       type: 'number',
       defaultValue: '1',
       inputUI: { type: 'text' },
-      tooltip: 'How many quality steps to lower the number by each time the flow reaches this plugin. A whole number '
-        + 'from 1 up; anything else counts as 1. A lower number means better quality and a bigger file.',
+      tooltip: 'How many quality steps to lower the number by each time the flow reaches this plugin after the first '
+        + 'pass. A whole number from 1 up; anything else counts as 1. A lower number means better quality and a '
+        + 'bigger file.',
     },
   ],
   outputs: [
     { number: 1, tooltip: 'Offset recorded and applied; continue' },
-    { number: 2, tooltip: 'The quality was already at the lowest number (1): nothing lower to try' },
+    { number: 2, tooltip: 'The quality on the previous pass was already at the lowest number (1): nothing lower to try' },
   ],
 });
 
@@ -76,12 +92,10 @@ const parseQuality = (raw) => {
   return n >= MIN_QUALITY && n <= MAX_QUALITY ? n : undefined;
 };
 
-// The running offset: a whole number, 0 or below. Anything else (missing, "undefined", a positive number) is 0.
+// An offset: a whole number of either sign. Anything else (missing, "undefined", 2.5, text) is undefined.
 const parseOffset = (raw) => {
   const text = String(raw === undefined || raw === null ? '' : raw).trim();
-  if (!/^-?\d+$/.test(text)) return 0;
-  const n = Number(text);
-  return n < 0 ? n : 0;
+  return /^-?\d+$/.test(text) ? Number(text) : undefined;
 };
 
 // The quality flag already on the stream (the first of QUALITY_FLAGS that has a value after it), with its position.
@@ -114,9 +128,16 @@ const plugin = async (args) => {
 
   const stepInput = Number(args.inputs.step);
   const step = Number.isInteger(stepInput) && stepInput >= 1 ? stepInput : 1;
+  const startInput = parseOffset(args.inputs.startOffset);
+  const start = startInput === undefined ? 0 : startInput;
+
+  // The offset kept from the last pass; undefined on the first pass.
   const previous = parseOffset(user.reEncodeOffset);
-  const offset = previous - step;
+  const first = previous === undefined;
+  const offset = first ? start : previous - step;
   user.reEncodeOffset = String(offset);
+  const change = first ? `first pass, offset ${offset} (starting offset ${start})`
+    : `offset ${previous} -> ${offset} (step ${step})`;
 
   const command = args.variables.ffmpegCommand;
   const streams = command && Array.isArray(command.streams) ? command.streams : [];
@@ -125,7 +146,7 @@ const plugin = async (args) => {
     && !['', 'copy'].includes(String(s.outputArgs[s.outputArgs.indexOf('-c:{outputIndex}') + 1] || '')));
 
   if (!stream) {
-    log(`offset now ${offset} (was ${previous}, step ${step}); no transcoded video stream to apply it to here, only recorded`);
+    log(`${change}; no transcoded video stream to apply it to here, only recorded`);
     return done(1);
   }
 
@@ -143,13 +164,13 @@ const plugin = async (args) => {
     baseNote = 'Flow Variable tdarrQuality (no quality flag on the stream)';
   }
   if (base === undefined) {
-    log(`offset now ${offset} (was ${previous}, step ${step}); no base quality (no remembered one, no quality flag, no `
-      + 'tdarrQuality), leaving the quality as it is');
+    log(`${change}; no base quality (no remembered one, no quality flag, no tdarrQuality), leaving the quality as it is`);
     return done(1);
   }
   user.reEncodeBaseQuality = String(base);
 
-  const atFloor = clamp(base + previous) === MIN_QUALITY;
+  // The previous pass was at the floor if its quality (base + its offset) was already 1. The first pass has no previous.
+  const atFloor = !first && clamp(base + previous) === MIN_QUALITY;
   const wanted = base + offset;
   const final = clamp(wanted);
   const flag = found ? found.flag : qualityFlagFor(encoder);
@@ -158,11 +179,11 @@ const plugin = async (args) => {
   } else {
     stream.outputArgs.push(flag, String(final));
   }
-  log(`offset ${previous} -> ${offset} (step ${step}); base ${base} (${baseNote}) -> ${flag} ${final}`
+  log(`${change}; base ${base} (${baseNote}) -> ${flag} ${final}`
     + `${final !== wanted ? ` (${wanted} limited to ${MIN_QUALITY}-${MAX_QUALITY})` : ''}`);
 
   if (atFloor) {
-    log(`the quality was already at ${MIN_QUALITY} before this run, nothing lower to try (output 2)`);
+    log(`the quality on the previous pass was already at ${MIN_QUALITY}, nothing lower to try (output 2)`);
     return done(2);
   }
   return done(1);
