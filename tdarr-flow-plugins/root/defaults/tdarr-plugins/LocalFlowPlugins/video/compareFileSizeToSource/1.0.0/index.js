@@ -10,6 +10,9 @@
  * Both sizes are read from the files themselves, in bytes, on the node the plugin runs on. The reference file has to be
  * reachable from that node under the path given, the same way Run VMAF Quality Check needs its reference file.
  *
+ * A node that leaves the Reference file input empty or at its default needs nothing set: the plugin reads the Flow
+ * Variable videoOnlySource itself. Any other value (a path, or a template Tdarr resolves) is used as given.
+ *
  * Output 1: the working file is smaller than the reference file. Continue (another pass can still help).
  * Output 2: the working file is the same size as the reference file, or larger. Stop re-encoding.
  *
@@ -19,6 +22,11 @@
  */
 
 const fs = require('fs');
+
+// The default of the Reference file input. Tdarr fills a default in inside the plugin, after it has resolved the
+// templates in the inputs a flow node sets, so a node that leaves the input alone can hand the plugin this text as it
+// is. The plugin reads the Flow Variable itself in that case (see below).
+const DEFAULT_REFERENCE = '{{{args.variables.user.videoOnlySource}}}';
 
 const details = () => ({
   name: 'Compare File Size To Source',
@@ -36,10 +44,11 @@ const details = () => ({
       label: 'Reference file',
       name: 'referenceFile',
       type: 'string',
-      defaultValue: '{{{args.variables.user.videoOnlySource}}}',
+      defaultValue: DEFAULT_REFERENCE,
       inputUI: { type: 'text' },
       tooltip: 'Path of the file the working file is compared with. It must be readable from the node this plugin '
-        + 'runs on. Supports templating. Default: the video-only source, {{{args.variables.user.videoOnlySource}}}.',
+        + 'runs on. Supports templating. Leave it as it is (or empty) to use the video-only source, the Flow Variable '
+        + 'videoOnlySource.',
     },
   ],
   outputs: [
@@ -70,10 +79,17 @@ const plugin = async (args) => {
     throw new Error(`Compare File Size To Source: ${m}`);
   };
 
-  const reference = String(args.inputs.referenceFile === undefined || args.inputs.referenceFile === null
+  let reference = String(args.inputs.referenceFile === undefined || args.inputs.referenceFile === null
     ? '' : args.inputs.referenceFile).trim();
+  // An empty input, or the default left alone, means the video-only source. Read the Flow Variable here rather than
+  // relying on the template having been resolved.
+  if (reference === '' || reference === DEFAULT_REFERENCE) {
+    const variable = args.variables && args.variables.user ? args.variables.user.videoOnlySource : undefined;
+    reference = String(variable === undefined || variable === null ? '' : variable).trim();
+  }
   if (reference === '' || reference === 'undefined') {
-    fail('no reference file (the Reference file input is empty, or the Flow Variable it names is not set)');
+    fail('no reference file (the Reference file input is empty and the Flow Variable videoOnlySource is not set, '
+      + 'or the template in the input resolved to nothing)');
   }
 
   const working = String(args.inputFileObj && args.inputFileObj._id ? args.inputFileObj._id : '').trim();

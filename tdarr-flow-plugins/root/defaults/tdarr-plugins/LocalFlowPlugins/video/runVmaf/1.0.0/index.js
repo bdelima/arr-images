@@ -15,6 +15,15 @@
 // failing, no log, a different number of video frames in the two files, missing files or tools, bad input values.
 // Minimums: mean (default 93, as before), min (default 50) and p1 (default 70); min and p1 are off when set to 0.
 //
+// Minimums per quality tier: the input "Minimums per quality tier" lists lines such as better=90,75,85, meaning tier
+// better gets a minimum mean of 90, a minimum frame score (min) of 75 and a minimum p1 of 85 (always in that order: mean,
+// min, p1). The tier is the library variable qualityTier (args.userVariables.library.qualityTier), matched without regard
+// to case, the same variable Set Quality With Tier Offset reads. When a tier is set and listed, its three numbers are used
+// for the checks instead of the three minimum inputs; otherwise (no qualityTier, a tier that is not listed, or an empty
+// list) the three minimum inputs are used as before. A tier's min or p1 of 0 turns that check off, like the inputs. Lines
+// are separated by new lines or semicolons. A line that is not a name, "=" and three numbers from 0 to 100 fails the job,
+// like a bad minimum input does. The job log says which minimums were used and why.
+//
 // It replaces the four Run CLI nodes the Validator flow used (a /bin/sh -c script each). Tdarr's CLI helper only reads
 // progress from ffmpeg, HandBrake and a few other encoders (it goes by the program name), so a /bin/sh step showed no
 // progress and looked hung for the 10 to 15 minutes a 2 hour file takes. This plugin starts `flock <lock> ffmpeg-vmaf-cuda`
@@ -128,6 +137,18 @@ const details = () => ({
         + '0 = not checked. Uncalibrated starting value.',
     },
     {
+      name: 'tierThresholds',
+      label: 'Minimums per quality tier',
+      type: 'string',
+      defaultValue: '',
+      inputUI: { type: 'textarea' },
+      tooltip: 'Optional. One line per quality tier: tier=mean,min,p1, for example better=90,75,85 (minimum mean, minimum '
+        + 'frame score, minimum p1, in that order; 0 turns min or p1 off). Lines are separated by new lines or semicolons. '
+        + 'The tier is the library variable qualityTier, matched without regard to case. When a tier is set and listed, '
+        + 'its three numbers replace the three minimums above; with no tier, a tier that is not listed, or an empty list, '
+        + 'the minimums above are used. A line that is not a name, = and three numbers from 0 to 100 fails the job.',
+    },
+    {
       name: 'countBelow',
       label: 'Count frames below',
       type: 'string',
@@ -223,6 +244,38 @@ const parseCountBelow = (text) => {
   const list = values.filter((v, i) => values.indexOf(v) === i).sort((a, b) => a - b);
   if (list.length > 8) return { error: `${list.length} scores listed, at most 8 are counted` };
   return list;
+};
+
+// "better=90,75,85" lines (new lines or semicolons between them) -> Map of lower-cased tier name to { minMean,
+// minFrameScore, minP1 }. A later line for the same tier wins. Any line that is not a name, "=" and three numbers from 0 to
+// 100 gives { error } (the plugin fails the job on a bad input value, as it does for the minimums).
+const parseTierThresholds = (text) => {
+  const tiers = new Map();
+  const lines = String(text === undefined || text === null ? '' : text).split(/[\n;]+/);
+  for (let i = 0; i < lines.length; i += 1) {
+    const entry = lines[i].trim();
+    if (entry !== '') {
+      const m = /^([^=]+)=(.*)$/.exec(entry);
+      const name = m ? m[1].trim().toLowerCase() : '';
+      const parts = m ? m[2].split(',').map((p) => p.trim()) : [];
+      const values = parts.map((p) => (/^\d+(\.\d+)?$/.test(p) ? Number(p) : NaN));
+      if (name === '' || parts.length !== 3 || values.some((v) => !(v >= 0 && v <= 100))) {
+        return { error: `"${entry}" is not a tier name, "=" and three numbers from 0 to 100 (mean,min,p1)` };
+      }
+      tiers.set(name, { minMean: values[0], minFrameScore: values[1], minP1: values[2] });
+    }
+  }
+  return tiers;
+};
+
+// The library variable qualityTier, trimmed; '' when it is not set.
+const tierOf = (args) => {
+  try {
+    const value = args.userVariables && args.userVariables.library && args.userVariables.library.qualityTier;
+    return String(value === undefined || value === null ? '' : value).trim();
+  } catch (e) {
+    return '';
+  }
 };
 
 // Reads libvmaf's JSON log (pretty printed: one `"vmaf": <number>` line per frame, then pooled_metrics) without loading
@@ -344,9 +397,9 @@ const plugin = async (args) => {
 
   const pixelFormat = String(args.inputs.pixelFormat).trim();
   const model = String(args.inputs.model).trim();
-  const minMean = num(args.inputs.minMean);
-  const minFrameScore = num(args.inputs.minFrameScore);
-  const minP1 = num(args.inputs.minP1);
+  let minMean = num(args.inputs.minMean);
+  let minFrameScore = num(args.inputs.minFrameScore);
+  let minP1 = num(args.inputs.minP1);
   const ffmpegPath = String(args.inputs.ffmpegPath).trim();
   const flockPath = String(args.inputs.flockPath).trim();
   const lockFile = String(args.inputs.lockFile).trim();
@@ -360,6 +413,21 @@ const plugin = async (args) => {
   if (!Number.isFinite(minMean)) fail(`minimum mean "${args.inputs.minMean}" is not a number`);
   if (!Number.isFinite(minFrameScore)) fail(`minimum frame score "${args.inputs.minFrameScore}" is not a number`);
   if (!Number.isFinite(minP1)) fail(`minimum p1 "${args.inputs.minP1}" is not a number`);
+  // Minimums per quality tier: a set and listed qualityTier replaces the three minimums above (see the header).
+  const tierList = parseTierThresholds(args.inputs.tierThresholds);
+  if (tierList.error) fail(`minimums per quality tier: ${tierList.error}`);
+  let tierNote = '';
+  if (tierList.size > 0) {
+    const tier = tierOf(args);
+    const listed = tier !== '' ? tierList.get(tier.toLowerCase()) : undefined;
+    if (listed) {
+      ({ minMean, minFrameScore, minP1 } = listed);
+      tierNote = ` (tier ${tier}, from the tier list)`;
+    } else {
+      tierNote = tier === '' ? ' (qualityTier is not set, so the minimum inputs are used)'
+        : ` (tier ${tier} is not in the tier list, so the minimum inputs are used)`;
+    }
+  }
   if (!Number.isInteger(cpuPercent) || cpuPercent < 1 || cpuPercent > 100) fail(`CPU path: percent of the node CPUs "${args.inputs.cpuPercent}" is not a whole number from 1 to 100`);
   if (!Number.isInteger(frameStep) || frameStep < 1 || frameStep > 10) fail(`CPU path: score every Nth frame "${args.inputs.frameStep}" is not a whole number from 1 to 10`);
   const countBelow = parseCountBelow(args.inputs.countBelow);
@@ -474,7 +542,7 @@ const plugin = async (args) => {
   };
   const duration = durationOf();
 
-  log(`${model === 'default' ? 'default model' : model}, ${pixelFormat}, frames paired by number at ${rate.text} fps${step > 1 ? `, every ${ordinal(step)} frame scored` : ''}, minimum mean ${minMean}, min ${minFrameScore > 0 ? minFrameScore : 'not checked'}, p1 ${minP1 > 0 ? minP1 : 'not checked'}; `
+  log(`${model === 'default' ? 'default model' : model}, ${pixelFormat}, frames paired by number at ${rate.text} fps${step > 1 ? `, every ${ordinal(step)} frame scored` : ''}, minimum mean ${minMean}, min ${minFrameScore > 0 ? minFrameScore : 'not checked'}, p1 ${minP1 > 0 ? minP1 : 'not checked'}${tierNote}; `
     + `${distorted} against ${reference}${duration > 0 ? '' : ' (duration unknown, so no percentage)'}`);
   log(useGpu ? `waiting for ${lockFile} if another VMAF run holds it, then ${ffmpegPath} runs` : `${ffmpegPath} runs now (the CPU path takes no lock)`);
 
