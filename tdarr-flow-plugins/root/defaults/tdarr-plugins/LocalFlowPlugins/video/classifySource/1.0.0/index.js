@@ -18,15 +18,15 @@
  * rather than assuming stream index 0 — some files have an embedded cover-art/attachment
  * image stream ahead of the real video stream, so index-0 templating would misclassify those.
  *
- *   Output 1:  h264 (HDR/DoVi or not)
- *   Output 2:  hevc, not HDR/DoVi
- *   Output 3:  hevc, HDR/DoVi (any Dolby Vision profile except 4 and 5)
- *   Output 4:  hevc, Dolby Vision Profile 4 or 5
- *   Output 5:  av1, not HDR/DoVi
- *   Output 6:  av1, HDR/DoVi (any Dolby Vision profile except 4 and 5)
- *   Output 7:  av1, Dolby Vision Profile 4 or 5
- *   Output 8:  legacy (vc1/mpeg2video/mpeg4/vp8/wmv2/wmv3), HDR/DoVi or not
- *   Output 9:  other/unrecognized, not HDR/DoVi
+ *   Output 1:  h264
+ *   Output 2:  hevc
+ *   Output 3:  hevc+HDR/DoVi
+ *   Output 4:  hevc+DoVi 4/5
+ *   Output 5:  av1
+ *   Output 6:  av1+HDR/DoVi
+ *   Output 7:  av1+DoVi 4/5
+ *   Output 8:  legacy (vc1/mpeg2video/mpeg4/vp8/wmv2/wmv3)
+ *   Output 9:  other/unrecognized
  *   Output 10: other/unrecognized, HDR/DoVi
  *
  * It also sets the Flow Variable user.tdarrSourceClass to the codec bucket (h264, hevc, av1, legacy, other), with
@@ -40,7 +40,7 @@ const SEPARATE_DOVI_PROFILES = [4, 5];
 
 const details = () => ({
   name: 'Classify Source',
-  description: 'Sorts the source into one output per class: h264, hevc, hevc HDR/DoVi, hevc DoVi Profile 4/5, av1, av1 HDR/DoVi, av1 DoVi Profile 4/5, legacy, other, other HDR/DoVi - no routing decisions.',
+  description: 'One output per source class (codec, HDR/DoVi, Dolby Vision 4/5) - no routing decisions.',
   style: { borderColor: '#6efefc' },
   tags: 'video',
   isStartPlugin: false,
@@ -50,15 +50,15 @@ const details = () => ({
   icon: '',
   inputs: [],
   outputs: [
-    { number: 1, tooltip: 'h264 (HDR/DoVi or not)' },
-    { number: 2, tooltip: 'hevc, not HDR/DoVi' },
-    { number: 3, tooltip: 'hevc, HDR/DoVi (any Dolby Vision profile except 4 and 5)' },
-    { number: 4, tooltip: 'hevc, Dolby Vision Profile 4 or 5' },
-    { number: 5, tooltip: 'av1, not HDR/DoVi' },
-    { number: 6, tooltip: 'av1, HDR/DoVi (any Dolby Vision profile except 4 and 5)' },
-    { number: 7, tooltip: 'av1, Dolby Vision Profile 4 or 5' },
-    { number: 8, tooltip: 'legacy (vc1/mpeg2video/mpeg4/vp8/wmv2/wmv3), HDR/DoVi or not' },
-    { number: 9, tooltip: 'other/unrecognized, not HDR/DoVi' },
+    { number: 1, tooltip: 'h264' },
+    { number: 2, tooltip: 'hevc' },
+    { number: 3, tooltip: 'hevc+HDR/DoVi' },
+    { number: 4, tooltip: 'hevc+DoVi 4/5' },
+    { number: 5, tooltip: 'av1' },
+    { number: 6, tooltip: 'av1+HDR/DoVi' },
+    { number: 7, tooltip: 'av1+DoVi 4/5' },
+    { number: 8, tooltip: 'legacy (vc1/mpeg2video/mpeg4/vp8/wmv2/wmv3)' },
+    { number: 9, tooltip: 'other/unrecognized' },
     { number: 10, tooltip: 'other/unrecognized, HDR/DoVi' },
   ],
 });
