@@ -56,7 +56,12 @@ const details = () => ({
       name: 'nodeOffsets',
       type: 'string',
       defaultValue: '',
-      inputUI: { type: 'textarea' },
+      inputUI: {
+        type: 'textarea',
+        style: {
+          height: '140px',
+        },
+      },
       tooltip: 'One node=offset pair per line (commas and semicolons also separate pairs), for example '
         + 'drakebay-gpu=-3. The node name is the name Tdarr shows for the node the job is running on, matched without '
         + 'regard to case. The offset is added to the baseline quality: a node that writes fewer bits for the same '
