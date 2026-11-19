@@ -1,45 +1,30 @@
 'use strict';
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
-// Live Tdarr flow "Validator" (original flow _id: Yaax7LBej), exported 2026-11-08, plus a Tag Output Metadata node (id tagOutMeta) in front of Replace Original File. On 2026-11-10 the node positions and the passthrough size floor (Compare File Size Ratio (passthrough) greaterThan 70, was 25) were taken from Bob's live "Validator (0.5.1)". The four VMAF nodes (ids vmafCheck1, vmafCheck1_10bit, vmafCheck4k, vmafCheck4k_10bit) are instances of the Local plugin runVmaf instead of Run CLI shell scripts; same names, positions and edges.
-// Brought up to the live "Validator (0.6.0)" on 2026-11-10 (the version suffix is stamped on at image build, so the name here stays plain). Changes from that update: node id reqLocalPT is now "Queue back to VMAF node" (CPU worker, node tag vmaf, was "Queue back to local" with tag local) and sits at the start of the re-encode path (Entry re-encoded -> Queue back to VMAF node -> Mark step: back on local -> Compare File Size Ratio); the passthrough path now goes from Mark step: thorough health check done straight to Require health check before Replace; node positions moved. The Require health check before Replace gate (valRequireHc) requires validator-hc-queue and validator-hc-done only. The live 0.6.0 flow also listed validator-back-local there, but that mark is now stamped only on the re-encode path, which does not go through the gate, so requiring it failed every passthrough job; it is removed from the gate here.
-// Run VMAF Quality Check now has a second output (any of mean, min or p1 below its minimum), and each of the four VMAF nodes sends it to the Fail Flow node, so a quality failure still ends the job in error as it did when the plugin threw. The nodes also list the minimums explicitly: minMean 93, minFrameScore 50, minP1 70 (min and p1 are new; 0 turns one off).
+// Live Tdarr flow "Muxer" (original flow _id: Yaax7LBej; it was called "Validator" until 2026-11-18), brought up to Bob's live "Muxer (v14)" on 2026-11-18 (the version suffix is stamped on at image build, so the name here stays plain). It puts the audio+subs file back together with the video-only file (mkvmerge Execute in combine mode), routes the job to the node that does the merge, and ends in Tag Output Metadata and Replace Original File. The VMAF nodes, the 4K and 10-bit checks and the Require Review node that the older Validator template had are not in the live flow, so they are not here.
+// Entry from Encoder Flow (re-encoded) (QgTm1GUmZ) goes to Classify Source (ViEmkfGP4); its outputs 2, 4, 6, 8 and 10 (the HDR and Dolby Vision classes) go to the Dolby Vision / HDR10+ re-injection, the others (1, 3, 5, 7, 9) to the merge as before. Entry from Controller Flow (final merge) (FShP88xbjPT) goes straight to the merge. After the merge both paths go through Compare File Duration Ratio, Queue Full Healthcheck and Run Thorough Health Check, the Require health check before Replace gate, Route to local node and Mark step, then Tag Output Metadata and Replace Original File.
+// Dolby Vision / HDR10+ re-injection, added 2026-11-18: Route to a local node (injRoute, CPU worker, tags mapped,local), Mark step validator-inject-start (injMark), then one node per step, each a Local plugin (DoVi/HDR: Look In Source, HDR10+: Extract From Source, Dolby Vision: Extract RPU From Source, DoVi/HDR: Count Encode Frames, Dolby Vision: Check RPU Frame Count, DoVi/HDR: Write Raw HEVC Stream, HDR10+: Inject Into Stream, Dolby Vision: Inject RPU Into Stream, DoVi/HDR: Mux To MKV, DoVi/HDR: Verify Result, DoVi/HDR: Clean Up Work Files). A source with neither goes straight on to the merge; Profile 4, Profile 5 and any other unsupported Dolby Vision profile, a frame count mismatch, metadata that does not fit the stream and a failed read-back go to Fail Flow. The steps share their results in the Flow Variables user.inj*; the working file is the re-encode and the Flow Variable videoOnlySource is the video-only file it was made from.
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
-// Synced to Bob's live "Validator (v12)" on 2026-11-15: a job that passes VMAF now goes through a new Require Review node, then Route to local node (CPU worker, tags mapped,local) and Mark step validator-on-local, before Tag Output Metadata; the passthrough path, once the health check gate passes, takes the same route. "Queue back to VMAF node" is now "Route to VMAF node" (GPU worker, tag vmaf). Compare File Size Ratio is 25 to 100 on the re-encode path and 60 to 101 on the passthrough path (was greater than 70 with no upper bound). The 8-bit Run VMAF node scores every 2nd frame at 50% of the CPU (the live flow had 38, a test value that was not restored) with minimums mean 92, frame 60, p1 70, and the 4K 10-bit mean minimum is 92.
-// Demux restructure, 2026-11-16: both entries now start with the merge. Route to local node (CPU worker, tags mapped,local), Mark step, mkvmerge Execute in combine mode (reads the audio+subs file the Stream Cleanup flow wrote to /temp/.tdarr-remux-cache and puts it together with the working file, which is the video-only file or the encode of it; removes the title and global tags), then a cleanup of the cache file; after that each entry continues with the node it started with before. The merge is duplicated for the two entries (valRoute/valMark/valMerge/valClean, and the same with the PT suffix).
-// 2026-11-16, later: on the re-encode path the merge now comes after VMAF, not before it (Run VMAF Quality Check reads only the video stream of the original and of the working file, so the video-only encode scores the same). Entry (re-encoded) goes straight to Route to VMAF node. After Require Review the re-encode path has its own Route to local node (valRoute), Mark step (valMark), mkvmerge combine (valMerge) and cache cleanup (valClean), then Tag Output Metadata; the shared Route to local node and Mark step validator-on-local now serve the passthrough path only. The Compare File Size Ratio node on the re-encode path is removed: it failed jobs wrongly, since a file can really compress to around 10% and still score high on VMAF. Compare File Duration Ratio stays, on the video-only file. The four Run VMAF Quality Check nodes score against the video-only file Split Streams (ffmpeg) wrote (Reference file = {{{args.variables.user.videoOnlySource}}}), not against the original library file; they fall back to the original if that file is gone. The passthrough path is unchanged (merge at the top, its own size ratio check).
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
     "_id": "Yaax7LBej",
-    "name": "Validator",
-    "description": "Validator",
+    "name": "Muxer",
+    "description": "Muxer",
     "tags": "",
     "flowPlugins": [
       {
-        "name": "Entry from Controller Flow (re-encoded)",
+        "name": "Entry from Encoder Flow (re-encoded)",
         "sourceRepo": "Community",
         "pluginName": "comment",
         "version": "1.0.0",
         "fpEnabled": true,
-        "id": "FShP88xbj",
+        "id": "QgTm1GUmZ",
         "position": {
-          "x": 504,
-          "y": -96
-        }
-      },
-      {
-        "name": "Compare File Duration Ratio",
-        "sourceRepo": "Community",
-        "pluginName": "compareFileDurationRatio",
-        "version": "1.0.0",
-        "fpEnabled": true,
-        "id": "CUsET8PD3",
-        "position": {
-          "x": 408,
-          "y": 108
+          "x": 1512,
+          "y": -144
         }
       },
       {
@@ -55,124 +40,6 @@ const details = () => ({
         }
       },
       {
-        "name": "Check Video Resolution",
-        "sourceRepo": "Community",
-        "pluginName": "checkVideoResolution",
-        "version": "1.0.0",
-        "fpEnabled": true,
-        "id": "checkRes4k",
-        "position": {
-          "x": 384,
-          "y": 216
-        }
-      },
-      {
-        "name": "Check 10 Bit Video",
-        "sourceRepo": "Community",
-        "pluginName": "check10Bit",
-        "version": "1.0.0",
-        "fpEnabled": true,
-        "id": "check10BitStd",
-        "position": {
-          "x": 324,
-          "y": 312
-        }
-      },
-      {
-        "name": "Check 10 Bit Video (4K)",
-        "sourceRepo": "Community",
-        "pluginName": "check10Bit",
-        "version": "1.0.0",
-        "fpEnabled": true,
-        "id": "check10Bit4k",
-        "position": {
-          "x": 624,
-          "y": 348
-        }
-      },
-      {
-        "name": "Run VMAF Quality Check",
-        "sourceRepo": "Local",
-        "pluginName": "runVmaf",
-        "version": "1.0.0",
-        "inputsDB": {
-          "referenceFile": "{{{args.variables.user.videoOnlySource}}}",
-          "pixelFormat": "yuv420p",
-          "model": "default",
-          "minMean": "92",
-          "minFrameScore": "60",
-          "minP1": "70",
-          "frameStep": "2",
-          "cpuPercent": "50"
-        },
-        "fpEnabled": true,
-        "id": "vmafCheck1",
-        "position": {
-          "x": 408,
-          "y": 396
-        }
-      },
-      {
-        "name": "Run VMAF Quality Check (10-bit)",
-        "sourceRepo": "Local",
-        "pluginName": "runVmaf",
-        "version": "1.0.0",
-        "inputsDB": {
-          "referenceFile": "{{{args.variables.user.videoOnlySource}}}",
-          "pixelFormat": "yuv420p10le",
-          "model": "default",
-          "minMean": "93",
-          "minFrameScore": "50",
-          "minP1": "70"
-        },
-        "fpEnabled": true,
-        "id": "vmafCheck1_10bit",
-        "position": {
-          "x": 240,
-          "y": 384
-        }
-      },
-      {
-        "name": "Run VMAF Quality Check (4K model)",
-        "sourceRepo": "Local",
-        "pluginName": "runVmaf",
-        "version": "1.0.0",
-        "inputsDB": {
-          "referenceFile": "{{{args.variables.user.videoOnlySource}}}",
-          "pixelFormat": "yuv420p",
-          "model": "vmaf_4k_v0.6.1",
-          "minMean": "93",
-          "minFrameScore": "50",
-          "minP1": "70"
-        },
-        "fpEnabled": true,
-        "id": "vmafCheck4k",
-        "position": {
-          "x": 732,
-          "y": 456
-        }
-      },
-      {
-        "name": "Run VMAF Quality Check (4K model, 10-bit)",
-        "sourceRepo": "Local",
-        "pluginName": "runVmaf",
-        "version": "1.0.0",
-        "inputsDB": {
-          "referenceFile": "{{{args.variables.user.videoOnlySource}}}",
-          "pixelFormat": "yuv420p10le",
-          "model": "vmaf_4k_v0.6.1",
-          "minMean": "92",
-          "minFrameScore": "50",
-          "minP1": "70"
-        },
-        "fpEnabled": true,
-        "id": "vmafCheck4k_10bit",
-        "position": {
-          "x": 564,
-          "y": 456
-        }
-      },
-      {
         "name": "Tag Output Metadata",
         "sourceRepo": "Local",
         "pluginName": "tagOutputMetadata",
@@ -180,8 +47,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "tagOutMeta",
         "position": {
-          "x": 996,
-          "y": 624
+          "x": 1140,
+          "y": 420
         }
       },
       {
@@ -192,36 +59,20 @@ const details = () => ({
         "fpEnabled": true,
         "id": "1g5GNL1MP",
         "position": {
-          "x": 996,
-          "y": 660
+          "x": 1140,
+          "y": 456
         }
       },
       {
-        "name": "Entry from Controller Flow (passthrough)",
+        "name": "Entry from Controller Flow (final merge)",
         "sourceRepo": "Community",
         "pluginName": "comment",
         "version": "1.0.0",
         "fpEnabled": true,
         "id": "FShP88xbjPT",
         "position": {
-          "x": 864,
-          "y": -96
-        }
-      },
-      {
-        "name": "Compare File Size Ratio (passthrough)",
-        "sourceRepo": "Community",
-        "pluginName": "compareFileSizeRatio",
-        "version": "2.0.0",
-        "inputsDB": {
-          "greaterThan": "60",
-          "lessThan": "101"
-        },
-        "fpEnabled": true,
-        "id": "01GZNv02yPT",
-        "position": {
-          "x": 1128,
-          "y": -72
+          "x": 1020,
+          "y": -144
         }
       },
       {
@@ -232,8 +83,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "CUsET8PD3PT",
         "position": {
-          "x": 1020,
-          "y": 0
+          "x": 1008,
+          "y": 60
         }
       },
       {
@@ -248,8 +99,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "reqOjochalHC",
         "position": {
-          "x": 1104,
-          "y": 192
+          "x": 1164,
+          "y": 144
         }
       },
       {
@@ -264,24 +115,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "healthCheckPT",
         "position": {
-          "x": 1320,
-          "y": 240
-        }
-      },
-      {
-        "name": "Route to VMAF node",
-        "sourceRepo": "Community",
-        "pluginName": "tagsWorkerType",
-        "version": "1.0.0",
-        "inputsDB": {
-          "requiredWorkerType": "GPU",
-          "requiredNodeTags": "vmaf"
-        },
-        "fpEnabled": true,
-        "id": "reqLocalPT",
-        "position": {
-          "x": 504,
-          "y": -48
+          "x": 1416,
+          "y": 204
         }
       },
       {
@@ -295,8 +130,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valMarkHcQueue",
         "position": {
-          "x": 1320,
-          "y": 192
+          "x": 1416,
+          "y": 156
         }
       },
       {
@@ -310,23 +145,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valMarkHcDone",
         "position": {
-          "x": 1320,
-          "y": 288
-        }
-      },
-      {
-        "name": "Mark step: on vmaf node",
-        "sourceRepo": "Local",
-        "pluginName": "markStep",
-        "version": "1.0.0",
-        "inputsDB": {
-          "label": "validator-back-local"
-        },
-        "fpEnabled": true,
-        "id": "valMarkBackLocal",
-        "position": {
-          "x": 504,
-          "y": -12
+          "x": 1416,
+          "y": 252
         }
       },
       {
@@ -340,8 +160,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valRequireHc",
         "position": {
-          "x": 1104,
-          "y": 288
+          "x": 1164,
+          "y": 228
         }
       },
       {
@@ -355,8 +175,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "JbNGlNa6-",
         "position": {
-          "x": 996,
-          "y": 588
+          "x": 1140,
+          "y": 384
         }
       },
       {
@@ -371,87 +191,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "rvn34_UFh",
         "position": {
-          "x": 996,
-          "y": 552
-        }
-      },
-      {
-        "name": "Require Review",
-        "sourceRepo": "Community",
-        "pluginName": "requireReview",
-        "version": "1.0.0",
-        "id": "aeudfBdxG",
-        "position": {
-          "x": 456,
-          "y": 564
-        },
-        "fpEnabled": true
-      },
-      {
-        "name": "Route to local node (merge)",
-        "sourceRepo": "Community",
-        "pluginName": "tagsWorkerType",
-        "version": "1.0.0",
-        "inputsDB": {
-          "requiredNodeTags": "mapped,local",
-          "requiredWorkerType": "CPU"
-        },
-        "fpEnabled": true,
-        "id": "valRoute",
-        "position": {
-          "x": 456,
-          "y": 600
-        }
-      },
-      {
-        "name": "Mark step: on local node (merge)",
-        "sourceRepo": "Local",
-        "pluginName": "markStep",
-        "version": "1.0.0",
-        "inputsDB": {
-          "label": "validator-merged"
-        },
-        "fpEnabled": true,
-        "id": "valMark",
-        "position": {
-          "x": 456,
-          "y": 636
-        }
-      },
-      {
-        "name": "mkvmerge (final combine)",
-        "sourceRepo": "Local",
-        "pluginName": "mkvmergeExecute",
-        "version": "1.0.0",
-        "inputsDB": {
-          "mode": "combine",
-          "audioSubsDir": "/temp/.tdarr-remux-cache"
-        },
-        "fpEnabled": true,
-        "id": "valMerge",
-        "position": {
-          "x": 456,
-          "y": 672
-        }
-      },
-      {
-        "name": "Cleanup audio+subs cache file",
-        "sourceRepo": "Community",
-        "pluginName": "runCli",
-        "version": "1.0.0",
-        "inputsDB": {
-          "useCustomCliPath": "true",
-          "userCli": "mkvmerge",
-          "customCliPath": "/bin/sh",
-          "doesCommandCreateOutputFile": "false",
-          "cliArguments": "-c rm -f \"/temp/.tdarr-remux-cache/{{{args.originalLibraryFile.fileNameWithoutExtension}}}-audiosubs.mkv\"",
-          "outputFileBecomesWorkingFile": "false"
-        },
-        "fpEnabled": true,
-        "id": "valClean",
-        "position": {
-          "x": 456,
-          "y": 708
+          "x": 1140,
+          "y": 348
         }
       },
       {
@@ -466,8 +207,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valRoutePT",
         "position": {
-          "x": 1560,
-          "y": -96
+          "x": 1188,
+          "y": -84
         }
       },
       {
@@ -481,7 +222,7 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valMarkPT",
         "position": {
-          "x": 1560,
+          "x": 1188,
           "y": -48
         }
       },
@@ -497,7 +238,7 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valMergePT",
         "position": {
-          "x": 1560,
+          "x": 1188,
           "y": 0
         }
       },
@@ -517,173 +258,187 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valCleanPT",
         "position": {
-          "x": 1560,
-          "y": 48
+          "x": 1188,
+          "y": 36
+        }
+      },
+      {
+        "name": "Classify Source",
+        "sourceRepo": "Local",
+        "pluginName": "classifySource",
+        "version": "1.0.0",
+        "id": "ViEmkfGP4",
+        "position": {
+          "x": 1512,
+          "y": -96
+        },
+        "fpEnabled": true
+      },
+      {
+        "name": "Route to local node (inject)",
+        "sourceRepo": "Community",
+        "pluginName": "tagsWorkerType",
+        "version": "1.0.0",
+        "inputsDB": {
+          "requiredWorkerType": "CPU",
+          "requiredNodeTags": "mapped,local"
+        },
+        "fpEnabled": true,
+        "id": "injRoute",
+        "position": {
+          "x": 1740,
+          "y": -96
+        }
+      },
+      {
+        "name": "Mark step: on local node (inject)",
+        "sourceRepo": "Local",
+        "pluginName": "markStep",
+        "version": "1.0.0",
+        "inputsDB": {
+          "label": "validator-inject-start"
+        },
+        "fpEnabled": true,
+        "id": "injMark",
+        "position": {
+          "x": 1740,
+          "y": -48
+        }
+      },
+      {
+        "name": "DoVi/HDR: Look In Source",
+        "sourceRepo": "Local",
+        "pluginName": "doviLookInSource",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "injLook",
+        "position": {
+          "x": 1740,
+          "y": 0
+        }
+      },
+      {
+        "name": "HDR10+: Extract From Source",
+        "sourceRepo": "Local",
+        "pluginName": "hdr10PlusExtract",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "injHdrX",
+        "position": {
+          "x": 1620,
+          "y": 72
+        }
+      },
+      {
+        "name": "Dolby Vision: Extract RPU From Source",
+        "sourceRepo": "Local",
+        "pluginName": "doviExtractRpu",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "injRpuX",
+        "position": {
+          "x": 1860,
+          "y": 72
+        }
+      },
+      {
+        "name": "DoVi/HDR: Count Encode Frames",
+        "sourceRepo": "Local",
+        "pluginName": "doviCountFrames",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "injCount",
+        "position": {
+          "x": 1740,
+          "y": 144
+        }
+      },
+      {
+        "name": "Dolby Vision: Check RPU Frame Count",
+        "sourceRepo": "Local",
+        "pluginName": "doviCheckRpuFrames",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "injCheck",
+        "position": {
+          "x": 1860,
+          "y": 216
+        }
+      },
+      {
+        "name": "DoVi/HDR: Write Raw HEVC Stream",
+        "sourceRepo": "Local",
+        "pluginName": "doviWriteRawStream",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "injRaw",
+        "position": {
+          "x": 1740,
+          "y": 288
+        }
+      },
+      {
+        "name": "HDR10+: Inject Into Stream",
+        "sourceRepo": "Local",
+        "pluginName": "hdr10PlusInject",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "injHdrI",
+        "position": {
+          "x": 1620,
+          "y": 360
+        }
+      },
+      {
+        "name": "Dolby Vision: Inject RPU Into Stream",
+        "sourceRepo": "Local",
+        "pluginName": "doviInjectRpu",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "injRpuI",
+        "position": {
+          "x": 1860,
+          "y": 432
+        }
+      },
+      {
+        "name": "DoVi/HDR: Mux To MKV",
+        "sourceRepo": "Local",
+        "pluginName": "doviMuxResult",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "injMux",
+        "position": {
+          "x": 1740,
+          "y": 504
+        }
+      },
+      {
+        "name": "DoVi/HDR: Verify Result",
+        "sourceRepo": "Local",
+        "pluginName": "doviVerifyResult",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "injVerify",
+        "position": {
+          "x": 1740,
+          "y": 552
+        }
+      },
+      {
+        "name": "DoVi/HDR: Clean Up Work Files",
+        "sourceRepo": "Local",
+        "pluginName": "doviCleanUp",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "injClean",
+        "position": {
+          "x": 1740,
+          "y": 600
         }
       }
     ],
     "flowEdges": [
-      {
-        "source": "CUsET8PD3",
-        "sourceHandle": "2",
-        "target": "WrieN1BV1",
-        "targetHandle": null,
-        "id": "U2MS0RqpE"
-      },
-      {
-        "source": "CUsET8PD3",
-        "sourceHandle": "3",
-        "target": "WrieN1BV1",
-        "targetHandle": null,
-        "id": "6FytNy0H9"
-      },
-      {
-        "source": "CUsET8PD3",
-        "sourceHandle": "1",
-        "target": "checkRes4k",
-        "targetHandle": null,
-        "id": "T6akumt4z"
-      },
-      {
-        "source": "checkRes4k",
-        "sourceHandle": "1",
-        "target": "check10BitStd",
-        "targetHandle": null,
-        "id": "res480ToBit"
-      },
-      {
-        "source": "checkRes4k",
-        "sourceHandle": "2",
-        "target": "check10BitStd",
-        "targetHandle": null,
-        "id": "res576ToBit"
-      },
-      {
-        "source": "checkRes4k",
-        "sourceHandle": "3",
-        "target": "check10BitStd",
-        "targetHandle": null,
-        "id": "res720ToBit"
-      },
-      {
-        "source": "checkRes4k",
-        "sourceHandle": "4",
-        "target": "check10BitStd",
-        "targetHandle": null,
-        "id": "res1080ToBit"
-      },
-      {
-        "source": "checkRes4k",
-        "sourceHandle": "5",
-        "target": "check10BitStd",
-        "targetHandle": null,
-        "id": "res1440ToBit"
-      },
-      {
-        "source": "checkRes4k",
-        "sourceHandle": "8",
-        "target": "check10BitStd",
-        "targetHandle": null,
-        "id": "res8kToBit"
-      },
-      {
-        "source": "checkRes4k",
-        "sourceHandle": "9",
-        "target": "check10BitStd",
-        "targetHandle": null,
-        "id": "resOtherToBit"
-      },
-      {
-        "source": "checkRes4k",
-        "sourceHandle": "6",
-        "target": "check10Bit4k",
-        "targetHandle": null,
-        "id": "res4kuhdToBit4k"
-      },
-      {
-        "source": "checkRes4k",
-        "sourceHandle": "7",
-        "target": "check10Bit4k",
-        "targetHandle": null,
-        "id": "resDci4kToBit4k"
-      },
-      {
-        "source": "check10BitStd",
-        "sourceHandle": "1",
-        "target": "vmafCheck1_10bit",
-        "targetHandle": null,
-        "id": "bitStdToVmaf10bit"
-      },
-      {
-        "source": "check10BitStd",
-        "sourceHandle": "2",
-        "target": "vmafCheck1",
-        "targetHandle": null,
-        "id": "bitStdToVmaf8bit"
-      },
-      {
-        "source": "check10Bit4k",
-        "sourceHandle": "1",
-        "target": "vmafCheck4k_10bit",
-        "targetHandle": null,
-        "id": "bit4kToVmaf10bit"
-      },
-      {
-        "source": "check10Bit4k",
-        "sourceHandle": "2",
-        "target": "vmafCheck4k",
-        "targetHandle": null,
-        "id": "bit4kToVmaf8bit"
-      },
-      {
-        "source": "vmafCheck1",
-        "sourceHandle": "2",
-        "target": "WrieN1BV1",
-        "targetHandle": null,
-        "id": "vmafFailEdge"
-      },
-      {
-        "source": "vmafCheck1_10bit",
-        "sourceHandle": "2",
-        "target": "WrieN1BV1",
-        "targetHandle": null,
-        "id": "vmaf10bitFailEdge"
-      },
-      {
-        "source": "vmafCheck4k",
-        "sourceHandle": "2",
-        "target": "WrieN1BV1",
-        "targetHandle": null,
-        "id": "vmaf4kFailEdge"
-      },
-      {
-        "source": "vmafCheck4k_10bit",
-        "sourceHandle": "2",
-        "target": "WrieN1BV1",
-        "targetHandle": null,
-        "id": "vmaf4k10bitFailEdge"
-      },
-      {
-        "source": "01GZNv02yPT",
-        "sourceHandle": "1",
-        "target": "CUsET8PD3PT",
-        "targetHandle": null,
-        "id": "pzyuFoO69PT"
-      },
-      {
-        "source": "01GZNv02yPT",
-        "sourceHandle": "2",
-        "target": "WrieN1BV1",
-        "targetHandle": null,
-        "id": "PfcElFxTMPT"
-      },
-      {
-        "source": "01GZNv02yPT",
-        "sourceHandle": "3",
-        "target": "WrieN1BV1",
-        "targetHandle": null,
-        "id": "4nXCOOWNQPT"
-      },
       {
         "source": "CUsET8PD3PT",
         "sourceHandle": "2",
@@ -720,13 +475,6 @@ const details = () => ({
         "id": "hcToReqLocal"
       },
       {
-        "source": "reqLocalPT",
-        "sourceHandle": "1",
-        "target": "valMarkBackLocal",
-        "targetHandle": null,
-        "id": "reqLocalToReplace"
-      },
-      {
         "source": "valMarkHcQueue",
         "sourceHandle": "1",
         "target": "healthCheckPT",
@@ -755,34 +503,6 @@ const details = () => ({
         "id": "451iXsWSo"
       },
       {
-        "source": "vmafCheck4k",
-        "sourceHandle": "1",
-        "target": "aeudfBdxG",
-        "targetHandle": null,
-        "id": "UC2r1oRbu"
-      },
-      {
-        "source": "vmafCheck4k_10bit",
-        "sourceHandle": "1",
-        "target": "aeudfBdxG",
-        "targetHandle": null,
-        "id": "UJEpTEnpK"
-      },
-      {
-        "source": "vmafCheck1",
-        "sourceHandle": "1",
-        "target": "aeudfBdxG",
-        "targetHandle": null,
-        "id": "VwOOUa6xp"
-      },
-      {
-        "source": "vmafCheck1_10bit",
-        "sourceHandle": "1",
-        "target": "aeudfBdxG",
-        "targetHandle": null,
-        "id": "RSFrtePrf"
-      },
-      {
         "source": "valRequireHc",
         "sourceHandle": "1",
         "target": "rvn34_UFh",
@@ -802,27 +522,6 @@ const details = () => ({
         "target": "tagOutMeta",
         "targetHandle": null,
         "id": "_DTW22_4d"
-      },
-      {
-        "source": "valRoute",
-        "sourceHandle": "1",
-        "target": "valMark",
-        "targetHandle": null,
-        "id": "eRE1"
-      },
-      {
-        "source": "valMark",
-        "sourceHandle": "1",
-        "target": "valMerge",
-        "targetHandle": null,
-        "id": "eRE2"
-      },
-      {
-        "source": "valMerge",
-        "sourceHandle": "1",
-        "target": "valClean",
-        "targetHandle": null,
-        "id": "eRE3"
       },
       {
         "source": "FShP88xbjPT",
@@ -855,37 +554,261 @@ const details = () => ({
       {
         "source": "valCleanPT",
         "sourceHandle": "1",
-        "target": "01GZNv02yPT",
+        "target": "CUsET8PD3PT",
         "targetHandle": null,
-        "id": "ePT4"
+        "id": "jFFhjdPsv"
       },
       {
-        "source": "FShP88xbj",
+        "source": "QgTm1GUmZ",
         "sourceHandle": "1",
-        "target": "reqLocalPT",
+        "target": "ViEmkfGP4",
         "targetHandle": null,
-        "id": "eREntryToVmafNode"
+        "id": "k5-6oq4s7"
       },
       {
-        "source": "valMarkBackLocal",
+        "source": "ViEmkfGP4",
         "sourceHandle": "1",
-        "target": "CUsET8PD3",
+        "target": "valRoutePT",
         "targetHandle": null,
-        "id": "eREMarkToDuration"
+        "id": "pujIC4cNc"
       },
       {
-        "source": "aeudfBdxG",
-        "sourceHandle": "1",
-        "target": "valRoute",
+        "source": "ViEmkfGP4",
+        "sourceHandle": "3",
+        "target": "valRoutePT",
         "targetHandle": null,
-        "id": "eRERevToRoute"
+        "id": "vW8eDUflT"
       },
       {
-        "source": "valClean",
-        "sourceHandle": "1",
-        "target": "tagOutMeta",
+        "source": "ViEmkfGP4",
+        "sourceHandle": "5",
+        "target": "valRoutePT",
         "targetHandle": null,
-        "id": "eRECleanToTag"
+        "id": "KSKJj_p0A"
+      },
+      {
+        "source": "ViEmkfGP4",
+        "sourceHandle": "7",
+        "target": "valRoutePT",
+        "targetHandle": null,
+        "id": "A3zSeIXBl"
+      },
+      {
+        "source": "ViEmkfGP4",
+        "sourceHandle": "9",
+        "target": "valRoutePT",
+        "targetHandle": null,
+        "id": "9t8RwjZmA"
+      },
+      {
+        "source": "ViEmkfGP4",
+        "sourceHandle": "2",
+        "target": "injRoute",
+        "targetHandle": null,
+        "id": "injE00"
+      },
+      {
+        "source": "ViEmkfGP4",
+        "sourceHandle": "4",
+        "target": "injRoute",
+        "targetHandle": null,
+        "id": "injE01"
+      },
+      {
+        "source": "ViEmkfGP4",
+        "sourceHandle": "6",
+        "target": "injRoute",
+        "targetHandle": null,
+        "id": "injE02"
+      },
+      {
+        "source": "ViEmkfGP4",
+        "sourceHandle": "8",
+        "target": "injRoute",
+        "targetHandle": null,
+        "id": "injE03"
+      },
+      {
+        "source": "ViEmkfGP4",
+        "sourceHandle": "10",
+        "target": "injRoute",
+        "targetHandle": null,
+        "id": "injE04"
+      },
+      {
+        "source": "injRoute",
+        "sourceHandle": "1",
+        "target": "injMark",
+        "targetHandle": null,
+        "id": "injE05"
+      },
+      {
+        "source": "injMark",
+        "sourceHandle": "1",
+        "target": "injLook",
+        "targetHandle": null,
+        "id": "injE06"
+      },
+      {
+        "source": "injLook",
+        "sourceHandle": "1",
+        "target": "valMarkPT",
+        "targetHandle": null,
+        "id": "injE07"
+      },
+      {
+        "source": "injLook",
+        "sourceHandle": "2",
+        "target": "injHdrX",
+        "targetHandle": null,
+        "id": "injE08"
+      },
+      {
+        "source": "injLook",
+        "sourceHandle": "3",
+        "target": "injRpuX",
+        "targetHandle": null,
+        "id": "injE09"
+      },
+      {
+        "source": "injLook",
+        "sourceHandle": "4",
+        "target": "injHdrX",
+        "targetHandle": null,
+        "id": "injE10"
+      },
+      {
+        "source": "injLook",
+        "sourceHandle": "5",
+        "target": "WrieN1BV1",
+        "targetHandle": null,
+        "id": "injE11"
+      },
+      {
+        "source": "injHdrX",
+        "sourceHandle": "1",
+        "target": "injRpuX",
+        "targetHandle": null,
+        "id": "injE12"
+      },
+      {
+        "source": "injHdrX",
+        "sourceHandle": "2",
+        "target": "injCount",
+        "targetHandle": null,
+        "id": "injE13"
+      },
+      {
+        "source": "injRpuX",
+        "sourceHandle": "1",
+        "target": "injCount",
+        "targetHandle": null,
+        "id": "injE14"
+      },
+      {
+        "source": "injCount",
+        "sourceHandle": "1",
+        "target": "injCheck",
+        "targetHandle": null,
+        "id": "injE15"
+      },
+      {
+        "source": "injCount",
+        "sourceHandle": "2",
+        "target": "injRaw",
+        "targetHandle": null,
+        "id": "injE16"
+      },
+      {
+        "source": "injCheck",
+        "sourceHandle": "1",
+        "target": "injRaw",
+        "targetHandle": null,
+        "id": "injE17"
+      },
+      {
+        "source": "injCheck",
+        "sourceHandle": "2",
+        "target": "WrieN1BV1",
+        "targetHandle": null,
+        "id": "injE18"
+      },
+      {
+        "source": "injRaw",
+        "sourceHandle": "1",
+        "target": "injHdrI",
+        "targetHandle": null,
+        "id": "injE19"
+      },
+      {
+        "source": "injRaw",
+        "sourceHandle": "2",
+        "target": "injRpuI",
+        "targetHandle": null,
+        "id": "injE20"
+      },
+      {
+        "source": "injHdrI",
+        "sourceHandle": "1",
+        "target": "injRpuI",
+        "targetHandle": null,
+        "id": "injE21"
+      },
+      {
+        "source": "injHdrI",
+        "sourceHandle": "2",
+        "target": "injMux",
+        "targetHandle": null,
+        "id": "injE22"
+      },
+      {
+        "source": "injHdrI",
+        "sourceHandle": "3",
+        "target": "WrieN1BV1",
+        "targetHandle": null,
+        "id": "injE23"
+      },
+      {
+        "source": "injRpuI",
+        "sourceHandle": "1",
+        "target": "injMux",
+        "targetHandle": null,
+        "id": "injE24"
+      },
+      {
+        "source": "injRpuI",
+        "sourceHandle": "2",
+        "target": "WrieN1BV1",
+        "targetHandle": null,
+        "id": "injE25"
+      },
+      {
+        "source": "injMux",
+        "sourceHandle": "1",
+        "target": "injVerify",
+        "targetHandle": null,
+        "id": "injE26"
+      },
+      {
+        "source": "injVerify",
+        "sourceHandle": "1",
+        "target": "injClean",
+        "targetHandle": null,
+        "id": "injE27"
+      },
+      {
+        "source": "injVerify",
+        "sourceHandle": "2",
+        "target": "WrieN1BV1",
+        "targetHandle": null,
+        "id": "injE28"
+      },
+      {
+        "source": "injClean",
+        "sourceHandle": "1",
+        "target": "valMarkPT",
+        "targetHandle": null,
+        "id": "injE29"
       }
     ]
   });
