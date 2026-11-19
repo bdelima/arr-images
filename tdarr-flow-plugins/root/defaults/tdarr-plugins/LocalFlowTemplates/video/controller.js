@@ -16,7 +16,7 @@
 // Synced to Bob's live "Controller (v12)" on 2026-11-15: Set Encode Quality is gone (Check Source Efficiency output 1 now goes straight to Go To Converter Flow), "Queue to mapped nodes" is now "Queue to local node" with node tags mapped,local, and three nodes moved.
 // Demux restructure, 2026-11-16: the Clean-only Passthrough flow is retired. Every route that went to Go To Clean Flow (sources that are not re-encoded) now goes straight to Go To Validator Flow (passthrough); Stream Cleanup has already split the file, and the Validator's mkvmerge combine puts it back together. "Go To Clean Flow" and "Returned from Clean Flow" are gone.
 // Stream Cleanup merged into the Controller, 2026-11-19, from Bob's live "Controller (v13)" and "Stream Cleanup (v8)": there is no separate Stream Cleanup flow any more. After "Mark step: quick health check done" the job goes straight through Require English Audio (output 2, no English tag: Repair Language Tags, whose output 2 goes to Fail Flow (no English audio)), Begin Command, Remove images, Remove non-english audio, Remove untagged audio, Remove non-english subtitles and Split Streams (ffmpeg), and then into Classify Source. "Go To Stream Cleanup Flow", "Returned from Stream Cleanup Flow", the Stream Cleanup flow's own Entry and "Return to Controller Flow" nodes are gone; every other node, edge and setting is the live Controller (v13) as it is (Bob's live v13 has no "Returned from Converter Flow" / "Go To Validator Flow" pair, which the previous template still had). Node positions: the nine Stream Cleanup nodes sit in the Controller's left column under the health check and to its left.
-// Synced to Bob's live "Controller (v15)" on 2026-11-19 (the version is stamped on at build, so the name here stays plain). Compared with the previous template: (1) Check Source Efficiency is enabled with both minimum bits per pixel set to 0, so it measures every file, sets the source bits-per-pixel and bitrate Flow Variables for Tag Output Metadata, and never skips one; its output 2 now goes to Go To Encoder (it went to the Muxer passthrough), so a file it did skip would be encoded anyway. (2) New "Check Clean Quality Tier" (Check Flow Variable, library variable qualityTier, value clean): Split Streams (ffmpeg) now goes to it instead of straight to Classify Source; output 1 (the library's tier is clean) goes to Go To Muxer (passthrough), output 2 goes to Classify Source, so a file from a clean-tier library skips Classify Source, Check Force Reencode and Check Source Efficiency. The node has no condition saved in its inputs, so it uses the plugin's default condition. (3) "Go To Converter Flow" is now "Go To Encoder" and "Go To Validator Flow (passthrough)" is now "Go To Muxer (passthrough)" (flow ids and node ids unchanged). (4) Positions of Classify Source, Check Force Reencode, Check Source Efficiency, Go To Encoder, Go To Muxer and Repair Language Tags changed. Nothing else changed.
+// Synced to Bob's live "Controller (v15)" on 2026-11-19 (the version is stamped on at build, so the name here stays plain). Compared with the previous template: (1) Check Source Efficiency is enabled with both minimum bits per pixel set to 0, so it measures every file, sets the source bits-per-pixel and bitrate Flow Variables for Tag Output Metadata, and never skips one; its output 2 now goes to Go To Encoder (it went to the Muxer passthrough), so a file it did skip would be encoded anyway. (2) New "Check Clean Quality Tier" (Check Flow Variable, library variable qualityTier, value clean): Split Streams (ffmpeg) now goes to it instead of straight to Classify Source; output 1 (the library's tier is clean) goes to Go To Muxer (passthrough), output 2 goes to Classify Source, so a file from a clean-tier library skips Classify Source and the checks after it. The node has no condition saved in its inputs, so it uses the plugin's default condition. (3) "Check Force Reencode" is now "Check Best Quality Tier": it tests the library variable qualityTier == best (it tested forceReencode == true); output 1 now goes to Check Source Efficiency (it went to Go To Encoder), output 2 still goes to the Muxer passthrough. (4) Classify Source output 2 (H.264 HDR) now goes to Check Source Efficiency and output 4 (HEVC HDR) to Check Best Quality Tier; both went to the Muxer passthrough, so an HDR file of those two kinds is no longer passed through unconditionally. (5) "Go To Converter Flow" is now "Go To Encoder" and "Go To Validator Flow (passthrough)" is now "Go To Muxer (passthrough)" (flow ids and node ids unchanged). (6) Positions of Classify Source, Check Source Efficiency, Go To Encoder, Go To Muxer and Repair Language Tags changed. Nothing else changed.
 // Flow ids, 2026-11-19: the three flows have readable ids, bdelima/Controller, bdelima/Encoder and bdelima/Muxer (they were HWxfel7zZ, 20ZN6oc41 and Yaax7LBej), and every Go To Flow node's flowId uses them. Ids written bdelima:Controller and so on were tried first: they imported, but the flow editor then opened the Controller for all three flows. Importing with Replace over a flow that still has the old id creates a new flow; the old one stays until it is deleted.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
@@ -66,14 +66,14 @@ const details = () => ({
         }
       },
       {
-        "name": "Check Force Reencode",
+        "name": "Check Best Quality Tier",
         "sourceRepo": "Community",
         "pluginName": "checkFlowVariable",
         "version": "1.0.0",
         "inputsDB": {
-          "variable": "{{{args.userVariables.library.forceReencode}}}",
+          "variable": "{{{args.userVariables.library.qualityTier}}}",
           "condition": "==",
-          "value": "true"
+          "value": "best"
         },
         "fpEnabled": true,
         "id": "chkForceReencode",
@@ -96,8 +96,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "chkSrcEff",
         "position": {
-          "x": 1332,
-          "y": -96
+          "x": 1284,
+          "y": 60
         }
       },
       {
@@ -341,24 +341,10 @@ const details = () => ({
       },
       {
         "source": "classifySrc",
-        "sourceHandle": "2",
-        "target": "goToValidatorPT",
-        "targetHandle": null,
-        "id": "h264HdrToClean"
-      },
-      {
-        "source": "classifySrc",
         "sourceHandle": "3",
         "target": "chkForceReencode",
         "targetHandle": null,
         "id": "hevcNotHdrToForceCheck"
-      },
-      {
-        "source": "classifySrc",
-        "sourceHandle": "4",
-        "target": "goToValidatorPT",
-        "targetHandle": null,
-        "id": "hevcHdrToClean"
       },
       {
         "source": "classifySrc",
@@ -401,13 +387,6 @@ const details = () => ({
         "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "otherHdrToClean"
-      },
-      {
-        "source": "chkForceReencode",
-        "sourceHandle": "1",
-        "target": "V0fhZ7bDk",
-        "targetHandle": null,
-        "id": "forceToConverter"
       },
       {
         "source": "chkForceReencode",
@@ -548,6 +527,27 @@ const details = () => ({
         "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "PphZkva6y"
+      },
+      {
+        "source": "chkForceReencode",
+        "sourceHandle": "1",
+        "target": "chkSrcEff",
+        "targetHandle": null,
+        "id": "sCVyxgHnN"
+      },
+      {
+        "source": "classifySrc",
+        "sourceHandle": "2",
+        "target": "chkSrcEff",
+        "targetHandle": null,
+        "id": "cyDhRyNN2"
+      },
+      {
+        "source": "classifySrc",
+        "sourceHandle": "4",
+        "target": "chkForceReencode",
+        "targetHandle": null,
+        "id": "XokWO5-kI"
       }
     ]
   });
