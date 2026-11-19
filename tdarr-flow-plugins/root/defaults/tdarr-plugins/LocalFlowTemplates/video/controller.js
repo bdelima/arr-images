@@ -16,6 +16,7 @@
 // Synced to Bob's live "Controller (v12)" on 2026-11-15: Set Encode Quality is gone (Check Source Efficiency output 1 now goes straight to Go To Converter Flow), "Queue to mapped nodes" is now "Queue to local node" with node tags mapped,local, and three nodes moved.
 // Demux restructure, 2026-11-16: the Clean-only Passthrough flow is retired. Every route that went to Go To Clean Flow (sources that are not re-encoded) now goes straight to Go To Validator Flow (passthrough); Stream Cleanup has already split the file, and the Validator's mkvmerge combine puts it back together. "Go To Clean Flow" and "Returned from Clean Flow" are gone.
 // Stream Cleanup merged into the Controller, 2026-11-19, from Bob's live "Controller (v13)" and "Stream Cleanup (v8)": there is no separate Stream Cleanup flow any more. After "Mark step: quick health check done" the job goes straight through Require English Audio (output 2, no English tag: Repair Language Tags, whose output 2 goes to Fail Flow (no English audio)), Begin Command, Remove images, Remove non-english audio, Remove untagged audio, Remove non-english subtitles and Split Streams (ffmpeg), and then into Classify Source. "Go To Stream Cleanup Flow", "Returned from Stream Cleanup Flow", the Stream Cleanup flow's own Entry and "Return to Controller Flow" nodes are gone; every other node, edge and setting is the live Controller (v13) as it is (Bob's live v13 has no "Returned from Converter Flow" / "Go To Validator Flow" pair, which the previous template still had). Node positions: the nine Stream Cleanup nodes sit in the Controller's left column under the health check and to its left.
+// Synced to Bob's live "Controller (v15)" on 2026-11-19 (the version is stamped on at build, so the name here stays plain). Check Source Efficiency is now enabled with both minimum bits per pixel set to 0 (it measures every file and sets the source bits-per-pixel and bitrate Flow Variables for Tag Output Metadata, and never skips one), so its output 2 can no longer be taken and the live flow has no edge from it (the edge effToClean to the Muxer passthrough is gone; if the minimums are raised again, wire output 2 or a skipped file has nowhere to go). "Go To Converter Flow" is now "Go To Encoder", "Go To Validator Flow (passthrough)" is now "Go To Muxer (passthrough)", and three nodes moved (Check Source Efficiency, Go To Encoder, Go To Muxer). Nothing else changed.
 // Flow ids, 2026-11-19: the three flows have readable ids, bdelima/Controller, bdelima/Encoder and bdelima/Muxer (they were HWxfel7zZ, 20ZN6oc41 and Yaax7LBej), and every Go To Flow node's flowId uses them. Ids written bdelima:Controller and so on were tried first: they imported, but the flow editor then opened the Controller for all three flows. Importing with Replace over a flow that still has the old id creates a new flow; the old one stays until it is deleted.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
@@ -87,20 +88,20 @@ const details = () => ({
         "pluginName": "checkSourceEfficiency",
         "version": "1.0.0",
         "inputsDB": {
-          "enabled": "false",
-          "minBpp": "0.08",
-          "legacyMinBpp": "0.04",
+          "enabled": "true",
+          "minBpp": "0",
+          "legacyMinBpp": "0",
           "assumedAudioKbps": "256"
         },
         "fpEnabled": true,
         "id": "chkSrcEff",
         "position": {
-          "x": 780,
-          "y": -72
+          "x": 876,
+          "y": -24
         }
       },
       {
-        "name": "Go To Converter Flow",
+        "name": "Go To Encoder",
         "sourceRepo": "Community",
         "pluginName": "goToFlow",
         "version": "2.0.0",
@@ -111,12 +112,12 @@ const details = () => ({
         "fpEnabled": true,
         "id": "V0fhZ7bDk",
         "position": {
-          "x": 984,
+          "x": 1020,
           "y": 84
         }
       },
       {
-        "name": "🛫 Go To Validator Flow (passthrough)",
+        "name": "🛫 Go To Muxer (passthrough)",
         "sourceRepo": "Community",
         "pluginName": "goToFlow",
         "version": "2.0.0",
@@ -127,8 +128,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "goToValidatorPT",
         "position": {
-          "x": 1248,
-          "y": 60
+          "x": 1188,
+          "y": 72
         }
       },
       {
@@ -398,13 +399,6 @@ const details = () => ({
         "target": "goToValidatorPT",
         "targetHandle": null,
         "id": "forceToClean"
-      },
-      {
-        "source": "chkSrcEff",
-        "sourceHandle": "2",
-        "target": "goToValidatorPT",
-        "targetHandle": null,
-        "id": "effToClean"
       },
       {
         "source": "Pu7lH9MsN",
