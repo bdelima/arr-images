@@ -13,6 +13,8 @@
 
 ARG UPSTREAM_TAG
 ARG BASE_TAG
+# The .NET SDK major version upstream builds with (its global.json, target framework net10.0 since Radarr 7.0). One value.
+ARG DOTNET_SDK=10.0
 
 # ---- fetch the upstream source (its own stage: the .NET SDK images are old Debian releases whose apt is unreliable) ----
 FROM --platform=$BUILDPLATFORM alpine:3 AS source
@@ -21,7 +23,7 @@ RUN apk add --no-cache git ca-certificates \
     && git clone --quiet --depth 1 --branch "${UPSTREAM_TAG}" https://github.com/Radarr/Radarr.git /src
 
 # ---- build the patched assembly (runs on the build host's own architecture; the output is managed code) ----
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:${DOTNET_SDK} AS build
 ARG UPSTREAM_TAG
 ARG VERSION
 
