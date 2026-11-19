@@ -217,6 +217,88 @@ path instead of individual files -- the on-disk walk above is the fix, and the D
 `Filters at scan level` setting is what keeps non-video files out of Tdarr without any filtering on the validator's
 side.
 
+## Process API (tdarr-process-api)
+
+`bdelima/tdarr-process-api` is a small service that gives any caller a blocking "process this file and tell me when it is
+done" call on top of [Tdarr](https://github.com/HaveAGitGat/Tdarr). The caller sends one file path; the service makes Tdarr
+process it from scratch, holds the HTTP request open until Tdarr has finished, and answers `ok` or `error`. Nothing about it
+is specific to Radarr, Sonarr or any other app. It is a sibling of the import validator above, not a change to it: the
+validator answers "is this download ready yet?" at once and leaves the retrying to the caller; this service does the waiting
+itself. It uses the same Tdarr API (`/api/v2/scan-files` and `/api/v2/cruddb`). Tdarr has no synchronous processing
+endpoint, so this is trigger plus poll behind a blocking facade.
+
+```
+POST /process   {"path": "/downloads/Some.Show.S01E01.mkv", "library": "<dbID>", "max_wait_seconds": 3600}     (library and max_wait_seconds optional)
+-> 200          {"status": "ok", "reason": null, "message": "Tdarr: Transcode success", "decision": "Transcode success", "joined": false}
+GET  /health    {"ok": true, "version": "0.1.0"}
+```
+
+`path` is one file, absolute, exactly as Tdarr sees it (the path inside the Tdarr container or node); the service does not
+need to see the file itself. The body always has the same shape. Branch on `status` and `reason`, never on `message`.
+
+| Outcome | HTTP | `status` | `reason` |
+|---|---|---|---|
+| Tdarr finished with a decision that is not an error (including "Not required") | 200 | `ok` | `null` |
+| Tdarr finished with a decision containing "error" | 422 | `error` | `transcode_failed` |
+| The caller's `max_wait_seconds` elapsed. Tdarr keeps processing; nothing is cancelled | 202 | `timeout` | `still_running` |
+| A scan was requested but Tdarr never created a record for the file within `SCAN_PICKUP_SECONDS` | 422 | `error` | `not_picked_up` |
+| The file's old Tdarr record could not be removed, or the removal could not be verified | 502 | `error` | `record_not_removed` |
+| Tdarr was unreachable for longer than `UNREACHABLE_SECONDS` in a row | 503 | `error` | `tdarr_unreachable` |
+| Bad JSON, a missing or invalid field, or no library | 400 | `error` | `bad_request` |
+
+`decision` is Tdarr's own `TranscodeDecisionMaker` text when the service saw one, else `null`. `joined` is `true` when the
+call attached to a run that was already in progress.
+
+- **Every call starts a fresh run.** The file's old Tdarr record is removed (and the removal verified) before the scan is
+  requested, so an `ok` or `transcode_failed` always comes from a record that did not exist when the call began, even for a
+  file Tdarr already processed and that has not changed. Removing the record drops that file's earlier Tdarr history.
+- **A file that is already queued or running is not touched.** The call joins that run (`"joined": true`) instead of
+  removing or rescanning anything. Two calls for the same file and library at once share one run: one removal, one scan, the
+  same answer for both. That also makes a retry after a timeout or a dropped connection safe.
+- **A job parked at a Require Review node keeps the call waiting**, the same as in the validator: a job at review is
+  still in progress, and the call returns when someone acts on it in Tdarr.
+- **No overall limit by default.** A call waits as long as Tdarr takes. Send `max_wait_seconds` to cap it, and set your own
+  client timeout slightly above it; many reverse proxies cut an idle upstream call at 60 seconds. If the caller closes the
+  connection the service stops waiting; Tdarr carries on.
+- **Library.** The request's `library`, else `TDARR_LIBRARY_MAP` (path prefix to library dbID, the longest prefix the path
+  is under wins; note this differs from the validator's map, which is keyed by tag), else `TDARR_LIBRARY_ID`; none of them is a
+  `400`. `library` and `max_wait_seconds` may be `null`, which counts as omitted.
+- **One instance only.** The runs live in the process's memory. Restarting it drops every waiting call; Tdarr carries on, and
+  a retried call joins the still-running file. There is no authentication of its own: it is meant for a trusted LAN.
+
+| Variable | |
+|---|---|
+| `TDARR_URL` | Tdarr server, e.g. `http://192.168.0.50:8266` (required) |
+| `TDARR_LIBRARY_ID` | default library dbID (optional: a caller may always send `library`) |
+| `TDARR_LIBRARY_MAP` | optional JSON object mapping a path prefix to a library dbID, e.g. `{"/downloads/4k": "<dbID>"}` |
+| `PORT` | listen port, default `8080` |
+| `TDARR_TIMEOUT_SECONDS` | timeout of each single Tdarr call, default `8` |
+| `POLL_SECONDS` | delay between polls while waiting, default `5` |
+| `SCAN_PICKUP_SECONDS` | how long to wait for Tdarr to create a record after a scan request, default `120` |
+| `SCAN_RETRY_SECONDS` | while there is no record, how often the scan request is repeated, default `60` |
+| `UNREACHABLE_SECONDS` | how long Tdarr may stay unreachable, in a row, before `503`, default `300` |
+
+```yaml
+  tdarr-process-api:
+    image: bdelima/tdarr-process-api:latest
+    container_name: tdarr-process-api
+    restart: unless-stopped
+    environment:
+      - TDARR_URL=http://tdarr:8266
+      - TDARR_LIBRARY_ID=<your default library id>
+```
+
+```bash
+curl -fsS -X POST http://tdarr-process-api:8080/process -d '{"path":"/downloads/Some.Show.S01E01.mkv","max_wait_seconds":3600}'
+```
+
+It is published by dispatching [`release-process-api.yml`](.github/workflows/release-process-api.yml) (it does not follow
+an upstream release), and tested by [`ci.yml`](.github/workflows/ci.yml) against a fake Tdarr. The classification of
+Tdarr's decision text (blank or `Queued` is undecided, a decision containing "error" is a failure, anything else is
+finished) is copied from the validator and has not been checked against every value Tdarr can write; a value meaning
+"cancelled" would be read as `ok`. If a library is switched off or its queue paused, a record can sit queued indefinitely and
+a call without `max_wait_seconds` then waits indefinitely. It has not yet been run against a real Tdarr.
+
 ## Tdarr VMAF scoring (tdarr-vmaf-cuda)
 
 `bdelima/tdarr-vmaf-cuda` is a [`DOCKER_MODS`](https://github.com/linuxserver/docker-mods) overlay for a Tdarr node
