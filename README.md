@@ -147,16 +147,23 @@ top of that method. It works like the above, with these differences:
 
 `TDARR_LIBRARY_ID`, the values in `TDARR_LIBRARY_MAP` and the `library` field of the process API all take a Tdarr **library
 id** (the `dbID` Tdarr's scan call uses), not the library's name. The same `cruddb` call the two services use lists every
-library with its id; run it from any machine that can reach the Tdarr server (the server port, `8266` by default):
+library with its id; run it from any machine that can reach the Tdarr server (the server port, `8266` by default).
+The call answers with a JSON array, one document per library: the document's `_id` is the library id and `name` is the
+name you gave it in the **Libraries** tab. Each document is long (it carries the library's whole schedule and plugin
+stack), so filter it. Every library document starts with its `_id`, then `priority`, then `name`, so this prints one
+`id  name` line per library with nothing but `grep` and `sed`:
 
 ```bash
-curl -s -X POST http://<tdarr>:8266/api/v2/cruddb -H 'Content-Type: application/json' -d '{"data":{"collection":"LibrarySettingsJSONDB","mode":"getAll"}}'
+curl -s -X POST http://<tdarr>:8266/api/v2/cruddb -H 'Content-Type: application/json' -d '{"data":{"collection":"LibrarySettingsJSONDB","mode":"getAll"}}' | grep -o '"_id":"[^"]*","priority":[0-9]*,"name":"[^"]*"' | sed 's/"_id":"\([^"]*\)","priority":[0-9]*,"name":"\([^"]*\)"/\1  \2/'
 ```
 
-The answer is a JSON array with one document per library; the document's `_id` is the library id and `name` is the name you
-gave it in the **Libraries** tab. With [`jq`](https://jqlang.github.io/jq/) installed, `| jq -r '.[] | "\(._id)  \(.name)"'` on the
-end prints one `id  name` line per library. Copy the id of the library the downloads belong to (for the validator's
-`TDARR_LIBRARY_MAP`, the id of each quality tier's library).
+```
+aBcDeFgH1  Downloads (best)
+xYz-9QwEr  Test
+```
+
+(With [`jq`](https://jqlang.github.io/jq/): `... | jq -r '.[] | "\(._id)  \(.name)"'`.) Copy the id of the library the downloads
+belong to; for the validator's `TDARR_LIBRARY_MAP`, the id of each quality tier's library.
 
 `LibrarySettingsJSONDB` and the `getAll` mode are in [Tdarr's API reference](https://tdarr.readme.io/reference/post_cruddb)
 (from Tdarr 2.25.01 it is also in the web UI under **Tools → API Docs**). If Tdarr's authentication is switched on, the
