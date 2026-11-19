@@ -333,16 +333,16 @@ Several overlays are separated by `|`. Put it on the server container only; remo
 - **Not in the image:** the three flows themselves (they live in Tdarr's database; import them with Add Flow > Import JSON Flow
   Template or from the Local tab) and any Tdarr settings. A flow already imported from a template stays in Tdarr's database when the template is retired;
   delete it in the Flows tab (the separate Stream Cleanup, Clean-only passthrough, Converter and Validator flows of earlier versions are in that case).
-- **The three flows.** The **Controller** (`bdelima:Controller`) takes the file in, queues it to a local node, runs the quick health check, does the stream cleanup
+- **The three flows.** The **Controller** (`bdelima/Controller`) takes the file in, queues it to a local node, runs the quick health check, does the stream cleanup
   (English audio and subtitles only, images removed, language-tag repair, then `ffmpegSplitStreams` writes a video-only working file and an audio+subtitles file into the remux cache), classifies the
-  source and sends it either to the Encoder or straight to the Muxer. The **Encoder** (`bdelima:Encoder`) re-encodes the video only: it picks the encoder node by frame rate, encodes, scores the
-  result with Run VMAF against the video-only file, compares file sizes, retries or restores the original when a check fails, and hands over to the Muxer. The **Muxer** (`bdelima:Muxer`) puts the
+  source and sends it either to the Encoder or straight to the Muxer. The **Encoder** (`bdelima/Encoder`) re-encodes the video only: it picks the encoder node by frame rate, encodes, scores the
+  result with Run VMAF against the video-only file, compares file sizes, retries or restores the original when a check fails, and hands over to the Muxer. The **Muxer** (`bdelima/Muxer`) puts the
   video and the audio+subtitles file back together with mkvmerge, re-injects Dolby Vision / HDR10+ metadata where the source had it, runs the thorough health check and the trail gate, writes the
   output tags and replaces the original. The separate Stream Cleanup flow was merged into the Controller, and the Validator was renamed Muxer. None of this has been run in a real Tdarr job since the
   templates were last changed.
-- **Flow ids.** The templates' `_id` values are `bdelima:Controller`, `bdelima:Encoder` and `bdelima:Muxer` (they were `HWxfel7zZ`, `20ZN6oc41` and `Yaax7LBej`), and every Go To Flow node uses them:
+- **Flow ids.** The templates' `_id` values are `bdelima/Controller`, `bdelima/Encoder` and `bdelima/Muxer` (they were `HWxfel7zZ`, `20ZN6oc41` and `Yaax7LBej`), and every Go To Flow node uses them:
   Controller to the Encoder (entry `X4ANCc9vI`) and to the Muxer (`FShP88xbjPT`, final merge), Encoder to the Muxer (`QgTm1GUmZ`, re-encoded, and `FShP88xbjPT`, final merge). Tdarr treats a
-  new `_id` as a new flow, so Replace does not overwrite a flow that still has an old id: import the new flows, move the libraries over, then delete the old ones. That Tdarr accepts an id with a colon has not been verified.
+  new `_id` as a new flow, so Replace does not overwrite a flow that still has an old id: import the new flows, move the libraries over, then delete the old ones. Ids written `bdelima:<name>` were tried first: they imported, but the flow editor then opened the Controller for all three flows (cause not confirmed); `bdelima/<name>` imported and worked (observed by the owner, 2026-11-19).
 - **Dolby Vision / HDR10+ re-injection (Muxer).** A file that comes back from the Encoder and classifies as HDR or Dolby Vision goes through one Local plugin per step: Look In Source reads the first frames of the video-only
   source with `dovi_tool` / `hdr10plus_tool`, Profile 7 is converted to 8.1 and Profile 8 is used as is, any other profile leaves through a failure output wired to Fail Flow; the metadata is extracted from the whole source,
   the frame counts are compared, the encode is written as a raw HEVC stream, HDR10+ and then the RPU are injected, mkvmerge writes the MKV, Verify Result reads the metadata back out and compares it, and Clean Up
