@@ -141,7 +141,12 @@ const details = () => ({
       label: 'Minimums per quality tier',
       type: 'string',
       defaultValue: '',
-      inputUI: { type: 'textarea' },
+      inputUI: {
+        type: 'textarea',
+        style: {
+          height: '140px',
+        },
+      },
       tooltip: 'Optional. One line per quality tier: tier=mean,min,p1, for example better=90,75,85 (minimum mean, minimum '
         + 'frame score, minimum p1, in that order; 0 turns min or p1 off). Lines are separated by new lines or semicolons. '
         + 'The tier is the library variable qualityTier, matched without regard to case. When a tier is set and listed, '

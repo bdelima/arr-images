@@ -303,10 +303,10 @@ are `0.x` until that has been done on real files.
 ## Tdarr flow plugins (tdarr-flow-plugins)
 
 `bdelima/tdarr-flow-plugins` is a [`DOCKER_MODS`](https://github.com/linuxserver/docker-mods) overlay for the Tdarr **server**
-container. It replaces hand-copying files onto the server: at every container start it puts seventeen Local Flow Plugins
+container. It replaces hand-copying files onto the server: at every container start it puts thirty-two Local Flow Plugins
 (`classifySource`, `setMaxBitrate`, `tagEncodeSettings`, `tagOutputMetadata`, `checkSourceEfficiency`,
-`setSourceRelativeBitrate`, `setEncodeQuality`, `setQualityWithNodeOffset`, `requireEnglishAudio`, `removeUntaggedAudio`, `mkvmergeExecute`, `repairLanguageTags`, `markStep`, `requireTrail`, `runVmaf`, `keepAwake`, `setQualityWithTierOffset`) and the flow template files for the Downloads
-Flow (Controller, Converter, Validator, Stream Cleanup, Clean-only passthrough) into the server's plugin folder. The files in
+`setSourceRelativeBitrate`, `setEncodeQuality`, `setQualityWithNodeOffset`, `requireEnglishAudio`, `removeUntaggedAudio`, `mkvmergeExecute`, `repairLanguageTags`, `markStep`, `requireTrail`, `runVmaf`, `keepAwake`, `setQualityWithTierOffset`, `compareFileSizeToSource`, `ffmpegSplitStreams`, `saveCurrentNode`, `setReEncodeOffset`, and the Dolby Vision / HDR10+ re-injection steps `doviLookInSource`, `hdr10PlusExtract`, `doviExtractRpu`, `doviCountFrames`, `doviCheckRpuFrames`, `doviWriteRawStream`, `hdr10PlusInject`, `doviInjectRpu`, `doviMuxResult`, `doviVerifyResult`, `doviCleanUp`) and the flow template files for the Downloads
+Flow (Controller, Encoder, Muxer) into the server's plugin folder. The files in
 [`tdarr-flow-plugins/root`](tdarr-flow-plugins/root) are the source of truth and are shipped as they are, except that the build appends each flow template's own version to its name (below).
 
 ```yaml
@@ -327,12 +327,27 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   (`[mod-tdarr-flow-plugins] replaced ... (it differed from the one in the image)`), so a host edit is never lost silently.
   Nothing else in the plugin folder is touched. The one exception is a short retired list: a file this image used to ship and no longer does
   is deleted at start if it is still there (the `RETIRED` array in the run script, exact paths only, never a folder, a link, a path outside the
-  plugin folder or a file the image ships; the log says `removed ...`). Today it holds `LocalFlowTemplates/video/languageTagRepair.js`. Files are
+  plugin folder or a file the image ships; the log says `removed ...`). Today it holds `LocalFlowTemplates/video/languageTagRepair.js`, `LocalFlowTemplates/video/cleanOnlyPassthrough.js` and `LocalFlowTemplates/video/streamCleanup.js`. Files are
   owned by `PUID:PGID` (when set), mode 664, new folders 775.
   The script never stops the container from starting; a failure is a log line. A new plugin file needs the server restarted to load, which a container restart does anyway.
-- **Not in the image:** the five flows themselves (they live in Tdarr's database; import them with Add Flow > Import JSON Flow
-  Template) and any Tdarr settings. A flow already imported from a template stays in Tdarr's database when the template is retired;
-  delete it in the Flows tab.
+- **Not in the image:** the three flows themselves (they live in Tdarr's database; import them with Add Flow > Import JSON Flow
+  Template or from the Local tab) and any Tdarr settings. A flow already imported from a template stays in Tdarr's database when the template is retired;
+  delete it in the Flows tab (the separate Stream Cleanup, Clean-only passthrough, Converter and Validator flows of earlier versions are in that case).
+- **The three flows.** The **Controller** (`bdelima:Controller`) takes the file in, queues it to a local node, runs the quick health check, does the stream cleanup
+  (English audio and subtitles only, images removed, language-tag repair, then `ffmpegSplitStreams` writes a video-only working file and an audio+subtitles file into the remux cache), classifies the
+  source and sends it either to the Encoder or straight to the Muxer. The **Encoder** (`bdelima:Encoder`) re-encodes the video only: it picks the encoder node by frame rate, encodes, scores the
+  result with Run VMAF against the video-only file, compares file sizes, retries or restores the original when a check fails, and hands over to the Muxer. The **Muxer** (`bdelima:Muxer`) puts the
+  video and the audio+subtitles file back together with mkvmerge, re-injects Dolby Vision / HDR10+ metadata where the source had it, runs the thorough health check and the trail gate, writes the
+  output tags and replaces the original. The separate Stream Cleanup flow was merged into the Controller, and the Validator was renamed Muxer. None of this has been run in a real Tdarr job since the
+  templates were last changed.
+- **Flow ids.** The templates' `_id` values are `bdelima:Controller`, `bdelima:Encoder` and `bdelima:Muxer` (they were `HWxfel7zZ`, `20ZN6oc41` and `Yaax7LBej`), and every Go To Flow node uses them:
+  Controller to the Encoder (entry `X4ANCc9vI`) and to the Muxer (`FShP88xbjPT`, final merge), Encoder to the Muxer (`QgTm1GUmZ`, re-encoded, and `FShP88xbjPT`, final merge). Tdarr treats a
+  new `_id` as a new flow, so Replace does not overwrite a flow that still has an old id: import the new flows, move the libraries over, then delete the old ones. That Tdarr accepts an id with a colon has not been verified.
+- **Dolby Vision / HDR10+ re-injection (Muxer).** A file that comes back from the Encoder and classifies as HDR or Dolby Vision goes through one Local plugin per step: Look In Source reads the first frames of the video-only
+  source with `dovi_tool` / `hdr10plus_tool`, Profile 7 is converted to 8.1 and Profile 8 is used as is, any other profile leaves through a failure output wired to Fail Flow; the metadata is extracted from the whole source,
+  the frame counts are compared, the encode is written as a raw HEVC stream, HDR10+ and then the RPU are injected, mkvmerge writes the MKV, Verify Result reads the metadata back out and compares it, and Clean Up
+  removes the work files. The nodes need `dovi_tool`, `hdr10plus_tool` (the `tdarr-dovi-tool` overlay above) and `mkvmerge` on the node that runs the Muxer's local branch. Tested on small synthetic files with a harness that walks the flow
+  JSON; not run in a real Tdarr, and not tested with a real Profile 7 file or a variable frame rate file.
 - **Each flow template has its own version, stamped by the build.** The build appends a version to each template's flow name
   ("Controller" becomes "Controller (v9)"), so copies of a flow made from different template versions can be told apart in
   Tdarr. The version is the number of commits that touched that template file
@@ -344,10 +359,9 @@ Several overlays are separated by `|`. Put it on the server container only; remo
 - **Step trail (confirming the order of steps).** A node's job-log lines can arrive late, so log times cannot show the order in which
   steps ran. `markStep` appends one numbered entry (`seq|label|node|worker|UTC time`) to the Flow Variable `tdarrTrail` at the point it
   is placed, and `requireTrail` fails the flow (output 2, wired to Fail Flow) unless the labels it is given are in the trail in that
-  order; the order comes from the sequence numbers, not from any clock. The Controller, Converter and Validator templates carry the
-  stamps, the Validator's passthrough path ends in a `requireTrail` gate (`validator-hc-queue`, then `validator-hc-done`)
-  in front of Tag Output Metadata (the re-encode path also stamps `validator-back-local`, but it never reaches the gate, so that
-  label is not required there; the 0.6.0 flow required it and failed every passthrough file), and Tag Output Metadata adds its own closing entry and writes the whole trail into the file's
+  order; the order comes from the sequence numbers, not from any clock. The Controller, Encoder and Muxer templates carry the
+  stamps, the Muxer ends in a `requireTrail` gate (`validator-hc-queue`, then `validator-hc-done`)
+  in front of Tag Output Metadata (both Muxer entries, re-encoded and final merge, go through the same health check and gate; the 0.6.0 flow also required `validator-back-local` there and failed every passthrough file, so it is not required), and Tag Output Metadata adds its own closing entry and writes the whole trail into the file's
   `TDARR_TRAIL` tag. Read it back with `tdarr-ffmpeg -i <file> 2>&1 | grep -i TDARR_TRAIL`. The time in an entry is the clock of the
   node that ran the step, so it is comparable between nodes only when their clocks agree.
 - **Tags survive a later pass.** Every mkvmerge remux drops the file's global tags, so without help a second pass over an already-encoded
@@ -362,28 +376,28 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   files with `mkvpropedit`, `ffprobe` and `ffmpeg` in a sandbox, with Tdarr's helpers stubbed; not yet seen in a real Tdarr job, and whether
   Tdarr's own probe data carries `format.tags` is not confirmed (the ffmpeg read covers it if it does not).
 - **Quality baseline and per-node offset.** The shipped flows no longer cap the bitrate of a standard quality-based encode (no `-b:v` / `-maxrate` / `-bufsize`, so hevc_qsv stays plain
-  ICQ). Two plugins decide the quality number instead. **Set Encode Quality** (Controller, between Check Source Efficiency output 1 and Go To Converter Flow) sets the Flow Variable
+  ICQ). Two plugins decide the quality number instead. **Set Encode Quality** (not in the shipped Controller since Controller v12) sets the Flow Variable
   `tdarrQuality`, the baseline: its input *Quality* (default 18, a whole number from 1 to 51, templatable, so a library variable such as `{{{args.userVariables.library.crf}}}` works), or, for a source above
   *High frame rate above fps* (default 30, 0 = off), *High frame rate quality* (default 31, the same in every tier). The frame rate is the video stream's `avg_frame_rate`, else `r_frame_rate`; if it cannot be
   read the normal quality is used. A quality that is not a whole number from 1 to 51 is ignored, and when nothing usable is left the variable is removed so an old value cannot linger.
-  **Set Quality With Node Offset** (Converter, directly after Set Video Encoder, replacing Set Source-Relative Bitrate) adds the offset of the node the job is running on to that baseline and writes the result,
+  **Set Quality With Node Offset** (Encoder, one in each frame-rate path, directly after Set Video Encoder, replacing Set Source-Relative Bitrate) adds the offset of the node the job is running on to that baseline and writes the result,
   kept between 1 and 51, over the quality Set Video Encoder wrote (`-global_quality` for QSV, `-crf` for the software `lib*` encoders, `-qp` for the rest; added if none is there). Its input *Quality offset
-  per node* lists `node=offset` pairs separated by new lines, commas or semicolons (the shipped value is `drakebay-gpu=-3`); names are matched without regard to case, a node that is not listed (or whose name cannot be read) gets 0, a later pair for the same node wins, and
+  per node* lists `node=offset` pairs separated by new lines, commas or semicolons (the Encoder ships `drakebay-gpu=0` and `samara-encoder=-2` for sources under 30 fps and `-6` for sources above); names are matched without regard to case, a node that is not listed (or whose name cannot be read) gets 0, a later pair for the same node wins, and
   an entry that is not `name=whole number` is ignored and named in the job log. A lower number means better quality and a bigger file, so a node that writes fewer bits for the same number gets a negative offset.
   When `tdarrQuality` is not set (for example on the Check Force Reencode path, which is unchanged and does not pass through Set Encode Quality), the baseline is the number Set Video Encoder wrote, so the
   offset still applies. A video stream still set to copy is skipped. Why: on one 1080p50 source (the Brazil race, 6142 kbps video), plain ICQ 18 grew the file to 233-301% of the original; ICQ 31 on ojochal
   (Meteor Lake) gave 4389 kbps at VMAF mean 96.34 / min 68.80, and drakebay (Panther Lake) at ICQ 28 gave 4478 kbps at mean 96.06 / min 71.35, while ojochal at ICQ 28 gave 6821 kbps. Both nodes drop
   about 14% of the bitrate per step, so a constant offset of 3 matched them on that source. One source and one pair of nodes: the numbers 31 and -3 are starting values, not calibrated, and whether the
-  offset stays the same at other qualities or content has not been tested. Checked in a sandbox with Tdarr's helpers stubbed, not yet seen in a real Tdarr job. Set Source-Relative Bitrate is still shipped but is no longer in the Converter template.
-- **Set Quality With Tier Offset (not in the shipped flows).** Adds an offset for the library's quality tier to the quality number already on the encode command, so it stacks on
+  offset stays the same at other qualities or content has not been tested. Checked in a sandbox with Tdarr's helpers stubbed, not yet seen in a real Tdarr job. Set Source-Relative Bitrate is still shipped but is no longer in the Encoder template.
+- **Set Quality With Tier Offset (in the Encoder).** Adds an offset for the library's quality tier to the quality number already on the encode command, so it stacks on
   Set Quality With Node Offset: place it after Set Video Encoder and Set Quality With Node Offset, before Tag Encode Settings. The tier is the library variable `qualityTier`
   (`args.userVariables.library.qualityTier`); the input *Quality offset per tier* lists `tier=offset` pairs separated by new lines, commas or semicolons (default
   `best=0`, `better=+1`, `balanced=+2`, `smallest=+4`, each on its own line). Names are matched without regard to case; a tier that is not listed, or no `qualityTier`, gets 0; a later pair
   for the same tier wins; an entry that is not `name=whole number` is ignored and named in the job log. The result is kept between 1 and 51. It changes the `-global_quality`, `-crf` or `-qp`
   already on each video stream Set Video Encoder is transcoding (streams set to copy are skipped); it does not read `tdarrQuality`, and a stream with no usable quality flag is left alone and
-  logged. A higher number means a smaller file and lower quality. It never fails the flow (one output). Added by PR #71 and released in 0.9.0; not yet used by any shipped template and not yet
+  logged. A higher number means a smaller file and lower quality. It never fails the flow (one output). Added by PR #71 and released in 0.9.0; the Encoder template uses it after the node offsets and before Set Re-Encode Offset and Tag Encode Settings (default tier offsets), and it has not yet been
   seen in a real Tdarr job.
-- **Keep Awake (not in the shipped flows).** Keeps the node from sleeping while a job runs, used inline as the same plugin twice: action `start` early in the flow, action `stop` after the work
+- **Keep Awake (in the Encoder).** Keeps the node from sleeping while a job runs, used inline as the same plugin twice: action `start` early in the flow, action `stop` after the work
   that must not be interrupted. Neither step waits for anything, so it cannot deadlock with other jobs on the node (the stock *Prevent Sleep While Encoding* plugin waits for every other worker on
   the node to finish). Each operating system has its own input: *Windows* `system+display` (default, system and display kept on), `system` (display may turn off) or `none`; *Linux* `none`
   (default) or `systemd-inhibit`; *macOS* `none` (default) or `caffeinate`. With `none` the step returns at once and starts nothing, so one flow can run on every node and only the Windows one
@@ -392,15 +406,14 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   than your longest job). `stop` deletes the job's lease and the helper ends within about 5 seconds. Every job has its own lease and helper, so jobs on one node never release each other's hold, and the
   node stays awake while any is active. The lease path and node name are kept in the Flow Variables `keepAwakeLease` and `keepAwakeNode`; `stop` leaves a lease that belongs to another node alone.
   A job that fails or is cancelled before `stop` does not release its lease: it ends when the work folder is cleaned up (not verified) or when the maximum hold runs out. If the helper cannot
-  start the step logs why and carries on holding nothing; it never fails the flow (one output). Added by PR #70 and released in 0.9.0 for the Windows encode node `samara-encoder`; not yet used by any
-  shipped template and not yet run on a real node.
+  start the step logs why and carries on holding nothing; it never fails the flow (one output). Added by PR #70 and released in 0.9.0 for the Windows encode node `samara-encoder`; the Encoder template has a Prevent sleep node in front of the encode and an Allow sleep node after it (and one on each path out); not yet run on a real node.
 - **Source bitrate tags.** Set Quality With Node Offset records the source video's average bitrate and, when its peak scan works, the busiest
   window's bitrate (the window length and percentile are that node's own inputs, 2 s and 100 by default) as Flow Variables, for every encoder it sees (not only QSV); Tag Output Metadata writes
   them as `TDARR_SOURCE_VIDEO_KBPS` and `TDARR_SOURCE_PEAK_KBPS`, whole kbps. Neither value changes the encode. They are in the
   encode group, so a later pass keeps them. `TDARR_SOURCE_BPP` (bits per pixel) comes from Check Source Efficiency and is written only when that node is
   enabled; with both its minimums at 0 it never skips a file and only measures. If Check Source Efficiency is enabled it also sets the average-bitrate
   variable, and Set Quality With Node Offset then overwrites it with its own reading.
-- **Set Source-Relative Bitrate (not in the shipped Converter).** The older plugin, left in the image unchanged. It turns hevc_qsv ICQ into QVBR by adding `-b:v` / `-maxrate` / `-bufsize` to sources below its
+- **Set Source-Relative Bitrate (not in the shipped Encoder).** The older plugin, left in the image unchanged. It turns hevc_qsv ICQ into QVBR by adding `-b:v` / `-maxrate` / `-bufsize` to sources below its
   input *Cap only below this source bits per pixel* (default 0.07, 0 = always cap), reading the source's bits per pixel from the Flow Variable `tdarrSourceBpp` that Check Source Efficiency sets earlier in the flow, and it
   records the same two source bitrate variables. A flow that still uses it works as before.
 - **Frame-count check before VMAF.** Run VMAF pairs frame N of the original with frame N of the encode, so files with different frame
@@ -410,9 +423,9 @@ Several overlays are separated by `|`. Put it on the server container only; remo
 - **Quality checks and a failure output in Run VMAF.** Run VMAF Quality Check holds three figures of the per-frame scores to minimums: the mean (`minMean`, default 93),
   the lowest frame (`minFrameScore`, default 50) and the 1st percentile (`minP1`, default 70); 0 turns the min or p1 check off. Output 1 means every check passed; output 2 means
   at least one failed, and the job log lists each failed check with its score and minimum. The scores are set as Flow Variables either way. A failed check no longer throws,
-  so the Validator template sends output 2 of each of its four Run VMAF nodes to Fail Flow, which ends the job in error as before; nothing is re-queued. Anything that stops a score
+  so the Encoder template sends output 2 of each of its four Run VMAF nodes to a Compare File Size To Source node, whose output 1 routes back to the same encoder node and encodes again (through Set Working File) and whose output 2 restores the original (Mark step: Restored original, then the Muxer's final-merge entry). Anything that stops a score
   from being produced (ffmpeg fails, no log, different frame counts, missing files, a minimum that is not a number) still throws. The min and p1 defaults are uncalibrated starting
-  values: on the scores recorded so far they would fail the two Boroughs encodes made with the 70% bitrate target (min 14-19, p1 55-65) and the F1 runs on min (38-49). A live Validator
+  values: on the scores recorded so far they would fail the two Boroughs encodes made with the 70% bitrate target (min 14-19, p1 55-65) and the F1 runs on min (38-49). A live Encoder
   flow that was not replaced from the new template has nothing wired to output 2, and what Tdarr does with a job that leaves through an unwired output is not verified. Checked in a
   sandbox with a stand-in for ffmpeg-vmaf-cuda; not yet seen in a real Tdarr job.
 - **Frames below a score, counted in Run VMAF.** The new `countBelow` input (shown as Count frames below, default `60,70,75`) lists VMAF scores, as numbers above 0 up to 100 separated by
@@ -426,7 +439,7 @@ Several overlays are separated by `|`. Put it on the server container only; remo
 - **Run VMAF scores on the GPU or the CPU, whichever the node has.** Run VMAF looks for the file in its input *GPU device file* (default
   `/dev/nvidiactl`, which a container with the NVIDIA runtime has) and picks the path for that run, logging which and why. With it: the GPU path as
   before (NVDEC decode, `scale_cuda`, `libvmaf_cuda`, one run at a time under the lock file). Without it: the CPU path (software decode, the `format`
-  filter, the plain `libvmaf` filter, no lock), so a node without a GPU such as drakebay or ojochal can run the Validator's VMAF step too. Both write
+  filter, the plain `libvmaf` filter, no lock), so a node without a GPU such as drakebay or ojochal can run the Encoder's VMAF step too. Both write
   the same per-frame log and everything after scoring (the mean, min, p1, the counts, the output) is the same. The CPU path is about seven times
   slower (47 fps on 6 threads at 1080p, one clip, against the GPU), so its threads are limited by the input *CPU path: percent of the node CPUs*
   (default 50, a whole number from 1 to 100, rounded to whole threads and at least 1, so a 6-CPU node uses 3 and a 16-CPU node uses 8); it takes no lock,
@@ -453,9 +466,9 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   2026-11-09). A template without an `_id` (the 0.2.0 ones) made a new flow with a random id next to the live one, and the old
   flows kept pointing at each other (observed 2026-11-08). While a flow is bound to libraries, importing it from the Local tab does
   not replace it in place: it lands as a new flow with a random id (observed with the Controller, 2026-11-09/10). Unbind the
-  libraries first, Replace, then rebind them. A flow no library uses (Converter, Validator, Stream Cleanup, Clean-only passthrough)
-  is replaced in place.
-- **Language tags in Stream Cleanup.** The flow keeps English audio only. Require English Audio checks ffprobe's `tags.language`
+  libraries first, Replace, then rebind them. A flow no library uses (the Encoder and the Muxer)
+  is replaced in place, as long as its `_id` is the one in the template.
+- **Language tags in the Controller's stream cleanup.** (This was the separate Stream Cleanup flow until it was merged into the Controller.) The flow keeps English audio only. Require English Audio checks ffprobe's `tags.language`
   for an exact match with its `languages` input (`eng,en` in the template: a track tagged `eng` or a raw `en` both count). If no audio
   track matches, the file goes to Repair Language Tags: output 1 (tags repaired) continues to Begin Command, output 2 (nothing to
   repair) goes to Fail Flow. Repair Language Tags changes a Matroska file only in place with `mkvpropedit` (no remux), only tracks with
@@ -472,7 +485,7 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   so that Tdarr loads the plugins and that the service runs before the server starts are checked by hand (below).
 - **Check by hand after the first release.** (1) Add `DOCKER_MODS` to a scratch Tdarr server container with its own empty server
   folder, never the live `/opt/tdarr/server`; check the files appear with the right owner and mode and Tdarr lists the plugins.
-  (2) Add it to the live server container, restart it, and run one real file through the Converter flow.
+  (2) Add it to the live server container, restart it, and run one real file through the Controller flow.
 
 amd64 only. Published by dispatching
 [`release-tdarr-flow-plugins.yml`](.github/workflows/release-tdarr-flow-plugins.yml) (it does not follow an upstream release);

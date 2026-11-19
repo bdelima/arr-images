@@ -24,6 +24,7 @@ TAG='[mod-tdarr-flow-plugins]'
 RETIRED=(
   LocalFlowTemplates/video/languageTagRepair.js
   LocalFlowTemplates/video/cleanOnlyPassthrough.js
+  LocalFlowTemplates/video/streamCleanup.js
 )
 # for testing only: a replacement list from the environment
 if [ -n "${TDARR_FLOW_PLUGINS_RETIRED:-}" ]; then read -r -a RETIRED <<< "$TDARR_FLOW_PLUGINS_RETIRED"; fi
