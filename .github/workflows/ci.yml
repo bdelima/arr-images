@@ -15,6 +15,7 @@ on:
       - 'lidarr/**'
       - 'sportarr/**'
       - 'tdarr-download-validator/**'
+      - 'tdarr-process-api/**'
       - 'tdarr-vmaf-cuda/**'
       - 'tdarr-dovi-tool/**'
       - 'tdarr-flow-plugins/**'
@@ -31,6 +32,7 @@ on:
       - 'lidarr/**'
       - 'sportarr/**'
       - 'tdarr-download-validator/**'
+      - 'tdarr-process-api/**'
       - 'tdarr-vmaf-cuda/**'
       - 'tdarr-dovi-tool/**'
       - 'tdarr-flow-plugins/**'
@@ -53,6 +55,7 @@ jobs:
       vmaf: ${{ steps.c.outputs.vmaf }}
       dovi: ${{ steps.c.outputs.dovi }}
       flowplugins: ${{ steps.c.outputs.flowplugins }}
+      processapi: ${{ steps.c.outputs.processapi }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -135,6 +138,42 @@ jobs:
           # Tdarr is unreachable here: the answer must still be a clean "not ready", not an error
           curl -fsS -X POST -d '{"path":"/downloads/x"}' http://127.0.0.1:8080/validate | tee /dev/stderr | grep -q '"ready": false'
           docker logs validator-ci 2>&1 | tail -5
+
+  process-api:
+    # tdarr-process-api: unit tests against a fake Tdarr, then the image itself is built, answers /health, rejects a bad
+    # request, and fails fast with 503 when Tdarr cannot be reached. UNREACHABLE_SECONDS is short here on purpose: with
+    # the default 300 s grace the last check would hang.
+    needs: changes
+    if: needs.changes.outputs.processapi == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Unit tests
+        run: python3 -m unittest discover -s tdarr-process-api -v
+
+      - name: Build the image
+        run: docker build -f tdarr-process-api/Dockerfile --build-arg VERSION="$(cat tdarr-process-api/VERSION)" -t arr-test/tdarr-process-api:ci .
+
+      - name: The image starts, answers, and fails fast when Tdarr is unreachable
+        run: |
+          docker run -d --name process-api-ci -e TDARR_URL=http://127.0.0.1:1 -e TDARR_LIBRARY_ID=lib -e UNREACHABLE_SECONDS=2 -p 127.0.0.1:8081:8080 arr-test/tdarr-process-api:ci
+          for _ in $(seq 1 20); do curl -fsS http://127.0.0.1:8081/health && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8081/health | tee /dev/stderr | grep -q '"ok": true'
+          curl -fsS http://127.0.0.1:8081/health | grep -q "\"version\": \"$(cat tdarr-process-api/VERSION)\""
+          # a request with no path is a 400 and needs no Tdarr
+          code=$(curl -s -o /tmp/bad.json -w '%{http_code}' -X POST -d '{}' http://127.0.0.1:8081/process)
+          cat /tmp/bad.json; echo
+          [ "$code" = 400 ]
+          grep -q '"reason": "bad_request"' /tmp/bad.json
+          # Tdarr is unreachable: a valid request ends in 503 tdarr_unreachable after about UNREACHABLE_SECONDS, not never
+          start=$(date +%s)
+          code=$(curl -s --max-time 30 -o /tmp/down.json -w '%{http_code}' -X POST -d '{"path":"/downloads/x.mkv"}' http://127.0.0.1:8081/process)
+          cat /tmp/down.json; echo
+          [ "$code" = 503 ]
+          grep -q '"reason": "tdarr_unreachable"' /tmp/down.json
+          [ "$(( $(date +%s) - start ))" -lt 20 ]
+          docker logs process-api-ci 2>&1 | tail -8
 
   vmaf-cuda:
     # tdarr-vmaf-cuda: the overlay image is built (CUDA compile, no GPU needed) and smoke-tested on a plain Ubuntu 22.04 with no NVIDIA driver.

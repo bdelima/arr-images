@@ -1,6 +1,6 @@
 # Attribution
 
-This repository's own files (the patch, `tdarr-download-validator/`, `common/ScheduledTaskIntervalOverrides.cs`, the Dockerfiles, scripts and
+This repository's own files (the patch, `tdarr-download-validator/`, `tdarr-process-api/`, `common/ScheduledTaskIntervalOverrides.cs`, the Dockerfiles, scripts and
 workflows) are licensed under the **GNU General Public License v3.0** (see `LICENSE`). They modify and build on the
 GPL-3.0 projects below, and the images built from this repository redistribute modified builds of them, so GPL-3.0
 applies. Everything below keeps its own license and copyright; nothing here relicenses it.
@@ -75,7 +75,7 @@ applies. Everything below keeps its own license and copyright; nothing here reli
 
 - **Project:** [HaveAGitGat/Tdarr](https://github.com/HaveAGitGat/Tdarr)
 - **License:** Tdarr is proprietary freeware (not open source); no Tdarr code or binaries are included here.
-- **How it's used:** `tdarr-download-validator` only talks to a user-run Tdarr server over its HTTP API
+- **How it's used:** `tdarr-download-validator` and `tdarr-process-api` only talk to a user-run Tdarr server over their HTTP API
   (`/api/v2/cruddb`, `/api/v2/scan-files`). Written from the behaviour observed on the author's own instance.
 
 ## tdarr-vmaf-cuda: third-party material in the image

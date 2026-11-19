@@ -8,11 +8,11 @@
 # comparison cannot be made (a manual run, a new branch, a commit that is not here) every job is turned on: building too
 # much is the safe mistake, building too little is not.
 #
-# Outputs: apps (JSON array of radarr/sonarr/lidarr/sportarr to build), validator, vmaf, dovi, flowplugins (true/false).
+# Outputs: apps (JSON array of radarr/sonarr/lidarr/sportarr to build), validator, vmaf, dovi, flowplugins, processapi (true/false).
 set -euo pipefail
 
 classify() {
-  local all=false apps_all=false radarr=false sonarr=false lidarr=false sportarr=false validator=false vmaf=false dovi=false flowplugins=false f
+  local all=false apps_all=false radarr=false sonarr=false lidarr=false sportarr=false validator=false vmaf=false dovi=false flowplugins=false processapi=false f
   if [ "${1:-}" = "all" ]; then all=true; fi
 
   while IFS= read -r f; do
@@ -30,12 +30,13 @@ classify() {
       tdarr-vmaf-cuda/*)           vmaf=true ;;
       tdarr-dovi-tool/*)           dovi=true ;;
       tdarr-flow-plugins/*)        flowplugins=true ;;
+      tdarr-process-api/*)         processapi=true ;;
       # this file and the workflow itself can change anything
       scripts/ci-changes.sh|.github/workflows/ci.yml) all=true ;;
     esac
   done
 
-  if $all; then apps_all=true; validator=true; vmaf=true; dovi=true; flowplugins=true; fi
+  if $all; then apps_all=true; validator=true; vmaf=true; dovi=true; flowplugins=true; processapi=true; fi
   if $apps_all; then radarr=true; sonarr=true; lidarr=true; sportarr=true; fi
 
   local apps="" a
@@ -47,6 +48,7 @@ classify() {
   echo "vmaf=$vmaf"
   echo "dovi=$dovi"
   echo "flowplugins=$flowplugins"
+  echo "processapi=$processapi"
 }
 
 if [ "${1:-}" = "--classify" ]; then
