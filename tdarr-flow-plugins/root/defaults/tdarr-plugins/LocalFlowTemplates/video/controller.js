@@ -15,6 +15,7 @@
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
 // Synced to Bob's live "Controller (v12)" on 2026-11-15: Set Encode Quality is gone (Check Source Efficiency output 1 now goes straight to Go To Converter Flow), "Queue to mapped nodes" is now "Queue to local node" with node tags mapped,local, and three nodes moved.
 // Demux restructure, 2026-11-16: the Clean-only Passthrough flow is retired. Every route that went to Go To Clean Flow (sources that are not re-encoded) now goes straight to Go To Validator Flow (passthrough); Stream Cleanup has already split the file, and the Validator's mkvmerge combine puts it back together. "Go To Clean Flow" and "Returned from Clean Flow" are gone.
+// Stream Cleanup merged into the Controller, 2026-11-19, from Bob's live "Controller (v13)" and "Stream Cleanup (v8)": there is no separate Stream Cleanup flow any more. After "Mark step: quick health check done" the job goes straight through Require English Audio (output 2, no English tag: Repair Language Tags, whose output 2 goes to Fail Flow (no English audio)), Begin Command, Remove images, Remove non-english audio, Remove untagged audio, Remove non-english subtitles and Split Streams (ffmpeg), and then into Classify Source. "Go To Stream Cleanup Flow", "Returned from Stream Cleanup Flow", the Stream Cleanup flow's own Entry and "Return to Controller Flow" nodes are gone; every other node, edge and setting is the live Controller (v13) as it is (Bob's live v13 has no "Returned from Converter Flow" / "Go To Validator Flow" pair, which the previous template still had). Node positions: the nine Stream Cleanup nodes sit in the Controller's left column under the health check and to its left.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
@@ -76,7 +77,7 @@ const details = () => ({
         "id": "chkForceReencode",
         "position": {
           "x": 1152,
-          "y": -108
+          "y": -132
         }
       },
       {
@@ -109,64 +110,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "V0fhZ7bDk",
         "position": {
-          "x": 948,
-          "y": 120
-        }
-      },
-      {
-        "name": "🛬 Returned from Converter Flow",
-        "sourceRepo": "Community",
-        "pluginName": "comment",
-        "version": "1.0.0",
-        "fpEnabled": true,
-        "id": "retFromConv",
-        "position": {
-          "x": 1440,
-          "y": -312
-        }
-      },
-      {
-        "name": "🛫 Go To Validator Flow",
-        "sourceRepo": "Community",
-        "pluginName": "goToFlow",
-        "version": "2.0.0",
-        "inputsDB": {
-          "flowId": "Yaax7LBej",
-          "pluginId": "FShP88xbj"
-        },
-        "fpEnabled": true,
-        "id": "goToValidator",
-        "position": {
-          "x": 1440,
-          "y": -228
-        }
-      },
-      {
-        "name": "🛫 Go To Stream Cleanup Flow",
-        "sourceRepo": "Community",
-        "pluginName": "goToFlow",
-        "version": "2.0.0",
-        "inputsDB": {
-          "flowId": "StreamCleanup_PENDING",
-          "pluginId": "scEntry"
-        },
-        "fpEnabled": true,
-        "id": "ctrlGoToCleanup",
-        "position": {
-          "x": 612,
-          "y": -120
-        }
-      },
-      {
-        "name": "🛬 Returned from Stream Cleanup Flow",
-        "sourceRepo": "Community",
-        "pluginName": "comment",
-        "version": "1.0.0",
-        "fpEnabled": true,
-        "id": "retFromCleanup",
-        "position": {
-          "x": 948,
-          "y": -312
+          "x": 984,
+          "y": 84
         }
       },
       {
@@ -181,8 +126,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "goToValidatorPT",
         "position": {
-          "x": 1212,
-          "y": -240
+          "x": 1248,
+          "y": 60
         }
       },
       {
@@ -229,6 +174,142 @@ const details = () => ({
         "position": {
           "x": 612,
           "y": -276
+        }
+      },
+      {
+        "name": "Require English Audio",
+        "sourceRepo": "Local",
+        "pluginName": "requireEnglishAudio",
+        "version": "1.0.0",
+        "inputsDB": {
+          "languages": "eng,en"
+        },
+        "fpEnabled": true,
+        "id": "scRequireEng",
+        "position": {
+          "x": 612,
+          "y": -120
+        }
+      },
+      {
+        "name": "Fail Flow (no English audio)",
+        "sourceRepo": "Community",
+        "pluginName": "failFlow",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "scFailNoEng",
+        "position": {
+          "x": 396,
+          "y": 12
+        }
+      },
+      {
+        "name": "Begin Command",
+        "sourceRepo": "Community",
+        "pluginName": "ffmpegCommandStart",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "scBegin",
+        "position": {
+          "x": 612,
+          "y": -36
+        }
+      },
+      {
+        "name": "Remove images",
+        "sourceRepo": "Community",
+        "pluginName": "ffmpegCommandRemoveStreamByProperty",
+        "version": "1.0.0",
+        "inputsDB": {
+          "codecType": "any",
+          "condition": "equals",
+          "valuesToRemove": "attachment",
+          "propertyToCheck": "codec_type"
+        },
+        "fpEnabled": true,
+        "id": "scRemoveImages",
+        "position": {
+          "x": 612,
+          "y": 12
+        }
+      },
+      {
+        "name": "Remove non-english audio",
+        "sourceRepo": "Community",
+        "pluginName": "ffmpegCommandRemoveStreamByProperty",
+        "version": "1.0.0",
+        "inputsDB": {
+          "codecType": "audio",
+          "propertyToCheck": "tags.language",
+          "valuesToRemove": "eng,en",
+          "condition": "not_equals"
+        },
+        "fpEnabled": true,
+        "id": "scRemoveAudio",
+        "position": {
+          "x": 612,
+          "y": 60
+        }
+      },
+      {
+        "name": "Remove untagged audio",
+        "sourceRepo": "Local",
+        "pluginName": "removeUntaggedAudio",
+        "version": "1.0.0",
+        "inputsDB": {
+          "languages": "eng,en"
+        },
+        "fpEnabled": true,
+        "id": "scRemoveUntagged",
+        "position": {
+          "x": 612,
+          "y": 108
+        }
+      },
+      {
+        "name": "Remove non-english subtitles",
+        "sourceRepo": "Community",
+        "pluginName": "ffmpegCommandRemoveStreamByProperty",
+        "version": "1.0.0",
+        "inputsDB": {
+          "codecType": "subtitle",
+          "propertyToCheck": "tags.language",
+          "valuesToRemove": "eng,en",
+          "condition": "not_equals"
+        },
+        "fpEnabled": true,
+        "id": "scRemoveSubs",
+        "position": {
+          "x": 612,
+          "y": 144
+        }
+      },
+      {
+        "name": "Split Streams (ffmpeg)",
+        "sourceRepo": "Local",
+        "pluginName": "ffmpegSplitStreams",
+        "version": "1.0.0",
+        "inputsDB": {
+          "audioSubsDir": "/temp/.tdarr-remux-cache",
+          "defaultMode": "passthrough"
+        },
+        "fpEnabled": true,
+        "id": "scSplit",
+        "position": {
+          "x": 612,
+          "y": 204
+        }
+      },
+      {
+        "name": "Repair Language Tags",
+        "sourceRepo": "Local",
+        "pluginName": "repairLanguageTags",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "AmdPMw1wc",
+        "position": {
+          "x": 396,
+          "y": -72
         }
       }
     ],
@@ -325,13 +406,6 @@ const details = () => ({
         "id": "effToClean"
       },
       {
-        "source": "retFromConv",
-        "sourceHandle": "1",
-        "target": "goToValidator",
-        "targetHandle": null,
-        "id": "convToValid"
-      },
-      {
         "source": "Pu7lH9MsN",
         "sourceHandle": "1",
         "target": "ctrlMarkHc",
@@ -339,7 +413,7 @@ const details = () => ({
         "id": "ctrlE1"
       },
       {
-        "source": "retFromCleanup",
+        "source": "scSplit",
         "sourceHandle": "1",
         "target": "classifySrc",
         "targetHandle": null,
@@ -348,7 +422,7 @@ const details = () => ({
       {
         "source": "ctrlMarkHc",
         "sourceHandle": "1",
-        "target": "ctrlGoToCleanup",
+        "target": "scRequireEng",
         "targetHandle": null,
         "id": "ctrlE1b"
       },
@@ -379,6 +453,69 @@ const details = () => ({
         "target": "V0fhZ7bDk",
         "targetHandle": null,
         "id": "-lDwGniMI"
+      },
+      {
+        "source": "scRequireEng",
+        "sourceHandle": "1",
+        "target": "scBegin",
+        "targetHandle": null,
+        "id": "scE2b"
+      },
+      {
+        "source": "scRequireEng",
+        "sourceHandle": "2",
+        "target": "AmdPMw1wc",
+        "targetHandle": null,
+        "id": "IK1yFZ3Bv"
+      },
+      {
+        "source": "AmdPMw1wc",
+        "sourceHandle": "1",
+        "target": "scBegin",
+        "targetHandle": null,
+        "id": "X3RF1hLd7"
+      },
+      {
+        "source": "AmdPMw1wc",
+        "sourceHandle": "2",
+        "target": "scFailNoEng",
+        "targetHandle": null,
+        "id": "29dayHdIw"
+      },
+      {
+        "source": "scBegin",
+        "sourceHandle": "1",
+        "target": "scRemoveImages",
+        "targetHandle": null,
+        "id": "scE3"
+      },
+      {
+        "source": "scRemoveImages",
+        "sourceHandle": "1",
+        "target": "scRemoveAudio",
+        "targetHandle": null,
+        "id": "scE4"
+      },
+      {
+        "source": "scRemoveAudio",
+        "sourceHandle": "1",
+        "target": "scRemoveUntagged",
+        "targetHandle": null,
+        "id": "scE5"
+      },
+      {
+        "source": "scRemoveUntagged",
+        "sourceHandle": "1",
+        "target": "scRemoveSubs",
+        "targetHandle": null,
+        "id": "scE5b"
+      },
+      {
+        "source": "scRemoveSubs",
+        "sourceHandle": "1",
+        "target": "scSplit",
+        "targetHandle": null,
+        "id": "scE6"
       }
     ]
   });
