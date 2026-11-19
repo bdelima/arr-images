@@ -18,6 +18,7 @@
 // Stream Cleanup merged into the Controller, 2026-11-19, from Bob's live "Controller (v13)" and "Stream Cleanup (v8)": there is no separate Stream Cleanup flow any more. After "Mark step: quick health check done" the job goes straight through Require English Audio (output 2, no English tag: Repair Language Tags, whose output 2 goes to Fail Flow (no English audio)), Begin Command, Remove images, Remove non-english audio, Remove untagged audio, Remove non-english subtitles and Split Streams (ffmpeg), and then into Classify Source. "Go To Stream Cleanup Flow", "Returned from Stream Cleanup Flow", the Stream Cleanup flow's own Entry and "Return to Controller Flow" nodes are gone; every other node, edge and setting is the live Controller (v13) as it is (Bob's live v13 has no "Returned from Converter Flow" / "Go To Validator Flow" pair, which the previous template still had). Node positions: the nine Stream Cleanup nodes sit in the Controller's left column under the health check and to its left.
 // Synced to Bob's live "Controller (v15)" on 2026-11-19 (the version is stamped on at build, so the name here stays plain). Compared with the previous template: (1) Check Source Efficiency is enabled with both minimum bits per pixel set to 0, so it measures every file, sets the source bits-per-pixel and bitrate Flow Variables for Tag Output Metadata, and never skips one; its output 2 now goes to Go To Encoder (it went to the Muxer passthrough), so a file it did skip would be encoded anyway. (2) New "Check Clean Quality Tier" (Check Flow Variable, library variable qualityTier, value clean): Split Streams (ffmpeg) now goes to it instead of straight to Classify Source; output 1 (the library's tier is clean) goes to Go To Muxer (passthrough), output 2 goes to Classify Source, so a file from a clean-tier library skips Classify Source and the checks after it. The node has no condition saved in its inputs, so it uses the plugin's default condition. (3) "Check Force Reencode" is now "Check Best Quality Tier": it tests the library variable qualityTier == best (it tested forceReencode == true); output 1 now goes to Check Source Efficiency (it went to Go To Encoder), output 2 still goes to the Muxer passthrough. (4) Classify Source output 2 (H.264 HDR) now goes to Check Source Efficiency and output 4 (HEVC HDR) to Check Best Quality Tier; both went to the Muxer passthrough, so an HDR file of those two kinds is no longer passed through unconditionally. (5) "Go To Converter Flow" is now "Go To Encoder" and "Go To Validator Flow (passthrough)" is now "Go To Muxer (passthrough)" (flow ids and node ids unchanged). (6) Positions of Classify Source, Check Source Efficiency, Go To Encoder, Go To Muxer and Repair Language Tags changed. Nothing else changed.
 // Flow ids, 2026-11-19: the three flows have readable ids, bdelima/Controller, bdelima/Encoder and bdelima/Muxer (they were HWxfel7zZ, 20ZN6oc41 and Yaax7LBej), and every Go To Flow node's flowId uses them. Ids written bdelima:Controller and so on were tried first: they imported, but the flow editor then opened the Controller for all three flows. Importing with Replace over a flow that still has the old id creates a new flow; the old one stays until it is deleted.
+// Synced to Bob's live "Controller (v16)" on 2026-11-19 (the version is stamped on at build, so the name here stays plain), after Classify Source got its ten new outputs (1 h264, 2 hevc, 3 hevc+HDR/DoVi, 4 hevc+DoVi 4/5, 5 av1, 6 av1+HDR/DoVi, 7 av1+DoVi 4/5, 8 legacy, 9 other/unrecognized, 10 other/unrecognized HDR/DoVi). Compared with the v15 template, only two Classify Source edges changed: output 2 now goes to Check Best Quality Tier (it went to Check Source Efficiency, edge id cyDhRyNN2, now vpihbUuhJ), and output 4 now goes to Go To Muxer (passthrough) (it went to Check Best Quality Tier, edge id XokWO5-kI, now blOWM4wH_). The other Classify Source edges are as in v15. This replaces the Classify Source routing described in the v15 note above. The key order inside "Check Clean Quality Tier" follows the live export. No node, position or setting changed.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
@@ -319,15 +320,15 @@ const details = () => ({
         "sourceRepo": "Community",
         "pluginName": "checkFlowVariable",
         "version": "1.0.0",
+        "inputsDB": {
+          "variable": "{{{args.userVariables.library.qualityTier}}}",
+          "value": "clean"
+        },
+        "fpEnabled": true,
         "id": "Fu2JDoG05",
         "position": {
           "x": 840,
           "y": -300
-        },
-        "fpEnabled": true,
-        "inputsDB": {
-          "variable": "{{{args.userVariables.library.qualityTier}}}",
-          "value": "clean"
         }
       }
     ],
@@ -537,17 +538,17 @@ const details = () => ({
       },
       {
         "source": "classifySrc",
-        "sourceHandle": "2",
-        "target": "chkSrcEff",
+        "sourceHandle": "4",
+        "target": "goToValidatorPT",
         "targetHandle": null,
-        "id": "cyDhRyNN2"
+        "id": "blOWM4wH_"
       },
       {
         "source": "classifySrc",
-        "sourceHandle": "4",
+        "sourceHandle": "2",
         "target": "chkForceReencode",
         "targetHandle": null,
-        "id": "XokWO5-kI"
+        "id": "vpihbUuhJ"
       }
     ]
   });

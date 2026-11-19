@@ -9,6 +9,7 @@
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
 // Layout, 2026-11-19: the node positions are the owner's own arrangement from the flow editor. The Controller entry and the merge, health check and output nodes are the left lane; the Encoder entry, Classify Source and the Dolby Vision / HDR10+ re-injection steps are the right lane, and the re-injection steps rejoin the merge at Mark step: on local node (merge). Each re-injection failure now has its own Fail Flow node: Fail Flow (profile not supported) (HKLf4mn-H, from Look In Source output 5), Fail Flow (RPU frame count error) (RsUdPvlXO, from Check RPU Frame Count output 2), Fail Flow (re-injection) (XydlOn9Mc, from Inject Into Stream output 3 of the HDR10+ step), Fail Flow (RPU stream mismatch) (eFlUknnPN, from Inject RPU Into Stream output 2) and Fail Flow (RPU/HDR10+ mismatch) (injFail, from Verify Result output 2). The original Fail Flow (WrieN1BV1) takes the Compare File Duration Ratio and Require health check before Replace failures. Compared with the previous template, only positions, these five Fail Flow nodes and the edges into them changed (edges injE11, injE18, injE23 and injE25 were replaced by acv5oUiD8, RXEKPz6_8, NHUWAZ8TN and zoaN5xT2P, and injE28 now ends at injFail); no other node, edge or setting did.
 // Flow ids, 2026-11-19: the three flows have readable ids, bdelima/Controller, bdelima/Encoder and bdelima/Muxer (they were HWxfel7zZ, 20ZN6oc41 and Yaax7LBej), and every Go To Flow node's flowId uses them. Ids written bdelima:Controller and so on were tried first: they imported, but the flow editor then opened the Controller for all three flows. Importing with Replace over a flow that still has the old id creates a new flow; the old one stays until it is deleted.
+// Synced to Bob's live "Muxer (v17)" on 2026-11-19 (the version is stamped on at build, so the name here stays plain), after Classify Source got its ten new outputs. Compared with the previous template, only two Classify Source edges changed: output 2 now goes to Route to local node (merge) (it went to Route to local node (inject), edge id injE00, now MjRToxD_v) and output 3 now goes to Route to local node (inject) (it went to Route to local node (merge), edge id vW8eDUflT, now s7yzStjD_). The other Classify Source edges (1, 5, 7, 9 to the merge route, 4, 6, 8, 10 to the inject route) are as before. This replaces the output routing described in the second note above (outputs 2, 4, 6, 8 and 10 to the re-injection). No node, position or setting changed.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
@@ -636,13 +637,6 @@ const details = () => ({
       },
       {
         "source": "ViEmkfGP4",
-        "sourceHandle": "3",
-        "target": "valRoutePT",
-        "targetHandle": null,
-        "id": "vW8eDUflT"
-      },
-      {
-        "source": "ViEmkfGP4",
         "sourceHandle": "5",
         "target": "valRoutePT",
         "targetHandle": null,
@@ -661,13 +655,6 @@ const details = () => ({
         "target": "valRoutePT",
         "targetHandle": null,
         "id": "9t8RwjZmA"
-      },
-      {
-        "source": "ViEmkfGP4",
-        "sourceHandle": "2",
-        "target": "injRoute",
-        "targetHandle": null,
-        "id": "injE00"
       },
       {
         "source": "ViEmkfGP4",
@@ -871,6 +858,20 @@ const details = () => ({
         "target": "XydlOn9Mc",
         "targetHandle": null,
         "id": "NHUWAZ8TN"
+      },
+      {
+        "source": "ViEmkfGP4",
+        "sourceHandle": "2",
+        "target": "valRoutePT",
+        "targetHandle": null,
+        "id": "MjRToxD_v"
+      },
+      {
+        "source": "ViEmkfGP4",
+        "sourceHandle": "3",
+        "target": "injRoute",
+        "targetHandle": null,
+        "id": "s7yzStjD_"
       }
     ]
   });
