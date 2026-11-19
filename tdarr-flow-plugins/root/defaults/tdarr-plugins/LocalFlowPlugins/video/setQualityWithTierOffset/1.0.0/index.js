@@ -41,7 +41,12 @@ const details = () => ({
       name: 'tierOffsets',
       type: 'string',
       defaultValue: 'best=0\nbetter=+1\nbalanced=+2\nsmallest=+4',
-      inputUI: { type: 'textarea' },
+      inputUI: {
+        type: 'textarea',
+        style: {
+          height: '140px',
+        },
+      },
       tooltip: 'One tier=offset pair per line (commas and semicolons also separate pairs), for example better=+1. '
         + 'The tier is the value of the library variable qualityTier, matched without regard to case. The offset is '
         + 'added to the quality already on the command: a higher number is a smaller file. A tier that is not listed '
