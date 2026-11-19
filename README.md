@@ -143,6 +143,26 @@ top of that method. It works like the above, with these differences:
   They can be set from the league's tag selector in the web UI. No league tags, no such event/league, or a lookup error
   sends no tags (the validator's default library); it never blocks an import.
 
+## Finding a Tdarr library id
+
+`TDARR_LIBRARY_ID`, the values in `TDARR_LIBRARY_MAP` and the `library` field of the process API all take a Tdarr **library
+id** (the `dbID` Tdarr's scan call uses), not the library's name. The same `cruddb` call the two services use lists every
+library with its id; run it from any machine that can reach the Tdarr server (the server port, `8266` by default):
+
+```bash
+curl -s -X POST http://<tdarr>:8266/api/v2/cruddb -H 'Content-Type: application/json' -d '{"data":{"collection":"LibrarySettingsJSONDB","mode":"getAll"}}'
+```
+
+The answer is a JSON array with one document per library; the document's `_id` is the library id and `name` is the name you
+gave it in the **Libraries** tab. With [`jq`](https://jqlang.github.io/jq/) installed, `| jq -r '.[] | "\(._id)  \(.name)"'` on the
+end prints one `id  name` line per library. Copy the id of the library the downloads belong to (for the validator's
+`TDARR_LIBRARY_MAP`, the id of each quality tier's library).
+
+`LibrarySettingsJSONDB` and the `getAll` mode are in [Tdarr's API reference](https://tdarr.readme.io/reference/post_cruddb)
+(from Tdarr 2.25.01 it is also in the web UI under **Tools → API Docs**). If Tdarr's authentication is switched on, the
+request also needs an `x-api-key` header (**Tools → API Keys**); the services here do not send one yet, so they need
+Tdarr's authentication off.
+
 ## Import validator (tdarr-download-validator)
 
 `bdelima/tdarr-download-validator` is a small service the arr images can ask "is this download ready to import?"
@@ -191,7 +211,7 @@ the arr images can be updated in either order; it is a migration aid and will go
 | Variable | |
 |---|---|
 | `TDARR_URL` | Tdarr server, e.g. `http://192.168.0.50:8266` |
-| `TDARR_LIBRARY_ID` | dbID of the default library the downloads belong to |
+| `TDARR_LIBRARY_ID` | dbID of the default library the downloads belong to ([how to find it](#finding-a-tdarr-library-id)) |
 | `TDARR_LIBRARY_MAP` | optional JSON object mapping a quality-tier tag label (case-insensitive) to a library dbID, e.g. `{"better": "<dbID>", "balanced": "<dbID>", "smallest": "<dbID>"}` |
 | `PORT` | listen port, default `8080` |
 | `TRIGGER_DEDUP_SECONDS` | minimum seconds between scan requests for one path, default `60` |
@@ -269,7 +289,7 @@ call attached to a run that was already in progress.
 | Variable | |
 |---|---|
 | `TDARR_URL` | Tdarr server, e.g. `http://192.168.0.50:8266` (required) |
-| `TDARR_LIBRARY_ID` | default library dbID (optional: a caller may always send `library`) |
+| `TDARR_LIBRARY_ID` | default library dbID (optional: a caller may always send `library`; [how to find it](#finding-a-tdarr-library-id)) |
 | `TDARR_LIBRARY_MAP` | optional JSON object mapping a path prefix to a library dbID, e.g. `{"/downloads/4k": "<dbID>"}` |
 | `PORT` | listen port, default `8080` |
 | `TDARR_TIMEOUT_SECONDS` | timeout of each single Tdarr call, default `8` |
