@@ -18,10 +18,11 @@
 // Synced to Bob's live "Encoder (v13)" on 2026-11-15; the flow is now named Encoder (it was Converter). The single encode path is split by frame rate (Check Video Framerate, less than 31 fps): under 30 fps it goes to nodes tagged encoder and a Check Node Hardware Encoder (hevc_vaapi) picks the VAAPI encoder (quality 20) or the QSV encoder (quality 18); above 30 fps it goes to nodes tagged encoder,high-fps and the VAAPI encoder (quality 29). Each path has its own Set Quality Node Offset (drakebay-gpu=0, samara-encoder=-2 under 30 fps and -6 above). Keep Awake nodes stop and allow Windows sleep around the encode, "Route to mapped nodes" is now "Route to local node" (mapped,local), and the nodes were laid out again.
 // Demux restructure, 2026-11-16: the Encoder works on video only. The Stream Cleanup flow now splits the file (video-only working file plus an audio+subs file in /temp/.tdarr-remux-cache), so the audio+subs step, the stable-path copy, the video-from-original step, the Route to local node / Mark step, the final mkvmerge combine and the cache cleanup are gone from here; Entry goes straight to Check Video Framerate and, after Mark step: encode done and Allow sleep, back to the Controller. The Validator puts the file back together (mkvmerge combine) at its top.
 // Synced to Bob's live "Encoder (v14)" on 2026-11-19 (the previous template had 20 nodes, this one has 44; every node it had is unchanged apart from position, except the last Go To Flow node). The VMAF scoring and the size checks are in the Encoder now, not in the Muxer. After Execute (encode) the job is routed to a node tagged vmaf (Route to VMAF node, Mark Step: on vmaf node); Check Video Resolution and Check 10 Bit Video choose one of four Run VMAF Quality Check nodes, which score against the video-only file (Flow Variable videoOnlySource). A pass goes through Compare File Size To Source to Mark step: encode done, Route to same encoder (the node Save Current Node recorded), Allow sleep (Windows), Require Review and "Go to validator flow (re-encoded)", which is the Muxer's "Entry from Encoder Flow" (QgTm1GUmZ). A failed VMAF check goes through the other Compare File Size To Source and Route to same encoder, and Set Working File (the video-only file) puts it back in front of Begin Command (encode) for another encode; Set Quality Tier Offset and Set Re-Encode Offset sit between the node offsets and Tag Encode Settings. When Set Re-Encode Offset output 2 or a Compare File Size To Source output 2 is taken, the job goes through Mark step: Restored original and Restore original file (the video-only file) to Route to same encoder, Allow sleep (Windows), Require Review and "Go to validator flow (final merge)", the Muxer's "Entry from Controller Flow" (FShP88xbjPT), so the source is not re-encoded. The old "Returning to Controller Flow" node (pointing at the Controller's retFromConv) is gone. How the outputs of those nodes behave is what the node names and edges say; none of it was run for this note.
+// Flow ids, 2026-11-18: the three flows now carry readable ids, bdelima:Controller, bdelima:Encoder and bdelima:Muxer (they were HWxfel7zZ, 20ZN6oc41 and Yaax7LBej), and every Go To Flow node's flowId uses them. Importing with Replace over a flow that still has the old id creates a new flow; the old one stays until it is deleted.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
-    "_id": "20ZN6oc41",
+    "_id": "bdelima:Encoder",
     "name": "Encoder",
     "description": "Encoder",
     "tags": "",
@@ -32,7 +33,7 @@ const details = () => ({
         "pluginName": "goToFlow",
         "version": "2.0.0",
         "inputsDB": {
-          "flowId": "Yaax7LBej",
+          "flowId": "bdelima:Muxer",
           "pluginId": "FShP88xbjPT"
         },
         "fpEnabled": true,
@@ -213,7 +214,7 @@ const details = () => ({
         "pluginName": "goToFlow",
         "version": "2.0.0",
         "inputsDB": {
-          "flowId": "Yaax7LBej",
+          "flowId": "bdelima:Muxer",
           "pluginId": "QgTm1GUmZ"
         },
         "fpEnabled": true,
