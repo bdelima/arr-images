@@ -7,6 +7,7 @@
 // details() carries the flow's own _id (the first field below), because the goToFlow nodes in the other flows point at
 // it by id. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists;
 // to update a live flow in place, paste its JSON, with the same _id, into Import JSON Flow Template and choose Replace.
+// Layout, 2026-11-19: the nodes are laid out top to bottom in two lanes so every edge runs downwards. Left lane: Entry from Controller Flow (final merge), Route to local node (merge), then the merge, the health checks and the output (mkvmerge, Compare File Duration Ratio, Queue Full Healthcheck, Run Thorough Health Check, Require health check before Replace, Tag Output Metadata, Replace Original File). Right lane: Entry from Encoder Flow (re-encoded), Classify Source and the Dolby Vision / HDR10+ re-injection steps in the order they run, which end at Mark step: on local node (merge) at the top of the left lane's merge. Fail Flow is at the bottom right. Only node positions changed; no node, edge or setting did.
 // Flow ids, 2026-11-19: the three flows have readable ids, bdelima/Controller, bdelima/Encoder and bdelima/Muxer (they were HWxfel7zZ, 20ZN6oc41 and Yaax7LBej), and every Go To Flow node's flowId uses them. Ids written bdelima:Controller and so on were tried first: they imported, but the flow editor then opened the Controller for all three flows. Importing with Replace over a flow that still has the old id creates a new flow; the old one stays until it is deleted.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
@@ -24,8 +25,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "QgTm1GUmZ",
         "position": {
-          "x": 1512,
-          "y": -144
+          "x": 700,
+          "y": 0
         }
       },
       {
@@ -36,8 +37,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "WrieN1BV1",
         "position": {
-          "x": 792,
-          "y": 240
+          "x": 1300,
+          "y": 1728
         }
       },
       {
@@ -48,8 +49,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "tagOutMeta",
         "position": {
-          "x": 1140,
-          "y": 420
+          "x": 300,
+          "y": 1872
         }
       },
       {
@@ -60,8 +61,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "1g5GNL1MP",
         "position": {
-          "x": 1140,
-          "y": 456
+          "x": 300,
+          "y": 1944
         }
       },
       {
@@ -72,8 +73,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "FShP88xbjPT",
         "position": {
-          "x": 1020,
-          "y": -144
+          "x": 300,
+          "y": 0
         }
       },
       {
@@ -84,8 +85,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "CUsET8PD3PT",
         "position": {
-          "x": 1008,
-          "y": 60
+          "x": 300,
+          "y": 1296
         }
       },
       {
@@ -100,8 +101,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "reqOjochalHC",
         "position": {
-          "x": 1164,
-          "y": 144
+          "x": 300,
+          "y": 1368
         }
       },
       {
@@ -116,8 +117,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "healthCheckPT",
         "position": {
-          "x": 1416,
-          "y": 204
+          "x": 300,
+          "y": 1512
         }
       },
       {
@@ -131,8 +132,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valMarkHcQueue",
         "position": {
-          "x": 1416,
-          "y": 156
+          "x": 300,
+          "y": 1440
         }
       },
       {
@@ -146,8 +147,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valMarkHcDone",
         "position": {
-          "x": 1416,
-          "y": 252
+          "x": 300,
+          "y": 1584
         }
       },
       {
@@ -161,8 +162,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valRequireHc",
         "position": {
-          "x": 1164,
-          "y": 228
+          "x": 300,
+          "y": 1656
         }
       },
       {
@@ -176,8 +177,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "JbNGlNa6-",
         "position": {
-          "x": 1140,
-          "y": 384
+          "x": 300,
+          "y": 1800
         }
       },
       {
@@ -192,8 +193,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "rvn34_UFh",
         "position": {
-          "x": 1140,
-          "y": 348
+          "x": 300,
+          "y": 1728
         }
       },
       {
@@ -208,8 +209,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valRoutePT",
         "position": {
-          "x": 1188,
-          "y": -84
+          "x": 300,
+          "y": 144
         }
       },
       {
@@ -223,8 +224,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valMarkPT",
         "position": {
-          "x": 1188,
-          "y": -48
+          "x": 300,
+          "y": 1080
         }
       },
       {
@@ -239,8 +240,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valMergePT",
         "position": {
-          "x": 1188,
-          "y": 0
+          "x": 300,
+          "y": 1152
         }
       },
       {
@@ -259,8 +260,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "valCleanPT",
         "position": {
-          "x": 1188,
-          "y": 36
+          "x": 300,
+          "y": 1224
         }
       },
       {
@@ -270,8 +271,8 @@ const details = () => ({
         "version": "1.0.0",
         "id": "ViEmkfGP4",
         "position": {
-          "x": 1512,
-          "y": -96
+          "x": 700,
+          "y": 72
         },
         "fpEnabled": true
       },
@@ -287,8 +288,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "injRoute",
         "position": {
-          "x": 1740,
-          "y": -96
+          "x": 700,
+          "y": 144
         }
       },
       {
@@ -302,8 +303,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "injMark",
         "position": {
-          "x": 1740,
-          "y": -48
+          "x": 700,
+          "y": 216
         }
       },
       {
@@ -314,8 +315,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "injLook",
         "position": {
-          "x": 1740,
-          "y": 0
+          "x": 700,
+          "y": 288
         }
       },
       {
@@ -326,8 +327,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "injHdrX",
         "position": {
-          "x": 1620,
-          "y": 72
+          "x": 440,
+          "y": 360
         }
       },
       {
@@ -338,8 +339,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "injRpuX",
         "position": {
-          "x": 1860,
-          "y": 72
+          "x": 960,
+          "y": 432
         }
       },
       {
@@ -350,8 +351,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "injCount",
         "position": {
-          "x": 1740,
-          "y": 144
+          "x": 700,
+          "y": 504
         }
       },
       {
@@ -362,8 +363,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "injCheck",
         "position": {
-          "x": 1860,
-          "y": 216
+          "x": 960,
+          "y": 576
         }
       },
       {
@@ -374,8 +375,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "injRaw",
         "position": {
-          "x": 1740,
-          "y": 288
+          "x": 700,
+          "y": 648
         }
       },
       {
@@ -386,8 +387,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "injHdrI",
         "position": {
-          "x": 1620,
-          "y": 360
+          "x": 440,
+          "y": 720
         }
       },
       {
@@ -398,8 +399,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "injRpuI",
         "position": {
-          "x": 1860,
-          "y": 432
+          "x": 960,
+          "y": 792
         }
       },
       {
@@ -410,8 +411,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "injMux",
         "position": {
-          "x": 1740,
-          "y": 504
+          "x": 700,
+          "y": 864
         }
       },
       {
@@ -422,8 +423,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "injVerify",
         "position": {
-          "x": 1740,
-          "y": 552
+          "x": 700,
+          "y": 936
         }
       },
       {
@@ -434,8 +435,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "injClean",
         "position": {
-          "x": 1740,
-          "y": 600
+          "x": 700,
+          "y": 1008
         }
       }
     ],
