@@ -1,16 +1,16 @@
 'use strict';
 /* eslint-disable no-template-curly-in-string */
 /* eslint-disable import/prefer-default-export */
-// VMAF Rescore (new flow, 2026-11-19): scores a finished file against the file named by its own TDARR_SOURCE_FILE tag and writes the result into the finished file's TDARR_VMAF_SCORE tag. It does not encode, remux or replace anything.
+// VMAF Scoring Flow (new flow, 2026-11-19): scores a finished file against the file named by its own TDARR_SOURCE_FILE tag and writes the result into the finished file's TDARR_VMAF_SCORE tag. It does not encode, remux or replace anything.
 // Path: Input File, Route to VMAF node (Tags: Worker Type, CPU or GPU worker on a node tagged vmaf, so the reference is read where Run VMAF runs), Read Source File Tag (sets the Flow Variable sourceFile; fails the job when the tag is missing, when no file exists at that path on this node, or when that file is the working file itself), Check Video Resolution and Check 10 Bit Video (the same branching as the Encoder's VMAF branch), one of four Run VMAF Quality Check nodes with Reference file {{{args.variables.user.sourceFile}}}, then Tag VMAF Score on both the pass and the fail output (the score is recorded either way; Run VMAF's minimums are left at the plugin defaults and only decide which output is used).
 // The working file is the input file itself (no copy into the work folder), so Tag VMAF Score edits the library file in place with mkvpropedit; it keeps the file's other TDARR_ tags and does not touch streams. Matroska files only.
 // details() carries the flow's own _id (the first field below), as the other templates do. Adding this file from Add Flow > Local was reported to prompt Replace when a flow with this _id already exists.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
-    "_id": "bdelima/VmafRescore",
-    "name": "VMAF Rescore",
-    "description": "VMAF Rescore",
+    "_id": "bdelima/VmafScoring",
+    "name": "VMAF Scoring Flow",
+    "description": "VMAF Scoring Flow",
     "tags": "",
     "flowPlugins": [
       {

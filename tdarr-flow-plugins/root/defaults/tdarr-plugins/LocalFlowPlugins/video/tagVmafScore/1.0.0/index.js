@@ -6,7 +6,7 @@
  * tag on the file as it was. The value has the same format Tag Output Metadata writes, for example
  * mean=95.12;min=81.3;p1=90.4;below60=0;below70=2;below75=5.
  *
- * It is for a flow that only scores a file that is already finished (a rescore), where Tag Output Metadata is not
+ * It is for a flow that only scores a file that is already finished (the VMAF Scoring Flow), where Tag Output Metadata is not
  * the right node: it rewrites the run tags (pipeline version, trail) and, on a run that did not encode, keeps the encode
  * tags (VMAF score included) from the file instead of replacing them.
  *
