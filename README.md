@@ -412,10 +412,10 @@ are `0.x` until that has been done on real files.
 ## Tdarr flow plugins (tdarr-flow-plugins)
 
 `bdelima/tdarr-flow-plugins` is a [`DOCKER_MODS`](https://github.com/linuxserver/docker-mods) overlay for the Tdarr **server**
-container. It replaces hand-copying files onto the server: at every container start it puts thirty-two Local Flow Plugins
+container. It replaces hand-copying files onto the server: at every container start it puts thirty-four Local Flow Plugins
 (`classifySource`, `setMaxBitrate`, `tagEncodeSettings`, `tagOutputMetadata`, `checkSourceEfficiency`,
-`setSourceRelativeBitrate`, `setEncodeQuality`, `setQualityWithNodeOffset`, `requireEnglishAudio`, `removeUntaggedAudio`, `mkvmergeExecute`, `repairLanguageTags`, `markStep`, `requireTrail`, `runVmaf`, `keepAwake`, `setQualityWithTierOffset`, `compareFileSizeToSource`, `ffmpegSplitStreams`, `saveCurrentNode`, `setReEncodeOffset`, and the Dolby Vision / HDR10+ re-injection steps `doviLookInSource`, `hdr10PlusExtract`, `doviExtractRpu`, `doviCountFrames`, `doviCheckRpuFrames`, `doviWriteRawStream`, `hdr10PlusInject`, `doviInjectRpu`, `doviMuxResult`, `doviVerifyResult`, `doviCleanUp`) and the flow template files for the Downloads
-Flow (Controller, Encoder, Muxer) into the server's plugin folder. The files in
+`setSourceRelativeBitrate`, `setEncodeQuality`, `setQualityWithNodeOffset`, `requireEnglishAudio`, `removeUntaggedAudio`, `mkvmergeExecute`, `repairLanguageTags`, `markStep`, `requireTrail`, `runVmaf`, `keepAwake`, `setQualityWithTierOffset`, `compareFileSizeToSource`, `ffmpegSplitStreams`, `saveCurrentNode`, `setReEncodeOffset`, `readSourceFileTag`, `tagVmafScore`, and the Dolby Vision / HDR10+ re-injection steps `doviLookInSource`, `hdr10PlusExtract`, `doviExtractRpu`, `doviCountFrames`, `doviCheckRpuFrames`, `doviWriteRawStream`, `hdr10PlusInject`, `doviInjectRpu`, `doviMuxResult`, `doviVerifyResult`, `doviCleanUp`) and the flow template files for the Downloads
+Flow (Controller, Encoder, Muxer) and the VMAF Scoring Flow into the server's plugin folder. The files in
 [`tdarr-flow-plugins/root`](tdarr-flow-plugins/root) are the source of truth and are shipped as they are, except that the build appends each flow template's own version to its name (below).
 
 ```yaml
@@ -439,7 +439,7 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   plugin folder or a file the image ships; the log says `removed ...`). Today it holds `LocalFlowTemplates/video/languageTagRepair.js`, `LocalFlowTemplates/video/cleanOnlyPassthrough.js` and `LocalFlowTemplates/video/streamCleanup.js`. Files are
   owned by `PUID:PGID` (when set), mode 664, new folders 775.
   The script never stops the container from starting; a failure is a log line. A new plugin file needs the server restarted to load, which a container restart does anyway.
-- **Not in the image:** the three flows themselves (they live in Tdarr's database; import them with Add Flow > Import JSON Flow
+- **Not in the image:** the flows themselves (they live in Tdarr's database; import them with Add Flow > Import JSON Flow
   Template or from the Local tab) and any Tdarr settings. A flow already imported from a template stays in Tdarr's database when the template is retired;
   delete it in the Flows tab (the separate Stream Cleanup, Clean-only passthrough, Converter and Validator flows of earlier versions are in that case).
 - **The three flows.** The **Controller** (`bdelima/Controller`) takes the file in, queues it to a local node, runs the quick health check, does the stream cleanup
@@ -449,9 +449,17 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   video and the audio+subtitles file back together with mkvmerge, re-injects Dolby Vision / HDR10+ metadata where the source had it, runs the thorough health check and the trail gate, writes the
   output tags and replaces the original. The separate Stream Cleanup flow was merged into the Controller, and the Validator was renamed Muxer. None of this has been run in a real Tdarr job since the
   templates were last changed.
-- **Flow ids.** The templates' `_id` values are `bdelima/Controller`, `bdelima/Encoder` and `bdelima/Muxer` (they were `HWxfel7zZ`, `20ZN6oc41` and `Yaax7LBej`), and every Go To Flow node uses them:
+- **Flow ids.** The templates' `_id` values are `bdelima/Controller`, `bdelima/Encoder`, `bdelima/Muxer` and, for the VMAF Scoring Flow, `bdelima/VmafScoring` (the first three were `HWxfel7zZ`, `20ZN6oc41` and `Yaax7LBej`), and every Go To Flow node uses them:
   Controller to the Encoder (entry `X4ANCc9vI`) and to the Muxer (`FShP88xbjPT`, final merge), Encoder to the Muxer (`QgTm1GUmZ`, re-encoded, and `FShP88xbjPT`, final merge). Tdarr treats a
   new `_id` as a new flow, so Replace does not overwrite a flow that still has an old id: import the new flows, move the libraries over, then delete the old ones. Ids written `bdelima:<name>` were tried first: they imported, but the flow editor then opened the Controller for all three flows (cause not confirmed); `bdelima/<name>` imported and worked (observed by the owner, 2026-11-19).
+- **VMAF Scoring Flow** (`bdelima/VmafScoring`, a separate flow that no other flow calls). For a file that is already finished: it reads the `TDARR_SOURCE_FILE` tag from the input file
+  (`readSourceFileTag`, which also checks that the path exists on the node, is a file, and is not the working file itself, since a file scored against itself would get a perfect score), scores the input file against the
+  file at that path with Run VMAF (on a node tagged `vmaf`, with the same four 8-bit / 10-bit / 4K Run VMAF nodes as the Encoder, their Reference file set to the path read), and writes the result into the input
+  file's `TDARR_VMAF_SCORE` tag (`tagVmafScore`: in place with `mkvpropedit`, Matroska only, every other `TDARR_` tag kept, read back and checked). It does not encode, remux or replace anything. No tag, or a
+  tagged path that does not exist, fails the job; a score that fails the thresholds is written anyway. **It only works where the original is still at the tagged path:** Replace Original File overwrites the original, so
+  for a file the Controller / Encoder / Muxer produced the path normally holds nothing (after the arr import) or the encoded file itself, and the flow then fails the job with "no file exists at ..." or "is the working
+  file itself". The flow is not bound to any library; the library that runs it needs its own settings. Checked in a sandbox with real ffmpeg, ffprobe and `mkvpropedit` and a stand-in scorer; not run in a real Tdarr job,
+  and whether Tdarr renders the `{{{args.variables.user.sourceFile}}}` template in Run VMAF's Reference file input is not confirmed.
 - **Dolby Vision / HDR10+ re-injection (Muxer).** A file that comes back from the Encoder and classifies as HDR or Dolby Vision goes through one Local plugin per step: Look In Source reads the first frames of the video-only
   source with `dovi_tool` / `hdr10plus_tool`, Profile 7 is converted to 8.1 and Profile 8 is used as is, any other profile leaves through a failure output wired to Fail Flow; the metadata is extracted from the whole source,
   the frame counts are compared, the encode is written as a raw HEVC stream, HDR10+ and then the RPU are injected, mkvmerge writes the MKV, Verify Result reads the metadata back out and compares it, and Clean Up
@@ -477,11 +485,13 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   file would lose the tags its encode run wrote. Tag Output Metadata first reads the `TDARR_` tags of the original library file (from the
   probe data Tdarr holds, `format.tags`; if that has none, from an `ffmpeg -f ffmetadata` read of the file) and merges them with this run's.
   The tags that describe an encode (`TDARR_ENCODE_PARAMS`, `TDARR_QUALITY_TIER`, `TDARR_SOURCE_CLASS`, `TDARR_SOURCE_BPP`,
-  `TDARR_SOURCE_VIDEO_KBPS`, `TDARR_SOURCE_PEAK_KBPS`, `TDARR_SIZE_RATIO`, `TDARR_VMAF_SCORE`, `TDARR_ENCODE_VERSION`, `TDARR_ENCODE_TRAIL`) are rewritten only when this run re-encoded the video
+  `TDARR_SOURCE_VIDEO_KBPS`, `TDARR_SOURCE_PEAK_KBPS`, `TDARR_SOURCE_FILE`, `TDARR_SIZE_RATIO`, `TDARR_VMAF_SCORE`, `TDARR_ENCODE_VERSION`, `TDARR_ENCODE_TRAIL`) are rewritten only when this run re-encoded the video
   (the trail has `converter-encode-done`); when it did not, and the original already carries `TDARR_ENCODE_PARAMS` or `TDARR_ENCODE_TRAIL`,
   they are kept as the encode run wrote them. `TDARR_PIPELINE_VERSION` and `TDARR_TRAIL` always describe the run that wrote them, so
   `TDARR_ENCODE_VERSION` and `TDARR_ENCODE_TRAIL` are copies of those two taken at the encode run. Any other `TDARR_` tag on the original is
-  carried over unchanged. The job log says how many tags were found, where they came from and which were kept. Checked on real Matroska
+  carried over unchanged. `TDARR_SOURCE_FILE` is the full path of the original library file the job was queued for, as Tdarr saw it (for example
+  `/downloads/usenet/completed/.../name.mkv`); it is in the encode group, so a later pass keeps the path the encode run recorded, and a file
+  encoded before this tag existed does not get one added by a later pass. The job log says how many tags were found, where they came from and which were kept. Checked on real Matroska
   files with `mkvpropedit`, `ffprobe` and `ffmpeg` in a sandbox, with Tdarr's helpers stubbed; not yet seen in a real Tdarr job, and whether
   Tdarr's own probe data carries `format.tags` is not confirmed (the ffmpeg read covers it if it does not).
 - **Quality baseline and per-node offset.** The shipped flows no longer cap the bitrate of a standard quality-based encode (no `-b:v` / `-maxrate` / `-bufsize`, so hevc_qsv stays plain
