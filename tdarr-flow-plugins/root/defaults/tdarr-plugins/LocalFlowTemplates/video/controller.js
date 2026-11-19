@@ -16,11 +16,11 @@
 // Synced to Bob's live "Controller (v12)" on 2026-11-15: Set Encode Quality is gone (Check Source Efficiency output 1 now goes straight to Go To Converter Flow), "Queue to mapped nodes" is now "Queue to local node" with node tags mapped,local, and three nodes moved.
 // Demux restructure, 2026-11-16: the Clean-only Passthrough flow is retired. Every route that went to Go To Clean Flow (sources that are not re-encoded) now goes straight to Go To Validator Flow (passthrough); Stream Cleanup has already split the file, and the Validator's mkvmerge combine puts it back together. "Go To Clean Flow" and "Returned from Clean Flow" are gone.
 // Stream Cleanup merged into the Controller, 2026-11-19, from Bob's live "Controller (v13)" and "Stream Cleanup (v8)": there is no separate Stream Cleanup flow any more. After "Mark step: quick health check done" the job goes straight through Require English Audio (output 2, no English tag: Repair Language Tags, whose output 2 goes to Fail Flow (no English audio)), Begin Command, Remove images, Remove non-english audio, Remove untagged audio, Remove non-english subtitles and Split Streams (ffmpeg), and then into Classify Source. "Go To Stream Cleanup Flow", "Returned from Stream Cleanup Flow", the Stream Cleanup flow's own Entry and "Return to Controller Flow" nodes are gone; every other node, edge and setting is the live Controller (v13) as it is (Bob's live v13 has no "Returned from Converter Flow" / "Go To Validator Flow" pair, which the previous template still had). Node positions: the nine Stream Cleanup nodes sit in the Controller's left column under the health check and to its left.
-// Flow ids, 2026-11-18: the three flows now carry readable ids, bdelima:Controller, bdelima:Encoder and bdelima:Muxer (they were HWxfel7zZ, 20ZN6oc41 and Yaax7LBej), and every Go To Flow node's flowId uses them. Importing with Replace over a flow that still has the old id creates a new flow; the old one stays until it is deleted.
+// Flow ids, 2026-11-19: the three flows have readable ids, bdelima/Controller, bdelima/Encoder and bdelima/Muxer (they were HWxfel7zZ, 20ZN6oc41 and Yaax7LBej), and every Go To Flow node's flowId uses them. Ids written bdelima:Controller and so on were tried first: they imported, but the flow editor then opened the Controller for all three flows. Importing with Replace over a flow that still has the old id creates a new flow; the old one stays until it is deleted.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
-    "_id": "bdelima:Controller",
+    "_id": "bdelima/Controller",
     "name": "Controller",
     "description": "Controller",
     "tags": "",
@@ -105,7 +105,7 @@ const details = () => ({
         "pluginName": "goToFlow",
         "version": "2.0.0",
         "inputsDB": {
-          "flowId": "bdelima:Encoder",
+          "flowId": "bdelima/Encoder",
           "pluginId": "X4ANCc9vI"
         },
         "fpEnabled": true,
@@ -121,7 +121,7 @@ const details = () => ({
         "pluginName": "goToFlow",
         "version": "2.0.0",
         "inputsDB": {
-          "flowId": "bdelima:Muxer",
+          "flowId": "bdelima/Muxer",
           "pluginId": "FShP88xbjPT"
         },
         "fpEnabled": true,
