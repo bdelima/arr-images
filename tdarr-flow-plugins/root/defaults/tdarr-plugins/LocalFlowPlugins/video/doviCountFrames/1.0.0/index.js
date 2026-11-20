@@ -76,9 +76,48 @@ const helpers = (args, label) => {
   };
   const leave = (outputNumber) => ({ outputFileObj: args.inputFileObj, outputNumber, variables: args.variables });
 
+  // Progress for the worker (the percentage and ETA the Tdarr UI shows). Tdarr's own CLI helper only reads progress from
+  // ffmpeg, HandBrake and a few encoders, and these steps run their programs themselves, so dovi_tool, hdr10plus_tool, ffprobe
+  // and mkvmerge showed nothing and a long step looked hung. track says how to measure one run:
+  //   { file } the program reads this file from start to end once: the share of it the program has read so far (the
+  //            "rchar" of /proc/<pid>/io, polled every second, Linux only) is the percentage;
+  //   { mkvmerge: true } the program prints "Progress: N%" itself;
+  //   from / to (default 0 and 100) place the run inside a step that runs several programs one after the other.
+  // Progress is cosmetic: a file that cannot be measured, an unreadable /proc or a worker without updateWorker just
+  // means no percentage, and the run itself is never affected. The size figures are sent as 0, as Run VMAF does, because
+  // the size of a work file says nothing about how far along the step is.
+  const clock = (seconds) => {
+    const t = Math.max(0, Math.round(seconds));
+    return `${Math.floor(t / 3600)}:${String(Math.floor((t % 3600) / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+  };
+  const tracker = (track) => {
+    if (!track || typeof args.updateWorker !== 'function') return null;
+    const from = track.from === undefined ? 0 : track.from;
+    const to = track.to === undefined ? 100 : track.to;
+    const began = Date.now();
+    let last = -1;
+    const report = (fraction) => {
+      try {
+        const f = Math.min(1, Math.max(0, fraction));
+        const percentage = Math.min(Math.max(from, to - 1), Math.floor(from + (to - from) * f));
+        if (percentage <= last) return;
+        last = percentage;
+        const update = { percentage, outputFileSizeInGbytes: 0, estSize: 0 };
+        if (f > 0.01) update.ETA = clock(((Date.now() - began) / 1000) * ((1 - f) / f));
+        args.updateWorker(update);
+      } catch (e) {
+        // cosmetic
+      }
+    };
+    const finish = () => {
+      try { args.updateWorker({ percentage: to, outputFileSizeInGbytes: 0, estSize: 0 }); } catch (e) { /* cosmetic */ }
+    };
+    return { report, finish };
+  };
+
   // Runs a program (no shell). stdout is only kept when collect is set; the text kept for messages is the last
-  // 6000 characters of stderr (and of stdout when it is not collected).
-  const run = (cmd, argv, collect) => new Promise((resolve) => {
+  // 6000 characters of stderr (and of stdout when it is not collected). track (see above) turns on progress reporting.
+  const run = (cmd, argv, collect, track) => new Promise((resolve) => {
     let text = '';
     let data = '';
     let child;
@@ -88,11 +127,37 @@ const helpers = (args, label) => {
       resolve({ code: -1, text: e.message, data });
       return;
     }
+    const progress = tracker(track);
+    let timer = null;
+    if (progress && track.file) {
+      let total = 0;
+      try { total = fs.statSync(track.file).size; } catch (e) { total = 0; }
+      if (total > 0 && child.pid) {
+        timer = setInterval(() => {
+          try {
+            const m = /^rchar:\s*(\d+)/m.exec(fs.readFileSync(`/proc/${child.pid}/io`, 'utf8'));
+            if (m) progress.report(Number(m[1]) / total);
+          } catch (e) {
+            // no /proc, or not readable: no percentage
+          }
+        }, 1000);
+        timer.unref();
+      }
+    }
     const keep = (d) => { text = (text + d.toString()).slice(-6000); };
-    child.on('error', (e) => resolve({ code: -1, text: e.code === 'ENOENT' ? 'not found' : e.message, data }));
-    child.stdout.on('data', (d) => { if (collect) data += d.toString(); else keep(d); });
-    child.stderr.on('data', keep);
-    child.on('close', (code) => resolve({ code, text, data }));
+    const watch = (d) => {
+      if (!progress || !track.mkvmerge) return;
+      const found = [...String(d).matchAll(/Progress:\s*(\d{1,3})%/g)];
+      if (found.length > 0) progress.report(Number(found[found.length - 1][1]) / 100);
+    };
+    child.on('error', (e) => { clearInterval(timer); resolve({ code: -1, text: e.code === 'ENOENT' ? 'not found' : e.message, data }); });
+    child.stdout.on('data', (d) => { watch(d); if (collect) data += d.toString(); else keep(d); });
+    child.stderr.on('data', (d) => { watch(d); keep(d); });
+    child.on('close', (code) => {
+      clearInterval(timer);
+      if (progress && code === 0) progress.finish();
+      resolve({ code, text, data });
+    });
   });
 
   const workingFile = () => String(args.inputFileObj && args.inputFileObj._id ? args.inputFileObj._id : '');
@@ -144,7 +209,7 @@ const plugin = async (args) => {
   const { user } = h;
   const encode = h.workingFile();
   const ffprobe = await h.ffprobe();
-  const pk = await h.run(ffprobe, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time', '-of', 'csv=p=0', encode], true);
+  const pk = await h.run(ffprobe, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time', '-of', 'csv=p=0', encode], true, { file: encode });
   if (pk.code !== 0) h.fail(`ffprobe could not read the packets of the working file: ${h.tail(pk.text)}`);
   const lines = pk.data.split('\n').map((l) => l.trim()).filter((l) => l !== '');
   const times = lines.map((l) => Number(l.split(',')[0])).filter((t) => Number.isFinite(t)).sort((a, b) => a - b);

@@ -19,6 +19,7 @@
 // Demux restructure, 2026-11-16: the Encoder works on video only. The Stream Cleanup flow now splits the file (video-only working file plus an audio+subs file in /temp/.tdarr-remux-cache), so the audio+subs step, the stable-path copy, the video-from-original step, the Route to local node / Mark step, the final mkvmerge combine and the cache cleanup are gone from here; Entry goes straight to Check Video Framerate and, after Mark step: encode done and Allow sleep, back to the Controller. The Validator puts the file back together (mkvmerge combine) at its top.
 // Synced to Bob's live "Encoder (v14)" on 2026-11-19 (the previous template had 20 nodes, this one has 44; every node it had is unchanged apart from position, except the last Go To Flow node). The VMAF scoring and the size checks are in the Encoder now, not in the Muxer. After Execute (encode) the job is routed to a node tagged vmaf (Route to VMAF node, Mark Step: on vmaf node); Check Video Resolution and Check 10 Bit Video choose one of four Run VMAF Quality Check nodes, which score against the video-only file (Flow Variable videoOnlySource). A pass goes through Compare File Size To Source to Mark step: encode done, Route to same encoder (the node Save Current Node recorded), Allow sleep (Windows), Require Review and "Go to validator flow (re-encoded)", which is the Muxer's "Entry from Encoder Flow" (QgTm1GUmZ). A failed VMAF check goes through the other Compare File Size To Source and Route to same encoder, and Set Working File (the video-only file) puts it back in front of Begin Command (encode) for another encode; Set Quality Tier Offset and Set Re-Encode Offset sit between the node offsets and Tag Encode Settings. When Set Re-Encode Offset output 2 or a Compare File Size To Source output 2 is taken, the job goes through Mark step: Restored original and Restore original file (the video-only file) to Route to same encoder, Allow sleep (Windows), Require Review and "Go to validator flow (final merge)", the Muxer's "Entry from Controller Flow" (FShP88xbjPT), so the source is not re-encoded. The old "Returning to Controller Flow" node (pointing at the Controller's retFromConv) is gone. How the outputs of those nodes behave is what the node names and edges say; none of it was run for this note.
 // Flow ids, 2026-11-19: the three flows have readable ids, bdelima/Controller, bdelima/Encoder and bdelima/Muxer (they were HWxfel7zZ, 20ZN6oc41 and Yaax7LBej), and every Go To Flow node's flowId uses them. Ids written bdelima:Controller and so on were tried first: they imported, but the flow editor then opened the Controller for all three flows. Importing with Replace over a flow that still has the old id creates a new flow; the old one stays until it is deleted.
+// Synced to Bob's live "Encoder (v16)" on 2026-11-20 (the version is stamped on at build, so the name here stays plain; the Controller was not part of this sync). Compared with the previous template (44 nodes and 62 edges before and after): the file size check now runs right after Execute (encode), before the VMAF scoring. The new Compare File Size To Source node IKvxCVZdn (default inputs: the video-only source, 100%) takes the place of the old edge from Execute (encode) to Route to VMAF node: its output 1 goes to Route to VMAF node and its output 2 to Mark step: Restored original, so an encode that is not smaller than the video-only source is replaced before any VMAF run. The old size check after the VMAF scoring (p2Dk_Y6nL) is gone: a passing Run VMAF Quality Check (output 1) goes straight to Mark step: encode done, and a failing one (output 2) still goes to Compare File Size To Source Jdn7-QrUv, which now has Maximum size (% of reference) = 85 (output 1, smaller than 85% of the video-only source, goes to Route to same encoder; output 2 to Mark step: Restored original). Route to VMAF node asks for a GPU worker (was CPU or GPU). Run VMAF Quality Check settings: the 1080p 10-bit node is 80/90/95 (frame, p1, mean; was 70/85 with no mean) and, like the 1080p 8-bit node, has the tier lines better=92,70,85 / balanced=90,65,80 / smallest=88,60,75 (were 92,75,88 / 90,70,80 / 88,60,75); the 4K 8-bit node is 77/85/95 (was 80/85, no mean) and the 4K 10-bit node 77/90/95 (was 80/85, no mean). The Restore original file to Route to same encoder edge has a new id only. Node positions are the owner's own arrangement again.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
@@ -39,8 +40,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "aixyWixBS",
         "position": {
-          "x": 96,
-          "y": 696
+          "x": 192,
+          "y": 648
         }
       },
       {
@@ -48,12 +49,12 @@ const details = () => ({
         "sourceRepo": "Community",
         "pluginName": "requireReview",
         "version": "1.0.0",
+        "fpEnabled": true,
         "id": "nEHxHExS_",
         "position": {
-          "x": 96,
-          "y": 660
-        },
-        "fpEnabled": true
+          "x": 192,
+          "y": 612
+        }
       },
       {
         "name": "Allow sleep (Windows)",
@@ -66,8 +67,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "-VSvE2yuT",
         "position": {
-          "x": 96,
-          "y": 624
+          "x": 192,
+          "y": 576
         }
       },
       {
@@ -75,15 +76,15 @@ const details = () => ({
         "sourceRepo": "Community",
         "pluginName": "tagsWorkerType",
         "version": "1.0.0",
+        "inputsDB": {
+          "requiredWorkerType": "GPU",
+          "requiredNodeTags": "{{{args.variables.user.savedNode}}}"
+        },
+        "fpEnabled": true,
         "id": "Z8P_D62AP",
         "position": {
-          "x": 96,
-          "y": 588
-        },
-        "fpEnabled": true,
-        "inputsDB": {
-          "requiredWorkerType": "GPU",
-          "requiredNodeTags": "{{{args.variables.user.savedNode}}}"
+          "x": 192,
+          "y": 540
         }
       },
       {
@@ -91,15 +92,15 @@ const details = () => ({
         "sourceRepo": "Community",
         "pluginName": "tagsWorkerType",
         "version": "1.0.0",
-        "id": "7OnFaYshn",
-        "position": {
-          "x": 432,
-          "y": 588
-        },
-        "fpEnabled": true,
         "inputsDB": {
           "requiredWorkerType": "GPU",
           "requiredNodeTags": "{{{args.variables.user.savedNode}}}"
+        },
+        "fpEnabled": true,
+        "id": "7OnFaYshn",
+        "position": {
+          "x": -120,
+          "y": 540
         }
       },
       {
@@ -111,7 +112,7 @@ const details = () => ({
         "id": "X4ANCc9vI",
         "position": {
           "x": 420,
-          "y": -144
+          "y": -192
         }
       },
       {
@@ -126,8 +127,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "tHF4vUCsM",
         "position": {
-          "x": 624,
-          "y": -72
+          "x": 684,
+          "y": -120
         }
       },
       {
@@ -138,8 +139,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "ehGAkWvj7",
         "position": {
-          "x": 828,
-          "y": 96
+          "x": 900,
+          "y": 36
         }
       },
       {
@@ -161,8 +162,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "FAc9QeWJK",
         "position": {
-          "x": 1044,
-          "y": 252
+          "x": 1020,
+          "y": 228
         }
       },
       {
@@ -180,8 +181,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "qualOffset",
         "position": {
-          "x": 1140,
-          "y": 324
+          "x": 1116,
+          "y": 312
         }
       },
       {
@@ -192,8 +193,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "d7QK1TBlh",
         "position": {
-          "x": 564,
-          "y": 132
+          "x": 1200,
+          "y": 540
         }
       },
       {
@@ -204,8 +205,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "Y40uvSwMF",
         "position": {
-          "x": 360,
-          "y": 120
+          "x": 1200,
+          "y": 576
         }
       },
       {
@@ -220,8 +221,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "b8n51xYj4",
         "position": {
-          "x": 432,
-          "y": 696
+          "x": -120,
+          "y": 648
         }
       },
       {
@@ -235,8 +236,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "cnvMarkEnc",
         "position": {
-          "x": 396,
-          "y": 12
+          "x": 684,
+          "y": -12
         }
       },
       {
@@ -250,8 +251,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "cnvMarkEncDone",
         "position": {
-          "x": 432,
-          "y": 552
+          "x": -120,
+          "y": 504
         }
       },
       {
@@ -273,8 +274,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "8V9_07K-F",
         "position": {
-          "x": 1152,
-          "y": 192
+          "x": 1200,
+          "y": 228
         }
       },
       {
@@ -288,8 +289,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "7D1MRCH2-",
         "position": {
-          "x": 828,
-          "y": -72
+          "x": 900,
+          "y": -96
         }
       },
       {
@@ -328,7 +329,7 @@ const details = () => ({
         "id": "-RGSfdo8K",
         "position": {
           "x": 396,
-          "y": -36
+          "y": -84
         }
       },
       {
@@ -347,7 +348,7 @@ const details = () => ({
         "id": "N2YufVfRT",
         "position": {
           "x": 1320,
-          "y": 324
+          "y": 312
         }
       },
       {
@@ -361,8 +362,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "EuW3bnW-x",
         "position": {
-          "x": 1080,
-          "y": 36
+          "x": 1176,
+          "y": 0
         }
       },
       {
@@ -378,7 +379,7 @@ const details = () => ({
         "id": "YbKi7dgS7",
         "position": {
           "x": 420,
-          "y": -96
+          "y": -144
         }
       },
       {
@@ -392,8 +393,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "wEp4vfM6B",
         "position": {
-          "x": 1080,
-          "y": 120
+          "x": 1104,
+          "y": 132
         }
       },
       {
@@ -404,8 +405,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "iIepjcd-i",
         "position": {
-          "x": 1080,
-          "y": 0
+          "x": 1176,
+          "y": -36
         }
       },
       {
@@ -419,8 +420,8 @@ const details = () => ({
         "fpEnabled": true,
         "id": "yCde19y26",
         "position": {
-          "x": 432,
-          "y": 624
+          "x": -120,
+          "y": 576
         }
       },
       {
@@ -428,14 +429,14 @@ const details = () => ({
         "sourceRepo": "Local",
         "pluginName": "setQualityWithTierOffset",
         "version": "1.0.0",
-        "id": "Qf53O8A67",
-        "position": {
-          "x": 1248,
-          "y": 408
-        },
-        "fpEnabled": true,
         "inputsDB": {
           "tierOffsets": "best=0\nbetter=+1\nbalanced=+2\nsmallest=+4"
+        },
+        "fpEnabled": true,
+        "id": "Qf53O8A67",
+        "position": {
+          "x": 1224,
+          "y": 408
         }
       },
       {
@@ -443,15 +444,15 @@ const details = () => ({
         "sourceRepo": "Community",
         "pluginName": "tagsWorkerType",
         "version": "1.0.0",
+        "inputsDB": {
+          "requiredWorkerType": "GPU",
+          "requiredNodeTags": "vmaf"
+        },
+        "fpEnabled": true,
         "id": "v27whxM07",
         "position": {
           "x": 132,
           "y": 24
-        },
-        "fpEnabled": true,
-        "inputsDB": {
-          "requiredWorkerType": "CPUorGPU",
-          "requiredNodeTags": "vmaf"
         }
       },
       {
@@ -459,14 +460,14 @@ const details = () => ({
         "sourceRepo": "Local",
         "pluginName": "markStep",
         "version": "1.0.0",
+        "inputsDB": {
+          "label": "vmaf-node"
+        },
+        "fpEnabled": true,
         "id": "z0PJChPzq",
         "position": {
           "x": 132,
           "y": 60
-        },
-        "fpEnabled": true,
-        "inputsDB": {
-          "label": "vmaf-node"
         }
       },
       {
@@ -474,42 +475,43 @@ const details = () => ({
         "sourceRepo": "Community",
         "pluginName": "checkVideoResolution",
         "version": "1.0.0",
+        "fpEnabled": true,
         "id": "8LBmnwQp2",
         "position": {
           "x": 132,
           "y": 108
-        },
-        "fpEnabled": true
+        }
       },
       {
         "name": "Check 10 Bit Video",
         "sourceRepo": "Community",
         "pluginName": "check10Bit",
         "version": "1.0.0",
+        "fpEnabled": true,
         "id": "Zq6686zJq",
         "position": {
           "x": 48,
           "y": 204
-        },
-        "fpEnabled": true
+        }
       },
       {
         "name": "Run VMAF Quality Check (10 bit)",
         "sourceRepo": "Local",
         "pluginName": "runVmaf",
         "version": "1.0.0",
+        "inputsDB": {
+          "referenceFile": "{{{args.variables.user.videoOnlySource}}}",
+          "pixelFormat": "yuv420p10le",
+          "minFrameScore": "80",
+          "minP1": "90",
+          "tierThresholds": "better=92,70,85\nbalanced=90,65,80\nsmallest=88,60,75",
+          "minMean": "95"
+        },
+        "fpEnabled": true,
         "id": "ByHvEfNeU",
         "position": {
           "x": -96,
           "y": 324
-        },
-        "fpEnabled": true,
-        "inputsDB": {
-          "referenceFile": "{{{args.variables.user.videoOnlySource}}}",
-          "pixelFormat": "yuv420p10le",
-          "minFrameScore": "70",
-          "minP1": "85",
-          "tierThresholds": "better=92,75,88\nbalanced=90,70,80\nsmallest=88,60,75"
         }
       },
       {
@@ -517,18 +519,18 @@ const details = () => ({
         "sourceRepo": "Local",
         "pluginName": "runVmaf",
         "version": "1.0.0",
-        "id": "q6hn0d6Rx",
-        "position": {
-          "x": 72,
-          "y": 324
-        },
-        "fpEnabled": true,
         "inputsDB": {
           "referenceFile": "{{{args.variables.user.videoOnlySource}}}",
           "minFrameScore": "80",
           "minP1": "90",
           "minMean": "95",
-          "tierThresholds": "better=92,75,88\nbalanced=90,70,80\nsmallest=88,60,75"
+          "tierThresholds": "better=92,70,85\nbalanced=90,65,80\nsmallest=88,60,75"
+        },
+        "fpEnabled": true,
+        "id": "q6hn0d6Rx",
+        "position": {
+          "x": 72,
+          "y": 324
         }
       },
       {
@@ -536,19 +538,20 @@ const details = () => ({
         "sourceRepo": "Local",
         "pluginName": "runVmaf",
         "version": "1.0.0",
-        "id": "Cfn1Fxrih",
-        "position": {
-          "x": 408,
-          "y": 300
-        },
-        "fpEnabled": true,
         "inputsDB": {
           "referenceFile": "{{{args.variables.user.videoOnlySource}}}",
           "pixelFormat": "yuv420p",
           "model": "vmaf_4k_v0.6.1",
-          "minFrameScore": "80",
+          "minFrameScore": "77",
           "minP1": "85",
-          "tierThresholds": "better=92,75,88\nbalanced=90,70,80\nsmallest=88,60,75"
+          "tierThresholds": "better=92,75,88\nbalanced=90,70,80\nsmallest=88,60,75",
+          "minMean": "95"
+        },
+        "fpEnabled": true,
+        "id": "Cfn1Fxrih",
+        "position": {
+          "x": 408,
+          "y": 300
         }
       },
       {
@@ -556,19 +559,20 @@ const details = () => ({
         "sourceRepo": "Local",
         "pluginName": "runVmaf",
         "version": "1.0.0",
-        "id": "GL2dbFCxx",
-        "position": {
-          "x": 240,
-          "y": 288
-        },
-        "fpEnabled": true,
         "inputsDB": {
           "referenceFile": "{{{args.variables.user.videoOnlySource}}}",
           "pixelFormat": "yuv420p10le",
           "model": "vmaf_4k_v0.6.1",
-          "minFrameScore": "80",
-          "minP1": "85",
-          "tierThresholds": "better=92,75,88\nbalanced=90,70,80\nsmallest=88,60,75"
+          "minFrameScore": "77",
+          "minP1": "90",
+          "tierThresholds": "better=92,75,88\nbalanced=90,70,80\nsmallest=88,60,75",
+          "minMean": "95"
+        },
+        "fpEnabled": true,
+        "id": "GL2dbFCxx",
+        "position": {
+          "x": 240,
+          "y": 288
         }
       },
       {
@@ -576,51 +580,51 @@ const details = () => ({
         "sourceRepo": "Community",
         "pluginName": "check10Bit",
         "version": "1.0.0",
+        "fpEnabled": true,
         "id": "McgM017uy",
         "position": {
-          "x": 228,
+          "x": 264,
           "y": 228
-        },
-        "fpEnabled": true
+        }
       },
       {
         "name": "Save Current Node",
         "sourceRepo": "Local",
         "pluginName": "saveCurrentNode",
         "version": "1.0.0",
+        "fpEnabled": true,
         "id": "KdgMhwsir",
         "position": {
-          "x": 828,
-          "y": 24
-        },
-        "fpEnabled": true
+          "x": 900,
+          "y": -24
+        }
       },
       {
         "name": "Set Re-Encode Offset",
         "sourceRepo": "Local",
         "pluginName": "setReEncodeOffset",
         "version": "1.0.0",
+        "fpEnabled": true,
         "id": "z2cZuApwE",
         "position": {
-          "x": 948,
-          "y": 420
-        },
-        "fpEnabled": true
+          "x": 1224,
+          "y": 444
+        }
       },
       {
         "name": "Route to same encoder",
         "sourceRepo": "Community",
         "pluginName": "tagsWorkerType",
         "version": "1.0.0",
-        "id": "9T5SjM7Q6",
-        "position": {
-          "x": 636,
-          "y": 288
-        },
-        "fpEnabled": true,
         "inputsDB": {
           "requiredWorkerType": "GPU",
           "requiredNodeTags": "{{{args.variables.user.savedNode}}}"
+        },
+        "fpEnabled": true,
+        "id": "9T5SjM7Q6",
+        "position": {
+          "x": 720,
+          "y": 288
         }
       },
       {
@@ -628,27 +632,27 @@ const details = () => ({
         "sourceRepo": "Community",
         "pluginName": "requireReview",
         "version": "1.0.0",
+        "fpEnabled": true,
         "id": "aGAurGL9m",
         "position": {
-          "x": 432,
-          "y": 660
-        },
-        "fpEnabled": true
+          "x": -120,
+          "y": 612
+        }
       },
       {
         "name": "Set Working File",
         "sourceRepo": "Community",
         "pluginName": "setWorkingFile",
         "version": "1.0.0",
-        "id": "g8_qHXA8W",
-        "position": {
-          "x": 636,
-          "y": 336
-        },
-        "fpEnabled": true,
         "inputsDB": {
           "source": "customPath",
           "customPath": "{{{args.variables.user.videoOnlySource}}}"
+        },
+        "fpEnabled": true,
+        "id": "g8_qHXA8W",
+        "position": {
+          "x": 720,
+          "y": 324
         }
       },
       {
@@ -656,29 +660,15 @@ const details = () => ({
         "sourceRepo": "Local",
         "pluginName": "compareFileSizeToSource",
         "version": "1.0.0",
+        "inputsDB": {
+          "referenceFile": "{{{args.variables.user.videoOnlySource}}}",
+          "maxPercent": "85"
+        },
+        "fpEnabled": true,
         "id": "Jdn7-QrUv",
         "position": {
-          "x": 444,
+          "x": 432,
           "y": 432
-        },
-        "fpEnabled": true,
-        "inputsDB": {
-          "referenceFile": "{{{args.variables.user.videoOnlySource}}}"
-        }
-      },
-      {
-        "name": "Compare File Size To Source",
-        "sourceRepo": "Local",
-        "pluginName": "compareFileSizeToSource",
-        "version": "1.0.0",
-        "id": "p2Dk_Y6nL",
-        "position": {
-          "x": 0,
-          "y": 432
-        },
-        "fpEnabled": true,
-        "inputsDB": {
-          "referenceFile": "{{{args.variables.user.videoOnlySource}}}"
         }
       },
       {
@@ -686,15 +676,15 @@ const details = () => ({
         "sourceRepo": "Community",
         "pluginName": "setWorkingFile",
         "version": "1.0.0",
-        "id": "e0cKHDycc",
-        "position": {
-          "x": 96,
-          "y": 552
-        },
-        "fpEnabled": true,
         "inputsDB": {
           "source": "customPath",
           "customPath": "{{{args.variables.user.videoOnlySource}}}"
+        },
+        "fpEnabled": true,
+        "id": "e0cKHDycc",
+        "position": {
+          "x": 408,
+          "y": 612
         }
       },
       {
@@ -702,15 +692,27 @@ const details = () => ({
         "sourceRepo": "Local",
         "pluginName": "markStep",
         "version": "1.0.0",
-        "id": "UcmLCHlFV",
-        "position": {
-          "x": 96,
-          "y": 516
-        },
-        "fpEnabled": true,
         "inputsDB": {
           "label": "encoder-quality-bypass"
+        },
+        "fpEnabled": true,
+        "id": "UcmLCHlFV",
+        "position": {
+          "x": 408,
+          "y": 576
         }
+      },
+      {
+        "name": "Compare File Size To Source",
+        "sourceRepo": "Local",
+        "pluginName": "compareFileSizeToSource",
+        "version": "1.0.0",
+        "id": "IKvxCVZdn",
+        "position": {
+          "x": 972,
+          "y": 396
+        },
+        "fpEnabled": true
       }
     ],
     "flowEdges": [
@@ -939,13 +941,6 @@ const details = () => ({
         "id": "M3MpdSezz"
       },
       {
-        "source": "Y40uvSwMF",
-        "sourceHandle": "1",
-        "target": "v27whxM07",
-        "targetHandle": null,
-        "id": "KNz16ANgp"
-      },
-      {
         "source": "7D1MRCH2-",
         "sourceHandle": "1",
         "target": "KdgMhwsir",
@@ -1058,48 +1053,6 @@ const details = () => ({
         "id": "Mg9jezosp"
       },
       {
-        "source": "ByHvEfNeU",
-        "sourceHandle": "1",
-        "target": "p2Dk_Y6nL",
-        "targetHandle": null,
-        "id": "_pLRBp54n"
-      },
-      {
-        "source": "q6hn0d6Rx",
-        "sourceHandle": "1",
-        "target": "p2Dk_Y6nL",
-        "targetHandle": null,
-        "id": "yG8PRueKI"
-      },
-      {
-        "source": "GL2dbFCxx",
-        "sourceHandle": "1",
-        "target": "p2Dk_Y6nL",
-        "targetHandle": null,
-        "id": "Ut-_7ZYil"
-      },
-      {
-        "source": "Cfn1Fxrih",
-        "sourceHandle": "1",
-        "target": "p2Dk_Y6nL",
-        "targetHandle": null,
-        "id": "ufD7TdRIe"
-      },
-      {
-        "source": "p2Dk_Y6nL",
-        "sourceHandle": "1",
-        "target": "cnvMarkEncDone",
-        "targetHandle": null,
-        "id": "zyDudFjTr"
-      },
-      {
-        "source": "p2Dk_Y6nL",
-        "sourceHandle": "2",
-        "target": "UcmLCHlFV",
-        "targetHandle": null,
-        "id": "bjjkSYDB9"
-      },
-      {
         "source": "Jdn7-QrUv",
         "sourceHandle": "2",
         "target": "UcmLCHlFV",
@@ -1121,13 +1074,6 @@ const details = () => ({
         "id": "FoC4a8hJw"
       },
       {
-        "source": "e0cKHDycc",
-        "sourceHandle": "1",
-        "target": "Z8P_D62AP",
-        "targetHandle": null,
-        "id": "HfxUnD_ak"
-      },
-      {
         "source": "nEHxHExS_",
         "sourceHandle": "1",
         "target": "aixyWixBS",
@@ -1147,6 +1093,62 @@ const details = () => ({
         "target": "-VSvE2yuT",
         "targetHandle": null,
         "id": "6KrMKZcQ7"
+      },
+      {
+        "source": "Y40uvSwMF",
+        "sourceHandle": "1",
+        "target": "IKvxCVZdn",
+        "targetHandle": null,
+        "id": "aM__9kisP"
+      },
+      {
+        "source": "IKvxCVZdn",
+        "sourceHandle": "1",
+        "target": "v27whxM07",
+        "targetHandle": null,
+        "id": "SSDgrR6HN"
+      },
+      {
+        "source": "IKvxCVZdn",
+        "sourceHandle": "2",
+        "target": "UcmLCHlFV",
+        "targetHandle": null,
+        "id": "4j8ZtwD3T"
+      },
+      {
+        "source": "ByHvEfNeU",
+        "sourceHandle": "1",
+        "target": "cnvMarkEncDone",
+        "targetHandle": null,
+        "id": "97a5Q8vD-"
+      },
+      {
+        "source": "q6hn0d6Rx",
+        "sourceHandle": "1",
+        "target": "cnvMarkEncDone",
+        "targetHandle": null,
+        "id": "EPxemEheH"
+      },
+      {
+        "source": "GL2dbFCxx",
+        "sourceHandle": "1",
+        "target": "cnvMarkEncDone",
+        "targetHandle": null,
+        "id": "66BOa6dve"
+      },
+      {
+        "source": "Cfn1Fxrih",
+        "sourceHandle": "1",
+        "target": "cnvMarkEncDone",
+        "targetHandle": null,
+        "id": "1v31yO-ho"
+      },
+      {
+        "source": "e0cKHDycc",
+        "sourceHandle": "1",
+        "target": "Z8P_D62AP",
+        "targetHandle": null,
+        "id": "4TLwkkkmf"
       }
     ]
   });
