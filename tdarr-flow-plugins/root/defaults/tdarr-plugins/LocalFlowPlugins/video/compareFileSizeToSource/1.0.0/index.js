@@ -13,12 +13,20 @@
  * A node that leaves the Reference file input empty or at its default needs nothing set: the plugin reads the Flow
  * Variable videoOnlySource itself. Any other value (a path, or a template Tdarr resolves) is used as given.
  *
- * Output 1: the working file is smaller than the reference file. Continue (another pass can still help).
- * Output 2: the working file is the same size as the reference file, or larger. Stop re-encoding.
+ * The size limit is a percentage of the reference file, set by the Maximum size input (default 100, the reference file's own
+ * size). With 100 the plugin behaves as it always has: the working file has to be smaller than the reference file. With a
+ * lower number, for example 85, the working file has to be smaller than 85% of the reference file, so an encode that saves
+ * less than 15% counts as not worth keeping. A number above 100 is allowed (it accepts a working file somewhat larger than
+ * the reference).
  *
- * The plugin fails the flow (with the reason in the job log) if the reference path is empty or either file cannot be read,
- * so a wrong path shows up at once instead of the loop carrying on without its limit. It changes nothing but the output
- * it leaves through.
+ * Output 1: the working file is smaller than the limit (Maximum size percent of the reference file). Continue (another
+ * pass can still help).
+ * Output 2: the working file is at the limit or larger (with the default 100: the same size as the reference file, or
+ * larger). Stop re-encoding.
+ *
+ * The plugin fails the flow (with the reason in the job log) if the reference path is empty, either file cannot be read, or
+ * the Maximum size is not a number above 0, so a wrong setting shows up at once instead of the loop carrying on without
+ * its limit. It changes nothing but the output it leaves through.
  */
 
 const fs = require('fs');
@@ -31,7 +39,8 @@ const DEFAULT_REFERENCE = '{{{args.variables.user.videoOnlySource}}}';
 const details = () => ({
   name: 'Compare File Size To Source',
   description: 'Compares the working file size with a reference file (default: the video-only source in the Flow '
-    + 'Variable videoOnlySource). Output 1: smaller. Output 2: same size or larger.',
+    + 'Variable videoOnlySource). Output 1: smaller than Maximum size percent of the reference (default 100). '
+    + 'Output 2: that size or larger.',
   style: { borderColor: 'orange' },
   tags: 'video',
   isStartPlugin: false,
@@ -50,10 +59,20 @@ const details = () => ({
         + 'runs on. Supports templating. Leave it as it is (or empty) to use the video-only source, the Flow Variable '
         + 'videoOnlySource.',
     },
+    {
+      label: 'Maximum size (% of reference)',
+      name: 'maxPercent',
+      type: 'number',
+      defaultValue: '100',
+      inputUI: { type: 'text' },
+      tooltip: 'The working file has to be smaller than this percentage of the reference file to leave through output 1. '
+        + '100 = smaller than the reference file itself. 85 = it has to save more than 15%. Any number above 0; a number '
+        + 'above 100 accepts a working file larger than the reference.',
+    },
   ],
   outputs: [
-    { number: 1, tooltip: 'The working file is smaller than the reference file' },
-    { number: 2, tooltip: 'The working file is the same size as the reference file, or larger' },
+    { number: 1, tooltip: 'The working file is smaller than Maximum size percent of the reference file' },
+    { number: 2, tooltip: 'The working file is that size (Maximum size percent of the reference file) or larger' },
   ],
 });
 
@@ -105,10 +124,25 @@ const plugin = async (args) => {
   }
   if (referenceSize === 0) fail(`reference file "${reference}" is empty`);
 
+  // Maximum size: a percentage of the reference file. Tdarr hands number inputs over as text ("85"), so parse it.
+  const rawMax = args.inputs.maxPercent === undefined || args.inputs.maxPercent === null
+    ? '' : String(args.inputs.maxPercent).trim();
+  const maxPercent = rawMax === '' ? 100 : Number(rawMax.replace(/%$/, ''));
+  if (!Number.isFinite(maxPercent) || maxPercent <= 0) {
+    fail(`the Maximum size input "${rawMax}" is not a number above 0 (it is a percentage of the reference file, `
+      + '100 = the reference file\'s own size)');
+  }
+
   const percent = ((workingSize / referenceSize) * 100).toFixed(2);
-  const outputNumber = workingSize < referenceSize ? 1 : 2;
-  log(`working file ${workingSize} bytes is ${percent}% of the reference file (${referenceSize} bytes): `
-    + `${outputNumber === 1 ? 'smaller (output 1)' : 'same size or larger (output 2)'}`);
+  // workingSize / referenceSize < maxPercent / 100, written without a division so 100 compares the two sizes exactly
+  const smaller = workingSize * 100 < referenceSize * maxPercent;
+  const outputNumber = smaller ? 1 : 2;
+  const limit = maxPercent === 100 ? 'the reference file' : `${maxPercent}% of the reference file`;
+  const verdict = smaller
+    ? `smaller than ${limit} (output 1)`
+    : `${maxPercent === 100 ? 'same size or larger' : `${limit} or larger`} (output 2)`;
+  log(`working file ${workingSize} bytes is ${percent}% of the reference file (${referenceSize} bytes), `
+    + `limit ${maxPercent}%: ${verdict}`);
 
   return { outputFileObj: args.inputFileObj, outputNumber, variables: args.variables };
 };
