@@ -436,7 +436,7 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   (`[mod-tdarr-flow-plugins] replaced ... (it differed from the one in the image)`), so a host edit is never lost silently.
   Nothing else in the plugin folder is touched. The one exception is a short retired list: a file this image used to ship and no longer does
   is deleted at start if it is still there (the `RETIRED` array in the run script, exact paths only, never a folder, a link, a path outside the
-  plugin folder or a file the image ships; the log says `removed ...`). Today it holds `LocalFlowTemplates/video/languageTagRepair.js`, `LocalFlowTemplates/video/cleanOnlyPassthrough.js` and `LocalFlowTemplates/video/streamCleanup.js`. Files are
+  plugin folder or a file the image ships; the log says `removed ...`). Today it holds `LocalFlowTemplates/video/languageTagRepair.js`, `LocalFlowTemplates/video/cleanOnlyPassthrough.js`, `LocalFlowTemplates/video/streamCleanup.js`, `LocalFlowTemplates/video/converter.js` and `LocalFlowTemplates/video/validator.js` (the last two are the old file names of the Encoder and Muxer templates, which keep their flow ids). Files are
   owned by `PUID:PGID` (when set), mode 664, new folders 775.
   The script never stops the container from starting; a failure is a log line. A new plugin file needs the server restarted to load, which a container restart does anyway.
 - **Not in the image:** the flows themselves (they live in Tdarr's database; import them with Add Flow > Import JSON Flow
