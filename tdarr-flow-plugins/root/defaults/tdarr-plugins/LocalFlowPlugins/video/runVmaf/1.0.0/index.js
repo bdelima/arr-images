@@ -67,6 +67,26 @@
 // GPU lock this plugin counts the video packets of both files with ffprobe (one packet per frame in Matroska, no decoding) and
 // fails the job when the counts differ, so a mismatch costs a read of both files instead of a full scoring run. If the count
 // itself cannot be made (no ffprobe, a timeout), a warning goes to the job log and scoring goes ahead as before.
+//
+// Frame size (cropped encodes): libvmaf and libvmaf_cuda refuse two inputs of different width or height ("input width must
+// match"), and an encode that had its black bars cropped (StaxRip's auto-crop, for one) is smaller than its source. Before the
+// frame count, this plugin reads the width and height of both files with ffprobe and takes one of three ways:
+//   - same size: nothing changes, scoring goes ahead as before;
+//   - the working file is a centered crop of the reference: the reference is cropped to the working file's size and the two are
+//     scored. A crop counts as centered when the reference is larger in width and/or height, and each side's margin
+//     ((reference - working file) / 2) is a whole, even number of pixels (even, so that the chroma planes of 4:2:0 video line up
+//     and the GPU crop is the same as the crop filter). The GPU path decodes the reference with its NVDEC decoder (<codec>_cuvid)
+//     and the decoder's own -crop option (top x bottom x left x right), which keeps the frames on the GPU; the CPU path uses the
+//     crop filter. A reference whose codec has no cuvid decoder in the table below is scored on the CPU path for that run, with
+//     the crop filter, and the job log says so. The encode is never scaled up, so nothing is stretched. The content of the two
+//     files is not compared: that the encode is a crop of the reference, not a resize of it, is taken from the sizes alone.
+//   - anything else (the working file is larger than the reference in either direction, an odd or uneven margin): the file is
+//     not scored. Flow Variable user.vmafUnscored is set to "UNSCORED: geometry mismatch", the VMAF Flow Variables
+//     (vmafMean, vmafMin, vmafP1, vmafBelow, vmafStep) are cleared, and Tag Output Metadata and Tag VMAF Score write that text
+//     as the TDARR_VMAF_SCORE tag instead of a score. The file leaves through the output chosen in "Output for an unscored file"
+//     (default 1: a re-encode cannot fix a size difference, so output 2, which the Encoder uses to encode again at a lower
+//     quality, would only repeat the same unscored run). If the size of either file cannot be read, a warning goes to the job
+//     log and scoring goes ahead as before.
 
 const details = () => ({
   name: 'Run VMAF Quality Check',
@@ -165,6 +185,16 @@ const details = () => ({
         + 'Empty = not counted.',
     },
     {
+      name: 'unscoredOutput',
+      label: 'Output for an unscored file',
+      type: 'number',
+      defaultValue: '1',
+      inputUI: { type: 'dropdown', options: ['1', '2'] },
+      tooltip: 'When the working file and the reference differ in size in a way that is not a centered crop of the reference, no score '
+        + 'is made and the TDARR_VMAF_SCORE tag becomes "UNSCORED: geometry mismatch". This is the output the file leaves through. '
+        + '1 = as if the quality check passed (default: a re-encode cannot fix a size difference). 2 = as if it failed (the Encoder then encodes again at a lower quality).',
+    },
+    {
       name: 'ffmpegPath',
       type: 'string',
       defaultValue: '/usr/local/bin/ffmpeg-vmaf-cuda',
@@ -224,7 +254,7 @@ const details = () => ({
     },
   ],
   outputs: [
-    { number: 1, tooltip: 'All checks passed: mean, min and p1 are at or above their minimums' },
+    { number: 1, tooltip: 'All checks passed: mean, min and p1 are at or above their minimums (also an unscored file, with the default "Output for an unscored file")' },
     { number: 2, tooltip: 'At least one check failed: the mean, min or p1 is below its minimum (the job log says which)' },
   ],
 });
@@ -397,6 +427,101 @@ const countVideoFrames = async ({ tdarrFfmpegPath, file, timeoutMs }) => {
   return { error: errors.join('; ') };
 };
 
+// NVDEC decoder (FFmpeg's <codec>_cuvid) for a codec_name ffprobe reports. A codec that is not here has no decoder this plugin
+// will use for the GPU crop; the crop then runs on the CPU path. All of these exist in the tdarr-vmaf-cuda build (checked on
+// naples with `ffmpeg-vmaf-cuda -decoders`, av1_cuvid included); whether the GPU supports a given profile is up to the card.
+const CUVID_DECODERS = {
+  h264: 'h264_cuvid',
+  hevc: 'hevc_cuvid',
+  av1: 'av1_cuvid',
+  vp9: 'vp9_cuvid',
+  vp8: 'vp8_cuvid',
+  vc1: 'vc1_cuvid',
+  mpeg1video: 'mpeg1_cuvid',
+  mpeg2video: 'mpeg2_cuvid',
+  mpeg4: 'mpeg4_cuvid',
+  mjpeg: 'mjpeg_cuvid',
+};
+
+// Codec, width, height of the first video stream, read with ffprobe ({ codec, width, height, tool } or { error }).
+const probeVideoGeometry = async ({ tdarrFfmpegPath, file, timeoutMs }) => {
+  const { spawn } = require('child_process');
+  const candidates = ffprobeCandidates(tdarrFfmpegPath);
+  const errors = [];
+  for (let c = 0; c < candidates.length; c += 1) {
+    const tool = candidates[c];
+    // eslint-disable-next-line no-await-in-loop
+    const outcome = await new Promise((resolve) => {
+      let child;
+      let out = '';
+      let err = '';
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      };
+      const timer = setTimeout(() => {
+        try { child.kill('SIGKILL'); } catch (e) { /* already gone */ }
+        finish({ error: `timed out after ${Math.round(timeoutMs / 1000)} s` });
+      }, timeoutMs);
+      try {
+        child = spawn(tool, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,width,height',
+          '-of', 'json', file]);
+      } catch (e) {
+        finish({ error: `could not start: ${e.message}`, missing: true });
+        return;
+      }
+      child.on('error', (e) => finish({ error: e.code === 'ENOENT' ? 'not found' : e.message, missing: e.code === 'ENOENT' }));
+      child.stdout.on('data', (d) => { out += d.toString(); });
+      child.stderr.on('data', (d) => { if (err.length < 400) err += d.toString(); });
+      child.on('close', (code) => {
+        if (code !== 0) {
+          finish({ error: `exit code ${code}${err ? ` (${err.trim().slice(0, 200)})` : ''}` });
+          return;
+        }
+        let stream;
+        try {
+          stream = (JSON.parse(out).streams || [])[0];
+        } catch (e) {
+          finish({ error: `unreadable output "${out.trim().slice(0, 80)}"` });
+          return;
+        }
+        if (!stream || !Number.isInteger(stream.width) || !Number.isInteger(stream.height) || stream.width <= 0 || stream.height <= 0) {
+          finish({ error: `no video size in "${out.trim().replace(/\s+/g, ' ').slice(0, 80)}"` });
+        } else {
+          finish({ codec: String(stream.codec_name || ''), width: stream.width, height: stream.height });
+        }
+      });
+    });
+    if (outcome.width !== undefined) return { ...outcome, tool };
+    errors.push(`${tool}: ${outcome.error}`);
+    if (!outcome.missing) break;
+  }
+  return { error: errors.join('; ') };
+};
+
+// What to do about the sizes of the reference and the working file ({ width, height } each):
+//   { kind: 'same' }
+//   { kind: 'crop', top, bottom, left, right }   the working file is a centered crop of the reference
+//   { kind: 'mismatch', reason }                 anything else: not scored
+// Centered: the reference is at least as large in both directions, and the margin on each side, (reference - working file) / 2,
+// is a whole even number of pixels (so the chroma planes of 4:2:0 video line up and the GPU and CPU crops are the same).
+const planGeometry = (ref, dist) => {
+  if (ref.width === dist.width && ref.height === dist.height) return { kind: 'same' };
+  const sizes = `reference ${ref.width}x${ref.height}, working file ${dist.width}x${dist.height}`;
+  const dw = ref.width - dist.width;
+  const dh = ref.height - dist.height;
+  if (dw < 0 || dh < 0) return { kind: 'mismatch', reason: `the working file is larger than the reference in ${dw < 0 && dh < 0 ? 'both directions' : dw < 0 ? 'width' : 'height'} (${sizes})` };
+  if (dw % 4 !== 0 || dh % 4 !== 0) {
+    return { kind: 'mismatch', reason: `the size difference (${dw} px wide, ${dh} px high) does not give a whole, even margin on each side (${sizes})` };
+  }
+  return { kind: 'crop', top: dh / 2, bottom: dh / 2, left: dw / 2, right: dw / 2 };
+};
+
+const UNSCORED_TEXT = 'UNSCORED: geometry mismatch';
+
 const plugin = async (args) => {
   const lib = require('../../../../../methods/lib')();
   args.inputs = lib.loadDefaultValues(args.inputs, details);
@@ -420,6 +545,7 @@ const plugin = async (args) => {
   const gpuDevice = String(args.inputs.gpuDevice).trim();
   const cpuPercent = num(args.inputs.cpuPercent);
   const frameStep = num(args.inputs.frameStep);
+  const unscoredOutput = num(args.inputs.unscoredOutput);
 
   if (!['yuv420p', 'yuv420p10le'].includes(pixelFormat)) fail(`unknown pixel format "${pixelFormat}"`);
   if (!['default', 'vmaf_4k_v0.6.1'].includes(model)) fail(`unknown model "${model}"`);
@@ -442,6 +568,7 @@ const plugin = async (args) => {
     }
   }
   if (!Number.isInteger(cpuPercent) || cpuPercent < 1 || cpuPercent > 100) fail(`CPU path: percent of the node CPUs "${args.inputs.cpuPercent}" is not a whole number from 1 to 100`);
+  if (unscoredOutput !== 1 && unscoredOutput !== 2) fail(`Output for an unscored file "${args.inputs.unscoredOutput}" is not 1 or 2`);
   if (!Number.isInteger(frameStep) || frameStep < 1 || frameStep > 10) fail(`CPU path: score every Nth frame "${args.inputs.frameStep}" is not a whole number from 1 to 10`);
   const countBelow = parseCountBelow(args.inputs.countBelow);
   if (!Array.isArray(countBelow)) fail(`Count frames below "${args.inputs.countBelow}": ${countBelow.error}`);
@@ -467,8 +594,47 @@ const plugin = async (args) => {
   if (!fs.existsSync(distorted)) fail(`the working file ${distorted} does not exist on this node`);
   if (!fs.existsSync(ffmpegPath)) fail(`${ffmpegPath} does not exist on this node (is the tdarr-vmaf-cuda overlay installed?)`);
 
+  // Frame size (see the header): the same, a centered crop of the reference, or not scorable. Done before the frame count, so a
+  // file that will not be scored does not cost a read of both files.
+  let crop = null; // { top, bottom, left, right } when the reference has to be cropped to the working file's size
+  let refCodec = '';
+  let distGeometry = null;
+  {
+    const [refGeo, distGeo] = await Promise.all([reference, distorted].map((file) => probeVideoGeometry({
+      tdarrFfmpegPath: args.ffmpegPath, file, timeoutMs: 5 * 60 * 1000,
+    })));
+    if (refGeo.error || distGeo.error) {
+      log(`warning: could not compare frame sizes (reference: ${refGeo.error || `${refGeo.width}x${refGeo.height}`}; working file: ${distGeo.error || `${distGeo.width}x${distGeo.height}`}); scoring anyway`);
+    } else {
+      refCodec = refGeo.codec;
+      distGeometry = distGeo;
+      const plan = planGeometry(refGeo, distGeo);
+      if (plan.kind === 'same') {
+        log(`both files are ${refGeo.width}x${refGeo.height}`);
+      } else if (plan.kind === 'crop') {
+        crop = plan;
+        log(`the working file (${distGeo.width}x${distGeo.height}) is a centered crop of the reference (${refGeo.width}x${refGeo.height}): `
+          + `the reference is cropped by top ${crop.top}, bottom ${crop.bottom}, left ${crop.left}, right ${crop.right} px before scoring`);
+      } else {
+        log(`frame sizes differ and the working file is not a centered crop of the reference: ${plan.reason}; NOT scoring, `
+          + `TDARR_VMAF_SCORE will be "${UNSCORED_TEXT}"; leaving through output ${unscoredOutput}`);
+        args.variables = args.variables || {};
+        if (!args.variables.user) args.variables.user = {};
+        ['vmafMean', 'vmafMin', 'vmafP1', 'vmafBelow', 'vmafStep'].forEach((k) => { delete args.variables.user[k]; });
+        args.variables.user.vmafUnscored = UNSCORED_TEXT;
+        return { outputFileObj: args.inputFileObj, outputNumber: unscoredOutput, variables: args.variables };
+      }
+    }
+  }
+
   // Which way to score: the GPU path when the node has the NVIDIA device file, otherwise the CPU path. Decided once, here.
-  const useGpu = gpuDevice !== '' && fs.existsSync(gpuDevice);
+  const cuvidDecoder = crop ? CUVID_DECODERS[refCodec] : undefined;
+  const gpuDeviceThere = gpuDevice !== '' && fs.existsSync(gpuDevice);
+  // a reference that has to be cropped is cropped by its NVDEC decoder on the GPU path; without one the CPU path crops it
+  const useGpu = gpuDeviceThere && (!crop || cuvidDecoder !== undefined);
+  if (gpuDeviceThere && !useGpu) {
+    log(`the reference's codec "${refCodec}" has no NVDEC decoder in this plugin's table, so the cropped reference is scored on the CPU path for this run`);
+  }
   if (useGpu) {
     if (path.isAbsolute(flockPath)) {
       if (!fs.existsSync(flockPath)) fail(`${flockPath} does not exist on this node`);
@@ -483,7 +649,7 @@ const plugin = async (args) => {
   const cpuThreads = Math.max(1, Math.min(nodeCpus, Math.round((nodeCpus * cpuPercent) / 100)));
   log(useGpu
     ? `scoring on the GPU (libvmaf_cuda): ${gpuDevice} exists on this node`
-    : `scoring on the CPU (libvmaf, ${cpuThreads} thread${cpuThreads === 1 ? '' : 's'} of ${nodeCpus}): ${gpuDevice === '' ? 'no GPU device file is set' : `${gpuDevice} does not exist on this node`}`);
+    : `scoring on the CPU (libvmaf, ${cpuThreads} thread${cpuThreads === 1 ? '' : 's'} of ${nodeCpus}): ${gpuDeviceThere ? 'the GPU path cannot decode this reference with a crop' : gpuDevice === '' ? 'no GPU device file is set' : `${gpuDevice} does not exist on this node`}`);
 
   // Frame rate of the first video stream as an exact fraction ("24000/1001"), from the probe data Tdarr already holds.
   const frameRateOf = (fileObj) => {
@@ -531,14 +697,21 @@ const plugin = async (args) => {
   const modelPart = model === 'default' ? '' : `model=version=${model}:`;
   // setpts gives both inputs timestamps computed from the frame number, so libvmaf pairs frame N with frame N (see the header)
   const retime = `setpts=N*${rate.den}/(${rate.num}*TB)`;
+  // the reference's crop on the CPU path (the GPU path crops in the decoder, below)
+  const cpuCrop = crop ? `crop=${distGeometry.width}:${distGeometry.height}:${crop.left}:${crop.top},` : '';
   const filter = useGpu
     ? `[0:v]${retime},scale_cuda=format=${pixelFormat}[ref];[1:v]${retime},scale_cuda=format=${pixelFormat}[dist];`
       + `[dist][ref]libvmaf_cuda=${modelPart}log_path=${vmafLog}:log_fmt=json`
-    : `[0:v]${retime},format=${pixelFormat}[ref];[1:v]${retime},format=${pixelFormat}[dist];`
+    : `[0:v]${cpuCrop}${retime},format=${pixelFormat}[ref];[1:v]${retime},format=${pixelFormat}[dist];`
       + `[dist][ref]libvmaf=${modelPart}n_threads=${cpuThreads}${step > 1 ? `:n_subsample=${step}` : ''}:log_path=${vmafLog}:log_fmt=json`;
+  // GPU crop: the reference goes through its NVDEC decoder with the decoder's own -crop (top x bottom x left x right), which
+  // decodes only the cropped area and leaves the frames on the GPU, so the rest of the graph is unchanged
+  const refDecode = useGpu && crop
+    ? ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda', '-c:v', cuvidDecoder, '-crop', `${crop.top}x${crop.bottom}x${crop.left}x${crop.right}`]
+    : (useGpu ? ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda'] : []);
   const ffArgs = [
     '-xerror', '-stats_period', '5',
-    ...(useGpu ? ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda'] : []), '-i', reference,
+    ...refDecode, '-i', reference,
     ...(useGpu ? ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda'] : []), '-i', distorted,
     '-an', '-filter_complex', filter, '-f', 'null', '-',
   ];
@@ -650,6 +823,7 @@ const plugin = async (args) => {
     args.variables.user.vmafMean = round2(mean);
     args.variables.user.vmafMin = round2(min);
     args.variables.user.vmafP1 = round2(p1);
+    delete args.variables.user.vmafUnscored; // a score from this run replaces an unscored result from an earlier one
     if (step > 1) args.variables.user.vmafStep = step;
     else delete args.variables.user.vmafStep;
     if (belowParts.length > 0) args.variables.user.vmafBelow = belowParts.join(';');
@@ -680,4 +854,6 @@ const plugin = async (args) => {
   }
 };
 
-module.exports = { details, plugin, parseFrameCount, countVideoFrames };
+module.exports = {
+  details, plugin, parseFrameCount, countVideoFrames, planGeometry, probeVideoGeometry, CUVID_DECODERS, UNSCORED_TEXT,
+};
