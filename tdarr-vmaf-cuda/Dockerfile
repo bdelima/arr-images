@@ -132,10 +132,13 @@ RUN git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg \
 # Local patch, not upstream FFmpeg/libvmaf: native yuv420p10le (planar 10-bit 4:2:0) support for libvmaf_cuda scoring.
 # Upstream's CUDA VMAF filter only accepts 8-bit yuv420p or 16-bit yuv444p16 (which forces a 4:2:0->4:4:4 chroma
 # upsample -- ~4x the bytes/pixel of the 8-bit path, vs. ~2x for this). This widens two format allowlists by one
-# entry each and adds the one conversion kernel scale_cuda needs to produce yuv420p10le from NVDEC's native p010le
-# output. See tdarr-vmaf-cuda/SPEC-native-10bit.md for the full writeup, including why a plain ">> 6" (not the
-# existing conv_10to16 helper) is the correct bit-shift -- P010LE and YUV420P10LE use different bit justification
-# for the same 10-bit value, confirmed from libavutil/pixfmt.h's own doc comments.
+# entry each and adds the two conversion kernels scale_cuda needs to produce yuv420p10le: from NVDEC's native p010le
+# output (10-bit sources) and from nv12 (8-bit sources scored against a 10-bit encode). See
+# tdarr-vmaf-cuda/SPEC-native-10bit.md for the full writeup, including why a plain ">> 6" (not the
+# existing conv_10to16 helper) is the correct bit-shift for p010le -- P010LE and YUV420P10LE use different bit
+# justification for the same 10-bit value, confirmed from libavutil/pixfmt.h's own doc comments. The nv12 kernel
+# widens with a plain "<< 2" (no bit replication), so 8-bit limited-range black and white (16, 235) land exactly on the
+# 10-bit ones (64, 940).
 RUN cd /src/ffmpeg && python3 - <<'PYEOF'
 import pathlib
 
@@ -214,12 +217,45 @@ struct Convert_p010le_yuv420p10le
         DEFAULT_DST(1) = res.x >> 6;
         DEFAULT_DST(2) = res.y >> 6;
     }
+};
+
+// Added locally: nv12 -> yuv420p10le. NVDEC hands 8-bit video to the filter graph as nv12, so an 8-bit source scored
+// against a 10-bit encode (scale_cuda=format=yuv420p10le on both inputs) needs this pair; without it scale_cuda prints
+// "Unsupported conversion: nv12 -> yuv420p10le" and the kernel lookup fails. Mirrors upstream's Convert_nv12_yuv420p
+// (8-bit input, planar output, U and V to planes 1 and 2) with a 16-bit output sample. conv_8to10 is a plain left shift
+// by 2: right-justified 10-bit output, exact limited-range black (16 -> 64) and white (235 -> 940), no rounding (the
+// same style as the p010le kernel's ">> 6"). Max 255 -> 1020, not 1023.
+static inline __device__ ushort conv_8to10(uchar in)
+{
+    return (ushort)in << 2;
+}
+
+struct Convert_nv12_yuv420p10le
+{
+    static const int in_bit_depth = 8;
+    typedef uchar in_T;
+    typedef uchar2 in_T_uv;
+    typedef ushort out_T;
+    typedef ushort out_T_uv;
+
+    DEF_F(Convert, out_T)
+    {
+        DEFAULT_DST(0) = conv_8to10(SUB_F(y, 0));
+    }
+
+    DEF_F(Convert_uv, out_T_uv)
+    {
+        in_T_uv res = SUB_F(uv, 1);
+        DEFAULT_DST(1) = conv_8to10(res.x);
+        DEFAULT_DST(2) = conv_8to10(res.y);
+    }
 };'''
 s = s.replace(struct_anchor, struct_anchor + new_struct)
 
 kernel_anchor = "BICUBIC_KERNELS(yuv444p16le)"
 assert s.count(kernel_anchor) == 1, "vf_scale_cuda.cu: BICUBIC_KERNELS(yuv444p16le) anchor not found or not unique -- FFMPEG_REF probably moved, update this patch"
-s = s.replace(kernel_anchor, kernel_anchor + "\nBICUBIC_KERNEL_RAW(p010le_yuv420p10le)")
+s = s.replace(kernel_anchor, kernel_anchor + "\nBICUBIC_KERNEL_RAW(p010le_yuv420p10le)\nBICUBIC_KERNEL_RAW(nv12_yuv420p10le)")
+assert s.count("struct Convert_nv12_yuv420p10le") == 1, "vf_scale_cuda.cu: Convert_nv12_yuv420p10le is not unique -- FFMPEG_REF probably moved, update this patch"
 
 p.write_text(s)
 print("Patched vf_libvmaf.c, vf_scale_cuda.c, vf_scale_cuda.cu, hwcontext_cuda.c for native yuv420p10le CUDA VMAF scoring.")
@@ -280,7 +316,7 @@ RUN doc=/root-layer/usr/share/doc/tdarr-vmaf-cuda && mkdir -p "$doc" \
     && { echo "tdarr-vmaf-cuda $VERSION (source: https://github.com/bdelima/arr-images, revision $REVISION)"; \
          echo "libvmaf $VMAF_REF ($(git -C /src/vmaf rev-parse HEAD))"; \
          echo "nv-codec-headers $NV_CODEC_HEADERS_REF ($(git -C /src/nv-codec-headers rev-parse HEAD))"; \
-         echo "FFmpeg $FFMPEG_REF ($(git -C /src/ffmpeg rev-parse HEAD)) + local patch: native yuv420p10le CUDA VMAF scoring (see SPEC-native-10bit.md)"; \
+         echo "FFmpeg $FFMPEG_REF ($(git -C /src/ffmpeg rev-parse HEAD)) + local patch: native yuv420p10le CUDA VMAF scoring, from p010le and nv12 sources (see SPEC-native-10bit.md)"; \
          echo "Implib.so ($(git -C /src/implib rev-parse HEAD)): generated libcuda-lazy.so, which libvmaf links instead of libcuda.so (the real libcuda.so.1 is loaded on the first CUDA call)"; \
          echo "CUDA architecture sm_$CUDA_ARCH; base image nvidia/cuda:${CUDA_VERSION}-devel-ubuntu22.04"; } > "$doc/BUILD-INFO"
 

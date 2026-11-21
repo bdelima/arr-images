@@ -1,6 +1,6 @@
 # tdarr-vmaf-cuda: native yuv420p10le CUDA VMAF scoring
 
-Status: **merged and shipped, tdarr-vmaf-cuda 0.1.1 ([PR #16](https://github.com/bdelima/arr-images/pull/16), 2026-11-03).** Verified by actually running the patch script against the real pinned source and diffing the result -- twice: the original 3-file draft, then again after the code-review finding below added a 4th file -- and by CI's real FFmpeg/nvcc compile (the `vmaf-cuda` job), which is green. **Not yet verified:** real VMAF-score correctness on an actual 10-bit/HDR file on the GPU -- CI has no GPU, so a green run confirms the build compiles, not that it scores correctly at runtime. See the test plan below before relying on scores from this path.
+Status: **merged and shipped, tdarr-vmaf-cuda 0.1.1 ([PR #16](https://github.com/bdelima/arr-images/pull/16), 2026-11-03); the nv12 (8-bit source) kernel was added later, see "nv12 to yuv420p10le" below.** Verified by actually running the patch script against the real pinned source and diffing the result -- twice: the original 3-file draft, then again after the code-review finding below added a 4th file -- and by CI's real FFmpeg/nvcc compile (the `vmaf-cuda` job), which is green. **Not yet verified:** real VMAF-score correctness on an actual 10-bit/HDR file on the GPU -- CI has no GPU, so a green run confirms the build compiles, not that it scores correctly at runtime. See the test plan below before relying on scores from this path.
 
 ## Problem
 
@@ -126,9 +126,9 @@ real `n7.1`-tagged source of all three files and diffing the result):
 ## Test plan once built
 
 Build normally (`docker build -f tdarr-vmaf-cuda/Dockerfile ...`), then on
-a GPU host, against a **genuine 10-bit/HDR source file** (the new kernel
-only accepts `p010le` input -- an 8-bit H.264 test file won't exercise it
-at all):
+a GPU host, against a **genuine 10-bit/HDR source file** (the
+`p010le` kernel only accepts `p010le` input -- an 8-bit H.264 test file won't exercise it;
+the `nv12` kernel below is the one for 8-bit sources):
 
 ```
 ffmpeg-vmaf-cuda -hwaccel cuda -hwaccel_output_format cuda -i "$FILE" \
@@ -154,6 +154,39 @@ GPU path isn't silently scoring something subtly wrong.
   (`NEAREST_KERNEL_RAW`/`BILINEAR_KERNEL_RAW`/`LANCZOS_KERNEL_RAW`) -- not
   done here, since the existing VMAF script only ever uses `scale_cuda`'s
   default (Bicubic) mode. Still open.
+
+## nv12 to yuv420p10le: 8-bit sources against a 10-bit encode
+
+Reported by a friend using the overlay as a Docker mod: his encodes are 10-bit and most of his sources are 8-bit, so
+every such pair stopped with `scale_cuda: Unsupported conversion: nv12 -> yuv420p10le` followed by `CUDA_ERROR_NOT_FOUND:
+named symbol not found`. NVDEC hands 8-bit video to the filter graph as `nv12`; Run VMAF's GPU path puts one
+`scale_cuda=format=<pixelFormat>` on both inputs, so with `pixelFormat` `yuv420p10le` the 8-bit source needs an
+`nv12 -> yuv420p10le` kernel, which the p010le-only patch did not provide. `scale_cuda` builds the kernel name
+`Subsample_Bicubic_nv12_yuv420p10le` and fails the `cuModuleGetFunction` lookup when it is missing. The CPU path
+(`format=yuv420p10le` and plain libvmaf) was never affected.
+
+The patch now also adds, in the same Python step: one `Convert_nv12_yuv420p10le` struct (mirrors upstream's
+`Convert_nv12_yuv420p`: 8-bit input, planar `ushort` output, U and V to planes 1 and 2) with a `conv_8to10` helper, and
+one more line, `BICUBIC_KERNEL_RAW(nv12_yuv420p10le)`, after the p010le one. No allowlist change: `nv12` is already in
+upstream's `scale_cuda` input list and `yuv420p10le` was added to the output lists above.
+
+**Widening choice (Bob's, 2026-11-21): a plain left shift, `(ushort)in << 2`.** It keeps 8-bit limited-range black and
+white exact (16 -> 64, 235 -> 940); the maximum 255 becomes 1020, not 1023. The alternative, bit replication
+(`(in << 2) | (in >> 6)`, which is how upstream's own `nv12 -> p010le` kernel widens), differs by at most 3 code values at
+the top of the range. Neither was measured against VMAF scores, and how swscale widens 8-bit to 10-bit on the CPU path was
+not checked.
+
+**Verified:** the patch script, unmodified, run against the real `n7.1` sources of all four files: every anchor matches
+once, the diff is additions only (60 lines in `vf_scale_cuda.cu`, one each in the other three), `Convert_nv12_yuv420p10le`
+appears once, braces balance (156/156), both `BICUBIC_KERNEL_RAW(..._yuv420p10le)` lines are present. The CI `vmaf-cuda`
+job is the real nvcc compile.
+**Not verified (no GPU in CI):** that the kernel produces correct pixels and sane scores. To test on a GPU host: an 8-bit
+H.264 source against a 10-bit HEVC encode with `pixelFormat` `yuv420p10le` (before: "Unsupported conversion"; after: a
+score); an 8-bit file against a lossless 10-bit CPU copy of itself (`format=yuv420p10le`), expect a score at or near 100;
+the GPU score next to the CPU path's for the same pair; and the regressions (10-bit source against 10-bit encode, 8-bit
+against 8-bit).
+Known limits: other 8-bit decoder formats than `nv12` (for example `yuv444p`) still have no 10-bit target kernel; only the
+default bicubic mode is covered.
 
 ## Code review finding: the CUDA hwframes allowlist
 
