@@ -103,32 +103,43 @@ const variantText = (v) => `${v.count} x profile ${v.profile} level ${v.level}, 
   + `HRD ${v.nalHrd ? 'NAL' : ''}${v.vclHrd ? '+VCL' : ''}${!v.nalHrd && !v.vclHrd ? 'none' : ''}`;
 
 // Parses the trace_headers lines of the SPS (the "Sequence Parameter Set" blocks). feed() takes one stderr line at a time.
+// ffmpeg writes other threads' messages into the same stream: while the SPS are traced, the demuxer's H.264 parser prints
+// "[NULL @ ...] Decoding VUI" (and ffmpeg's "Last message repeated N times") in the middle of a block, so only the lines the
+// trace_headers filter wrote are read, and a block counts only when it ran to its rbsp_stop_one_bit.
 const spsReader = () => {
   const variants = new Map();
   let current = null;
   let overreads = 0;
+  let incomplete = 0;
   const finish = () => {
     if (!current) return;
-    const d = describeSps(current);
-    const key = JSON.stringify(d);
-    const known = variants.get(key);
-    if (known) known.count += 1; else variants.set(key, { ...d, count: 1 });
+    if (current.done && current.fields.profile_idc !== undefined && current.fields.pic_width_in_mbs_minus1 !== undefined) {
+      const d = describeSps(current.fields);
+      const key = JSON.stringify(d);
+      const known = variants.get(key);
+      if (known) known.count += 1; else variants.set(key, { ...d, count: 1 });
+    } else {
+      incomplete += 1;
+    }
     current = null;
   };
   const feed = (raw) => {
-    const line = raw.replace(/^\[[^\]]*\]\s*/, '').replace(/\s+$/, '');
     if (/SEI type \d+ overread by \d+ bits/.test(raw)) overreads += 1;
-    if (line === 'Sequence Parameter Set') { finish(); current = {}; return; }
+    const ctx = /^\[([^\]@]*?)\s*@[^\]]*\]\s*/.exec(raw);
+    if (!ctx || ctx[1] !== 'trace_headers') return;
+    const line = raw.slice(ctx[0].length).replace(/\s+$/, '');
+    if (line === 'Sequence Parameter Set') { finish(); current = { fields: {}, done: false }; return; }
     if (current === null) return;
     const m = /^\d+\s+(\w+)(?:\[\d+\])?\s+[01]*\s*=\s*(-?\d+)\s*$/.exec(line);
     if (m) {
-      if (FIELDS.includes(m[1]) && current[m[1]] === undefined) current[m[1]] = m[2];
+      if (FIELDS.includes(m[1]) && current.fields[m[1]] === undefined) current.fields[m[1]] = m[2];
+      if (m[1] === 'rbsp_stop_one_bit') { current.done = true; finish(); }
       return;
     }
-    // a line that is not a syntax element ends the SPS (the next header, a packet line, ...)
+    // a trace_headers line that is not a syntax element (the next NAL unit, a packet line) ends the SPS
     if (!/^\d+\s/.test(line) && line !== '') finish();
   };
-  return { feed, finish, result: () => { finish(); return { variants: [...variants.values()], overreads }; } };
+  return { feed, finish, result: () => { finish(); return { variants: [...variants.values()], overreads, incomplete }; } };
 };
 
 const judge = (variants) => {
@@ -221,13 +232,14 @@ const plugin = async (args) => {
     throw new Error(`${label}: ffmpeg could not read the SPS of ${path.basename(file)} (exit ${scan.code}) ${scan.text}`);
   }
 
-  const { variants, overreads } = reader.result();
+  const { variants, overreads, incomplete } = reader.result();
+  if (incomplete > 0) log(`${incomplete} SPS block(s) in the trace were cut short and are not counted`);
   variants.forEach((v) => log(`SPS variant: ${variantText(v)}`));
   const verdict = judge(variants);
   log(`${verdict.output === 1 ? 'FIXABLE' : (verdict.output === 3 ? 'NOT FIXABLE HERE' : 'nothing to fix')}: ${verdict.reason}; `
     + `${overreads} overread warning(s) in this pass`);
   user.h264Splice = {
-    fixable: verdict.fixable, reason: verdict.reason, colour: verdict.colour || null, variants, overreads, file,
+    fixable: verdict.fixable, reason: verdict.reason, colour: verdict.colour || null, variants, overreads, incomplete, file,
   };
   if (verdict.fixable) {
     log(`colour to give the SPS without any: primaries ${verdict.colour.primaries}, transfer ${verdict.colour.transfer}, `
