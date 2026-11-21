@@ -340,6 +340,14 @@ const ffprobeCandidates = (tdarrFfmpegPath) => {
   return list.filter((c, i) => list.indexOf(c) === i);
 };
 
+// The packet count in ffprobe's csv output. On some files the line ends with a separator for an empty trailing field ("57052,",
+// reported on a 4K Dolby Vision / HDR10 file; the cause is not confirmed), so only the text before the first comma is the count.
+// NaN when that is not a plain whole number.
+const parseFrameCount = (text) => {
+  const first = String(text).trim().split('\n')[0].split(',')[0].trim();
+  return /^\d+$/.test(first) ? Number(first) : NaN;
+};
+
 // Number of packets in the first video stream of a file ({ frames, tool } or { error }). Reads the whole file once without
 // decoding it. Matroska stores one frame per block, so packets are frames; a container with a different layout would need
 // another way to count.
@@ -376,7 +384,7 @@ const countVideoFrames = async ({ tdarrFfmpegPath, file, timeoutMs }) => {
       child.stdout.on('data', (d) => { out += d.toString(); });
       child.stderr.on('data', (d) => { if (err.length < 400) err += d.toString(); });
       child.on('close', (code) => {
-        const frames = Number(out.trim().split('\n')[0]);
+        const frames = parseFrameCount(out);
         if (code !== 0) finish({ error: `exit code ${code}${err ? ` (${err.trim().slice(0, 200)})` : ''}` });
         else if (!Number.isInteger(frames) || frames <= 0) finish({ error: `unreadable output "${out.trim().slice(0, 80)}"` });
         else finish({ frames });
@@ -672,4 +680,4 @@ const plugin = async (args) => {
   }
 };
 
-module.exports = { details, plugin };
+module.exports = { details, plugin, parseFrameCount, countVideoFrames };
