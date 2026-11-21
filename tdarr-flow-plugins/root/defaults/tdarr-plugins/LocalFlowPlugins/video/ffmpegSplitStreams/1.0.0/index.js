@@ -185,7 +185,18 @@ const plugin = async (args) => {
     || Number(args.inputFileObj && args.inputFileObj.meta && args.inputFileObj.meta.Duration) || 0;
   const originalParse = cli.parseOutput;
   let lastPercent = -1;
+  // ffmpeg's "SEI type N overread by M bits" warning (-loglevel warning) is how a spliced-in H.264 segment shows up (new SPS
+  // after its SEI): it is counted here, for Detect H.264 SEI/SPS Splice, and goes on to the Flow Variable user.h264SeiOverread.
+  let seiOverreads = 0;
+  let seiCarry = '';
   cli.parseOutput = (data) => {
+    try {
+      const seen = `${seiCarry}${String(data)}`;
+      seiOverreads += (seen.match(/SEI type \d+ overread by \d+ bits/g) || []).length;
+      seiCarry = seen.slice(-80).replace(/^[\s\S]*SEI type \d+ overread by \d+ bits/, '');
+    } catch (e) {
+      // counting is cosmetic
+    }
     try {
       if (typeof originalParse === 'function') originalParse.call(cli, data);
       if (!(duration > 0)) return;
@@ -243,6 +254,11 @@ const plugin = async (args) => {
   args.variables = args.variables || {};
   if (!args.variables.user) args.variables.user = {};
   args.variables.user.videoOnlySource = videoOut;
+  args.variables.user.h264SeiOverread = seiOverreads;
+  if (seiOverreads > 0) {
+    args.jobLog(`Split Streams (ffmpeg): ffmpeg gave ${seiOverreads} "SEI type N overread" warning(s) while copying the video `
+      + '(Flow Variable h264SeiOverread); Detect H.264 SEI/SPS Splice can use this to look for a spliced-in segment');
+  }
 
   return { outputFileObj: { _id: videoOut }, outputNumber: 1, variables: args.variables };
 };
