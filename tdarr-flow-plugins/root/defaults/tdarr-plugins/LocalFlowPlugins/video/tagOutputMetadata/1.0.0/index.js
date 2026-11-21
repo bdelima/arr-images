@@ -220,11 +220,12 @@ const plugin = async (args) => {
     TDARR_SOURCE_FILE: args.originalLibraryFile && args.originalLibraryFile._id,
     TDARR_SIZE_RATIO: sizeRatio,
     // Run VMAF sets vmafUnscored ("UNSCORED: geometry mismatch") instead of a score when the working file and the reference
-    // differ in size in a way it will not score; that text is then the tag
+    // differ in size in a way it will not score; that text is then the tag. vmafGeom (geom=refcrop:L,T,R,B or geom=padcrop:L,T,R,B)
+    // says that one file was cropped to the other's size before scoring
     TDARR_VMAF_SCORE: v.vmafUnscored
       ? String(v.vmafUnscored)
       : (v.vmafMean !== undefined)
-        ? `mean=${v.vmafMean};min=${v.vmafMin};p1=${v.vmafP1}${v.vmafBelow ? `;${v.vmafBelow}` : ''}${v.vmafStep > 1 ? `;every=${v.vmafStep}` : ''}`
+        ? `mean=${v.vmafMean};min=${v.vmafMin};p1=${v.vmafP1}${v.vmafBelow ? `;${v.vmafBelow}` : ''}${v.vmafStep > 1 ? `;every=${v.vmafStep}` : ''}${v.vmafGeom ? `;${v.vmafGeom}` : ''}`
         : undefined,
     TDARR_TRAIL: v.tdarrTrail,
   };

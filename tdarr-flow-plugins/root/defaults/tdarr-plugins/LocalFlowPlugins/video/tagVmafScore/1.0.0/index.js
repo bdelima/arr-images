@@ -6,7 +6,8 @@
  * tag on the file as it was. The value has the same format Tag Output Metadata writes, for example
  * mean=95.12;min=81.3;p1=90.4;below60=0;below70=2;below75=5. When Run VMAF did not score the file (it sets the Flow Variable
  * vmafUnscored to "UNSCORED: geometry mismatch": the file and its reference differ in size and the file is not a centered crop
- * of the reference), that text is written as the tag instead.
+ * of the reference), that text is written as the tag instead. When Run VMAF cropped one of the two files to the other's size
+ * (Flow Variable vmafGeom, geom=refcrop:L,T,R,B or geom=padcrop:L,T,R,B), that is appended to the score, after the other fields.
  *
  * It is for a flow that only scores a file that is already finished (the VMAF Scoring Flow), where Tag Output Metadata is not
  * the right node: it rewrites the run tags (pipeline version, trail) and, on a run that did not encode, keeps the encode
@@ -130,7 +131,7 @@ const plugin = async (args) => {
   }
   const score = unscored
     ? String(v.vmafUnscored)
-    : `mean=${v.vmafMean};min=${v.vmafMin};p1=${v.vmafP1}${v.vmafBelow ? `;${v.vmafBelow}` : ''}${v.vmafStep > 1 ? `;every=${v.vmafStep}` : ''}`;
+    : `mean=${v.vmafMean};min=${v.vmafMin};p1=${v.vmafP1}${v.vmafBelow ? `;${v.vmafBelow}` : ''}${v.vmafStep > 1 ? `;every=${v.vmafStep}` : ''}${v.vmafGeom ? `;${v.vmafGeom}` : ''}`;
 
   let existingAll = await readTagsWithFfmpeg(args, file);
   let from = 'the file (ffmpeg)';
