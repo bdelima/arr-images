@@ -95,6 +95,21 @@
 // file" (default 1: a re-encode cannot fix a size difference, so output 2, which the Encoder uses to encode again at a lower
 // quality, would only repeat the same unscored run). If the size of either file cannot be read, a warning goes to the job log and
 // scoring goes ahead as before.
+//
+// Exact margins from tags (TDARR_CROP and TDARR_PAD): an encode made outside Tdarr (StaxRip, for one) can carry two global tags on the
+// working file: TDARR_CROP=L,T,R,B, the pixels cut off the source (the reference), and TDARR_PAD=L,T,R,B, the pixels then added to the
+// cropped picture (left, top, right, bottom; 0,0,0,0 for none), so the working file is the reference minus TDARR_CROP plus TDARR_PAD.
+// They are read from the working file with ffmpeg (from its probe data if ffmpeg cannot read the file). When at least one is there it
+// replaces the centered rule above: the reference is cropped by TDARR_CROP and the working file by TDARR_PAD (both files, when both are
+// not zero), so the two inner pictures are compared, and the pair is scored only when they are the same size. A tag that is not four
+// whole numbers, a margin that is odd, or inner sizes that differ give "UNSCORED: tag/geometry mismatch", with no fallback to centered:
+// a tag that does not fit the files means something upstream is wrong. When only one of the two tags is there, the other counts as
+// 0,0,0,0. With neither tag, the centered rule above applies as before.
+// Flow Variable user.vmafGeom holds the whole marker, which Tag Output Metadata and Tag VMAF Score append to TDARR_VMAF_SCORE as it is:
+// geom=refcrop:L,T,R,B for the margins cut from the reference, geom=padcrop:L,T,R,B for those cut from the working file (written
+// geom2=padcrop:L,T,R,B when both files are cropped), then geomsrc=tag or geomsrc=centered for where the margins came from.
+// geomsrc=tag is written whenever the tags were used, also when they are 0,0,0,0 and nothing was cropped; geomsrc=centered only when a
+// centered crop was made. Example: mean=95.12;min=81.3;p1=90.4;below60=0;below70=2;below75=5;geom=padcrop:4,264,4,264;geomsrc=tag
 
 const details = () => ({
   name: 'Run VMAF Quality Check',
@@ -199,7 +214,8 @@ const details = () => ({
       defaultValue: '1',
       inputUI: { type: 'dropdown', options: ['1', '2'] },
       tooltip: 'When the working file and the reference differ in size in a way that is not a centered crop or pad, no score '
-        + 'is made and the TDARR_VMAF_SCORE tag becomes "UNSCORED: geometry mismatch". This is the output the file leaves through. '
+        + 'is made (also when it does not fit its TDARR_CROP / TDARR_PAD tags) and the TDARR_VMAF_SCORE tag becomes "UNSCORED: geometry mismatch" '
+        + '("UNSCORED: tag/geometry mismatch" for the tags). This is the output the file leaves through. '
         + '1 = as if the quality check passed (default: a re-encode cannot fix a size difference). 2 = as if it failed (the Encoder then encodes again at a lower quality).',
     },
     {
@@ -536,6 +552,120 @@ const planGeometry = (ref, dist) => {
 };
 
 const UNSCORED_TEXT = 'UNSCORED: geometry mismatch';
+const UNSCORED_TAG_TEXT = 'UNSCORED: tag/geometry mismatch';
+
+// "L,T,R,B" (left, top, right, bottom; whole pixels) -> { left, top, right, bottom }; null when it is not four whole numbers.
+const parseMargins = (text) => {
+  const m = /^\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*$/.exec(String(text));
+  return m ? { left: Number(m[1]), top: Number(m[2]), right: Number(m[3]), bottom: Number(m[4]) } : null;
+};
+
+// The sizes of the reference and the working file ({ width, height } each) and the text of the TDARR_CROP and TDARR_PAD tags
+// (undefined when a tag is not on the file; that one then counts as 0,0,0,0), worked out like planGeometry:
+//   { kind: 'crop', ref, dist, width, height }  ref: margins to cut from the reference (TDARR_CROP), or null when it is 0,0,0,0;
+//                                               dist: margins to cut from the working file (TDARR_PAD), or null; width and height:
+//                                               the size both end up at (the same, or the pair is a mismatch)
+//   { kind: 'mismatch', reason }                a tag that is not four whole numbers, an odd margin (so the chroma planes of 4:2:0
+//                                               video would not line up), a margin that leaves nothing, or inner sizes that differ
+const planTagGeometry = (ref, dist, cropText, padText) => {
+  const zero = { left: 0, top: 0, right: 0, bottom: 0 };
+  const margins = {};
+  const tags = [['TDARR_CROP', cropText], ['TDARR_PAD', padText]];
+  for (let i = 0; i < tags.length; i += 1) {
+    const [name, text] = tags[i];
+    if (text === undefined) {
+      margins[name] = zero;
+    } else {
+      const m = parseMargins(text);
+      if (!m) return { kind: 'mismatch', reason: `${name} "${String(text).trim().slice(0, 60)}" is not four whole numbers L,T,R,B` };
+      if ([m.left, m.top, m.right, m.bottom].some((v) => v % 2 !== 0)) {
+        return { kind: 'mismatch', reason: `${name} "${String(text).trim()}" has an odd margin; each margin must be an even number of pixels` };
+      }
+      margins[name] = m;
+    }
+  }
+  const crop = margins.TDARR_CROP;
+  const pad = margins.TDARR_PAD;
+  const refW = ref.width - crop.left - crop.right;
+  const refH = ref.height - crop.top - crop.bottom;
+  const distW = dist.width - pad.left - pad.right;
+  const distH = dist.height - pad.top - pad.bottom;
+  if (!(refW > 0 && refH > 0 && distW > 0 && distH > 0)) {
+    return { kind: 'mismatch', reason: `the margins leave no picture (reference ${ref.width}x${ref.height} minus TDARR_CROP is ${refW}x${refH}, working file ${dist.width}x${dist.height} minus TDARR_PAD is ${distW}x${distH})` };
+  }
+  if (refW !== distW || refH !== distH) {
+    return { kind: 'mismatch', reason: `the reference (${ref.width}x${ref.height}) minus TDARR_CROP is ${refW}x${refH} but the working file (${dist.width}x${dist.height}) minus TDARR_PAD is ${distW}x${distH}` };
+  }
+  const isZero = (m) => m.left === 0 && m.top === 0 && m.right === 0 && m.bottom === 0;
+  return { kind: 'crop', ref: isZero(crop) ? null : crop, dist: isZero(pad) ? null : pad, width: refW, height: refH };
+};
+
+// ffmpeg's ffmetadata text: "KEY=value" lines before the first [SECTION], with \ = ; # and newline escaped by a backslash.
+// Same as in Tag VMAF Score (copied there from Tag Output Metadata), so this plugin does not depend on another plugin file.
+const parseFfmetadata = (text) => {
+  const unescape = (str) => str.replace(/\\(.)/g, '$1');
+  const found = {};
+  for (const rawLine of String(text).split('\n')) {
+    const line = rawLine.replace(/\r$/, '');
+    if (line.startsWith('[')) break;
+    if (line !== '' && !line.startsWith(';') && !line.startsWith('#')) {
+      let eq = -1;
+      for (let i = 0; i < line.length; i += 1) {
+        if (line[i] === '\\') {
+          i += 1;
+        } else if (line[i] === '=') {
+          eq = i;
+          break;
+        }
+      }
+      if (eq > 0) found[unescape(line.slice(0, eq)).toUpperCase()] = unescape(line.slice(eq + 1));
+    }
+  }
+  return found;
+};
+
+// The global tags of a file as { UPPERCASE_NAME: value } and where they were read from ({ tags, from }). Read with ffmpeg (Tdarr's, the
+// one in args.ffmpegPath); if that cannot be run or fails, from the probe data Tdarr holds for the working file, which can be older
+// than the file; if there is neither, no tags.
+const readGlobalTags = async ({ args, file, timeoutMs }) => {
+  const viaFfmpeg = await new Promise((resolve) => {
+    if (!args.ffmpegPath) {
+      resolve(null);
+      return;
+    }
+    const { spawn } = require('child_process');
+    let out = '';
+    let child;
+    let timer;
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch (e) { /* already gone */ }
+      finish(null);
+    }, timeoutMs);
+    try {
+      child = spawn(args.ffmpegPath, ['-nostdin', '-v', 'error', '-i', file, '-f', 'ffmetadata', '-']);
+    } catch (e) {
+      finish(null);
+      return;
+    }
+    child.on('error', () => finish(null));
+    child.stdout.on('data', (d) => { if (out.length < 1000000) out += d.toString(); });
+    child.on('close', (code) => finish(code === 0 ? parseFfmetadata(out) : null));
+  });
+  if (viaFfmpeg !== null) return { tags: viaFfmpeg, from: 'the file (ffmpeg)' };
+  const probe = args.inputFileObj && args.inputFileObj.ffProbeData;
+  const tags = {};
+  Object.keys((probe && probe.format && probe.format.tags) || {}).forEach((k) => {
+    tags[k.toUpperCase()] = String(probe.format.tags[k]);
+  });
+  return { tags, from: 'the probe data (ffmpeg could not read the file)' };
+};
 
 const plugin = async (args) => {
   const lib = require('../../../../../methods/lib')();
@@ -611,7 +741,10 @@ const plugin = async (args) => {
 
   // Frame size (see the header): the same, a centered crop or pad, or not scorable. Done before the frame count, so a file that
   // will not be scored does not cost a read of both files.
-  let crop = null; // { side: 'ref' | 'dist', kind, top, bottom, left, right, codec, width, height } when one file is cropped to the other's size
+  // What is cut from each file before scoring. ref and dist are { top, bottom, left, right, codec } or null (that file is not cropped);
+  // width and height are the size both end up at. geomSource says where the margins came from: 'tag', 'centered' or null.
+  const crops = { ref: null, dist: null, width: 0, height: 0 };
+  let geomSource = null;
   {
     const [refGeo, distGeo] = await Promise.all([reference, distorted].map((file) => probeVideoGeometry({
       tdarrFfmpegPath: args.ffmpegPath, file, timeoutMs: 5 * 60 * 1000,
@@ -619,41 +752,78 @@ const plugin = async (args) => {
     if (refGeo.error || distGeo.error) {
       log(`warning: could not compare frame sizes (reference: ${refGeo.error || `${refGeo.width}x${refGeo.height}`}; working file: ${distGeo.error || `${distGeo.width}x${distGeo.height}`}); scoring anyway`);
     } else {
-      const plan = planGeometry(refGeo, distGeo);
-      if (plan.kind === 'same') {
-        log(`both files are ${refGeo.width}x${refGeo.height}`);
-      } else if (plan.kind === 'refcrop' || plan.kind === 'padcrop') {
-        const cropRef = plan.kind === 'refcrop';
-        // the file that is cropped is the larger one; the other one gives the size it is cropped to
-        const [bigger, smaller] = cropRef ? [refGeo, distGeo] : [distGeo, refGeo];
-        crop = {
-          side: cropRef ? 'ref' : 'dist', kind: plan.kind, top: plan.top, bottom: plan.bottom, left: plan.left, right: plan.right,
-          codec: bigger.codec, width: smaller.width, height: smaller.height,
-        };
-        log(cropRef
-          ? `the working file (${distGeo.width}x${distGeo.height}) is a centered crop of the reference (${refGeo.width}x${refGeo.height}): `
-            + `the reference is cropped by top ${crop.top}, bottom ${crop.bottom}, left ${crop.left}, right ${crop.right} px before scoring`
-          : `the working file (${distGeo.width}x${distGeo.height}) is the reference (${refGeo.width}x${refGeo.height}) padded: `
-            + `the working file is cropped by top ${crop.top}, bottom ${crop.bottom}, left ${crop.left}, right ${crop.right} px before scoring, so the pad is not scored`);
+      const found = await readGlobalTags({ args, file: distorted, timeoutMs: 60 * 1000 });
+      const cropTag = found.tags.TDARR_CROP;
+      const padTag = found.tags.TDARR_PAD;
+      const haveTags = cropTag !== undefined || padTag !== undefined;
+      let plan;
+      if (haveTags) {
+        log(`the working file carries ${cropTag !== undefined ? `TDARR_CROP=${cropTag}` : 'no TDARR_CROP (counted as 0,0,0,0)'} and `
+          + `${padTag !== undefined ? `TDARR_PAD=${padTag}` : 'no TDARR_PAD (counted as 0,0,0,0)'} (read from ${found.from}); these give the margins`);
+        plan = planTagGeometry(refGeo, distGeo, cropTag, padTag);
       } else {
-        log(`frame sizes differ and the working file is not a centered crop or pad of the reference: ${plan.reason}; NOT scoring, `
-          + `TDARR_VMAF_SCORE will be "${UNSCORED_TEXT}"; leaving through output ${unscoredOutput}`);
+        plan = planGeometry(refGeo, distGeo);
+        if (plan.kind !== 'same') {
+          log(`no TDARR_CROP or TDARR_PAD tag on the working file (read from ${found.from}): the margins are taken as centered, from the frame sizes`);
+        }
+        if (plan.kind === 'refcrop' || plan.kind === 'padcrop') {
+          const m = { top: plan.top, bottom: plan.bottom, left: plan.left, right: plan.right };
+          plan = {
+            kind: 'crop',
+            ref: plan.kind === 'refcrop' ? m : null,
+            dist: plan.kind === 'padcrop' ? m : null,
+            width: Math.min(refGeo.width, distGeo.width),
+            height: Math.min(refGeo.height, distGeo.height),
+          };
+        }
+      }
+      if (plan.kind === 'mismatch') {
+        const text = haveTags ? UNSCORED_TAG_TEXT : UNSCORED_TEXT;
+        log(`${haveTags ? 'the TDARR_CROP / TDARR_PAD tags do not fit the files' : 'frame sizes differ and the working file is not a centered crop or pad of the reference'}: ${plan.reason}; NOT scoring, `
+          + `TDARR_VMAF_SCORE will be "${text}"; leaving through output ${unscoredOutput}`);
         args.variables = args.variables || {};
         if (!args.variables.user) args.variables.user = {};
         ['vmafMean', 'vmafMin', 'vmafP1', 'vmafBelow', 'vmafStep', 'vmafGeom'].forEach((k) => { delete args.variables.user[k]; });
-        args.variables.user.vmafUnscored = UNSCORED_TEXT;
+        args.variables.user.vmafUnscored = text;
         return { outputFileObj: args.inputFileObj, outputNumber: unscoredOutput, variables: args.variables };
+      }
+      geomSource = haveTags ? 'tag' : (plan.kind === 'crop' ? 'centered' : null);
+      const part = (m) => `top ${m.top}, bottom ${m.bottom}, left ${m.left}, right ${m.right} px`;
+      if (plan.kind === 'same') {
+        log(`both files are ${refGeo.width}x${refGeo.height}`);
+      } else if (!plan.ref && !plan.dist) {
+        log(`both files are ${refGeo.width}x${refGeo.height}; the tags say nothing is cropped or padded`);
+      } else {
+        if (plan.ref) {
+          crops.ref = { ...plan.ref, codec: refGeo.codec };
+          log(haveTags
+            ? `the reference (${refGeo.width}x${refGeo.height}) is cropped by ${part(plan.ref)} (TDARR_CROP) before scoring`
+            : `the working file (${distGeo.width}x${distGeo.height}) is a centered crop of the reference (${refGeo.width}x${refGeo.height}): `
+              + `the reference is cropped by ${part(plan.ref)} before scoring`);
+        }
+        if (plan.dist) {
+          crops.dist = { ...plan.dist, codec: distGeo.codec };
+          log(haveTags
+            ? `the working file (${distGeo.width}x${distGeo.height}) is cropped by ${part(plan.dist)} (TDARR_PAD) before scoring, so the pad is not scored`
+            : `the working file (${distGeo.width}x${distGeo.height}) is the reference (${refGeo.width}x${refGeo.height}) padded: `
+              + `the working file is cropped by ${part(plan.dist)} before scoring, so the pad is not scored`);
+        }
+        crops.width = plan.width;
+        crops.height = plan.height;
+        log(`the inner pictures, ${crops.width}x${crops.height}, are scored`);
       }
     }
   }
 
   // Which way to score: the GPU path when the node has the NVIDIA device file, otherwise the CPU path. Decided once, here.
-  const cuvidDecoder = crop ? CUVID_DECODERS[crop.codec] : undefined;
   const gpuDeviceThere = gpuDevice !== '' && fs.existsSync(gpuDevice);
-  // the file that has to be cropped is cropped by its NVDEC decoder on the GPU path; without one the CPU path crops it
-  const useGpu = gpuDeviceThere && (!crop || cuvidDecoder !== undefined);
+  // a file that has to be cropped is cropped by its NVDEC decoder on the GPU path; if one of them has none, the CPU path crops it
+  const cropSides = ['ref', 'dist'].filter((side) => crops[side]);
+  const noDecoder = cropSides.filter((side) => CUVID_DECODERS[crops[side].codec] === undefined);
+  const useGpu = gpuDeviceThere && noDecoder.length === 0;
   if (gpuDeviceThere && !useGpu) {
-    log(`the codec "${crop.codec}" of the ${crop.side === 'ref' ? 'reference' : 'working file'}, which has to be cropped, has no NVDEC decoder in this plugin's table, so this pair is scored on the CPU path for this run`);
+    log(`no NVDEC decoder in this plugin's table for ${noDecoder.map((side) => `the codec "${crops[side].codec}" of the ${side === 'ref' ? 'reference' : 'working file'}`).join(' and ')}, `
+      + 'which has to be cropped, so this pair is scored on the CPU path for this run');
   }
   if (useGpu) {
     if (path.isAbsolute(flockPath)) {
@@ -669,7 +839,7 @@ const plugin = async (args) => {
   const cpuThreads = Math.max(1, Math.min(nodeCpus, Math.round((nodeCpus * cpuPercent) / 100)));
   log(useGpu
     ? `scoring on the GPU (libvmaf_cuda): ${gpuDevice} exists on this node`
-    : `scoring on the CPU (libvmaf, ${cpuThreads} thread${cpuThreads === 1 ? '' : 's'} of ${nodeCpus}): ${gpuDeviceThere ? 'the GPU path cannot decode the file that has to be cropped with a crop' : gpuDevice === '' ? 'no GPU device file is set' : `${gpuDevice} does not exist on this node`}`);
+    : `scoring on the CPU (libvmaf, ${cpuThreads} thread${cpuThreads === 1 ? '' : 's'} of ${nodeCpus}): ${gpuDeviceThere ? 'a file that has to be cropped has no NVDEC decoder in the plugin table' : gpuDevice === '' ? 'no GPU device file is set' : `${gpuDevice} does not exist on this node`}`);
 
   // Frame rate of the first video stream as an exact fraction ("24000/1001"), from the probe data Tdarr already holds.
   const frameRateOf = (fileObj) => {
@@ -718,18 +888,18 @@ const plugin = async (args) => {
   // setpts gives both inputs timestamps computed from the frame number, so libvmaf pairs frame N with frame N (see the header)
   const retime = `setpts=N*${rate.den}/(${rate.num}*TB)`;
   // the crop on the CPU path, in front of the file that is cropped (the GPU path crops in the decoder, below)
-  const cpuCrop = crop ? `crop=${crop.width}:${crop.height}:${crop.left}:${crop.top},` : '';
+  const cpuCrop = (side) => (crops[side] ? `crop=${crops.width}:${crops.height}:${crops[side].left}:${crops[side].top},` : '');
   const filter = useGpu
     ? `[0:v]${retime},scale_cuda=format=${pixelFormat}[ref];[1:v]${retime},scale_cuda=format=${pixelFormat}[dist];`
       + `[dist][ref]libvmaf_cuda=${modelPart}log_path=${vmafLog}:log_fmt=json`
-    : `[0:v]${crop && crop.side === 'ref' ? cpuCrop : ''}${retime},format=${pixelFormat}[ref];`
-      + `[1:v]${crop && crop.side === 'dist' ? cpuCrop : ''}${retime},format=${pixelFormat}[dist];`
+    : `[0:v]${cpuCrop('ref')}${retime},format=${pixelFormat}[ref];`
+      + `[1:v]${cpuCrop('dist')}${retime},format=${pixelFormat}[dist];`
       + `[dist][ref]libvmaf=${modelPart}n_threads=${cpuThreads}${step > 1 ? `:n_subsample=${step}` : ''}:log_path=${vmafLog}:log_fmt=json`;
   // GPU crop: the file to be cropped goes through its NVDEC decoder with the decoder's own -crop (top x bottom x left x right),
   // which decodes only the cropped area and leaves the frames on the GPU, so the rest of the graph is unchanged
   const gpuIn = (side) => (useGpu
     ? ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda',
-      ...(crop && crop.side === side ? ['-c:v', cuvidDecoder, '-crop', `${crop.top}x${crop.bottom}x${crop.left}x${crop.right}`] : [])]
+      ...(crops[side] ? ['-c:v', CUVID_DECODERS[crops[side].codec], '-crop', `${crops[side].top}x${crops[side].bottom}x${crops[side].left}x${crops[side].right}`] : [])]
     : []);
   const ffArgs = [
     '-xerror', '-stats_period', '5',
@@ -846,7 +1016,13 @@ const plugin = async (args) => {
     args.variables.user.vmafMin = round2(min);
     args.variables.user.vmafP1 = round2(p1);
     delete args.variables.user.vmafUnscored; // a score from this run replaces an unscored result from an earlier one
-    if (crop) args.variables.user.vmafGeom = `geom=${crop.kind}:${crop.left},${crop.top},${crop.right},${crop.bottom}`;
+    // the marker appended to the score: geom=... for each cropped file, then where the margins came from
+    const geomFields = [];
+    const marginsText = (m) => `${m.left},${m.top},${m.right},${m.bottom}`;
+    if (crops.ref) geomFields.push(`geom=refcrop:${marginsText(crops.ref)}`);
+    if (crops.dist) geomFields.push(`${crops.ref ? 'geom2' : 'geom'}=padcrop:${marginsText(crops.dist)}`);
+    if (geomSource) geomFields.push(`geomsrc=${geomSource}`);
+    if (geomFields.length > 0) args.variables.user.vmafGeom = geomFields.join(';');
     else delete args.variables.user.vmafGeom;
     if (step > 1) args.variables.user.vmafStep = step;
     else delete args.variables.user.vmafStep;
@@ -879,5 +1055,6 @@ const plugin = async (args) => {
 };
 
 module.exports = {
-  details, plugin, parseFrameCount, countVideoFrames, planGeometry, probeVideoGeometry, CUVID_DECODERS, UNSCORED_TEXT,
+  details, plugin, parseFrameCount, countVideoFrames, planGeometry, planTagGeometry, parseMargins, readGlobalTags, probeVideoGeometry,
+  CUVID_DECODERS, UNSCORED_TEXT, UNSCORED_TAG_TEXT,
 };
