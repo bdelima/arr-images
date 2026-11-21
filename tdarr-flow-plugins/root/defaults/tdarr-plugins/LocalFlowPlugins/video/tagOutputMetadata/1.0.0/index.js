@@ -219,9 +219,13 @@ const plugin = async (args) => {
     // the full path of the file this job was queued for, as Tdarr sees it (the original library file, not the work folder copy)
     TDARR_SOURCE_FILE: args.originalLibraryFile && args.originalLibraryFile._id,
     TDARR_SIZE_RATIO: sizeRatio,
-    TDARR_VMAF_SCORE: (v.vmafMean !== undefined)
-      ? `mean=${v.vmafMean};min=${v.vmafMin};p1=${v.vmafP1}${v.vmafBelow ? `;${v.vmafBelow}` : ''}${v.vmafStep > 1 ? `;every=${v.vmafStep}` : ''}`
-      : undefined,
+    // Run VMAF sets vmafUnscored ("UNSCORED: geometry mismatch") instead of a score when the working file and the reference
+    // differ in size in a way it will not score; that text is then the tag
+    TDARR_VMAF_SCORE: v.vmafUnscored
+      ? String(v.vmafUnscored)
+      : (v.vmafMean !== undefined)
+        ? `mean=${v.vmafMean};min=${v.vmafMin};p1=${v.vmafP1}${v.vmafBelow ? `;${v.vmafBelow}` : ''}${v.vmafStep > 1 ? `;every=${v.vmafStep}` : ''}`
+        : undefined,
     TDARR_TRAIL: v.tdarrTrail,
   };
   Object.keys(freshTags).forEach((k) => {

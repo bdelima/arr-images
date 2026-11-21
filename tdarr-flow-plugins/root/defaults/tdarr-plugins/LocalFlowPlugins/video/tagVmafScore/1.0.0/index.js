@@ -4,7 +4,9 @@
  * Writes the score Run VMAF Quality Check just produced (Flow Variables user.vmafMean, vmafMin, vmafP1, vmafBelow and
  * vmafStep) into the working file's TDARR_VMAF_SCORE global tag, in place with mkvpropedit, and leaves every other TDARR_
  * tag on the file as it was. The value has the same format Tag Output Metadata writes, for example
- * mean=95.12;min=81.3;p1=90.4;below60=0;below70=2;below75=5.
+ * mean=95.12;min=81.3;p1=90.4;below60=0;below70=2;below75=5. When Run VMAF did not score the file (it sets the Flow Variable
+ * vmafUnscored to "UNSCORED: geometry mismatch": the file and its reference differ in size and the file is not a centered crop
+ * of the reference), that text is written as the tag instead.
  *
  * It is for a flow that only scores a file that is already finished (the VMAF Scoring Flow), where Tag Output Metadata is not
  * the right node: it rewrites the run tags (pipeline version, trail) and, on a run that did not encode, keeps the encode
@@ -121,10 +123,14 @@ const plugin = async (args) => {
   }
 
   const v = (args.variables && args.variables.user) || {};
-  if (v.vmafMean === undefined || v.vmafMean === null || v.vmafMean === '') {
+  // Run VMAF sets vmafUnscored ("UNSCORED: geometry mismatch") instead of a score when it did not score the file; the tag then says so
+  const unscored = v.vmafUnscored !== undefined && v.vmafUnscored !== null && String(v.vmafUnscored) !== '';
+  if (!unscored && (v.vmafMean === undefined || v.vmafMean === null || v.vmafMean === '')) {
     throw new Error('Tag VMAF Score: there is no VMAF score (the Flow Variable vmafMean is not set); run Run VMAF Quality Check first');
   }
-  const score = `mean=${v.vmafMean};min=${v.vmafMin};p1=${v.vmafP1}${v.vmafBelow ? `;${v.vmafBelow}` : ''}${v.vmafStep > 1 ? `;every=${v.vmafStep}` : ''}`;
+  const score = unscored
+    ? String(v.vmafUnscored)
+    : `mean=${v.vmafMean};min=${v.vmafMin};p1=${v.vmafP1}${v.vmafBelow ? `;${v.vmafBelow}` : ''}${v.vmafStep > 1 ? `;every=${v.vmafStep}` : ''}`;
 
   let existingAll = await readTagsWithFfmpeg(args, file);
   let from = 'the file (ffmpeg)';
