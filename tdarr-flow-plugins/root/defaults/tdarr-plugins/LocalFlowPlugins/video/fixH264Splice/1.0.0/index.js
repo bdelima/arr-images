@@ -80,25 +80,35 @@ const colourOf = (f) => {
   };
 };
 
-// Reads the "Sequence Parameter Set" blocks of ffmpeg's trace_headers output, one stderr line at a time.
+// Reads the "Sequence Parameter Set" blocks of ffmpeg's trace_headers output, one stderr line at a time. Only the lines the
+// trace_headers filter wrote are read: other threads write into the same stream in the middle of a block (the demuxer's
+// H.264 parser prints "[NULL @ ...] Decoding VUI"), and a block counts only when it ran to its rbsp_stop_one_bit.
 const spsReader = () => {
   const found = [];
   let current = null;
   let overreads = 0;
-  const finish = () => { if (current) found.push(colourOf(current)); current = null; };
+  let incomplete = 0;
+  const finish = () => {
+    if (!current) return;
+    if (current.done) found.push(colourOf(current.fields)); else incomplete += 1;
+    current = null;
+  };
   const feed = (raw) => {
-    const line = raw.replace(/^\[[^\]]*\]\s*/, '').replace(/\s+$/, '');
     if (/SEI type \d+ overread by \d+ bits/.test(raw)) overreads += 1;
-    if (line === 'Sequence Parameter Set') { finish(); current = {}; return; }
+    const ctx = /^\[([^\]@]*?)\s*@[^\]]*\]\s*/.exec(raw);
+    if (!ctx || ctx[1] !== 'trace_headers') return;
+    const line = raw.slice(ctx[0].length).replace(/\s+$/, '');
+    if (line === 'Sequence Parameter Set') { finish(); current = { fields: {}, done: false }; return; }
     if (current === null) return;
     const m = /^\d+\s+(\w+)(?:\[\d+\])?\s+[01]*\s*=\s*(-?\d+)\s*$/.exec(line);
     if (m) {
-      if (FIELDS.includes(m[1]) && current[m[1]] === undefined) current[m[1]] = m[2];
+      if (FIELDS.includes(m[1]) && current.fields[m[1]] === undefined) current.fields[m[1]] = m[2];
+      if (m[1] === 'rbsp_stop_one_bit') { current.done = true; finish(); }
       return;
     }
     if (!/^\d+\s/.test(line) && line !== '') finish();
   };
-  return { feed, result: () => { finish(); return { colours: found, overreads }; } };
+  return { feed, result: () => { finish(); return { colours: found, overreads, incomplete }; } };
 };
 
 // The NAL units at the start of one packet (length-prefixed, as Matroska stores them), up to the first slice. Returns
@@ -364,7 +374,8 @@ const plugin = async (args) => {
     const sc = await run(ffmpeg, ['-hide_banner', '-nostdin', '-nostats', '-v', 'trace', '-i', out, '-map', '0:v:0', '-c', 'copy', '-bsf:v', 'filter_units=pass_types=7,trace_headers', '-f', 'null', '-'],
       { onLine: reader.feed, track: { from: 72, to: 98, file: out } });
     if (sc.code !== 0) throw new Error(`${label}: ffmpeg could not read the SPS of the result (exit ${sc.code}): ${tail(sc.text)}`);
-    const { colours, overreads } = reader.result();
+    const { colours, overreads, incomplete } = reader.result();
+    if (incomplete > 0) log(`note: ${incomplete} SPS block(s) in the trace of the result were cut short and are not counted`);
     if (colours.length === 0) throw new Error(`${label}: no SPS found in the result`);
     const wrong = colours.filter((c) => !c || c.primaries !== colour.primaries || c.transfer !== colour.transfer || c.matrix !== colour.matrix || c.range !== colour.range).length;
     if (wrong > 0) throw new Error(`${label}: ${wrong} of ${colours.length} SPS in the result do not declare the wanted colour`);

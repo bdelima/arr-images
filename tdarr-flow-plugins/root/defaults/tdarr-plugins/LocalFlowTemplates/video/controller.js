@@ -20,6 +20,7 @@
 // Flow ids, 2026-11-19: the three flows have readable ids, bdelima/Controller, bdelima/Encoder and bdelima/Muxer (they were HWxfel7zZ, 20ZN6oc41 and Yaax7LBej), and every Go To Flow node's flowId uses them. Ids written bdelima:Controller and so on were tried first: they imported, but the flow editor then opened the Controller for all three flows. Importing with Replace over a flow that still has the old id creates a new flow; the old one stays until it is deleted.
 // Synced to Bob's live "Controller (v16)" on 2026-11-19 (the version is stamped on at build, so the name here stays plain), after Classify Source got its ten new outputs (1 h264, 2 hevc, 3 hevc+HDR/DoVi, 4 hevc+DoVi 4/5, 5 av1, 6 av1+HDR/DoVi, 7 av1+DoVi 4/5, 8 legacy, 9 other/unrecognized, 10 other/unrecognized HDR/DoVi). Compared with the v15 template, only two Classify Source edges changed: output 2 now goes to Check Best Quality Tier (it went to Check Source Efficiency, edge id cyDhRyNN2, now vpihbUuhJ), and output 4 now goes to Go To Muxer (passthrough) (it went to Check Best Quality Tier, edge id XokWO5-kI, now blOWM4wH_). The other Classify Source edges are as in v15. This replaces the Classify Source routing described in the v15 note above. The key order inside "Check Clean Quality Tier" follows the live export. No node, position or setting changed.
 // Synced to Bob's live "Controller (v16)" on 2026-11-20 (the version is stamped on at build, so the name here stays plain). Compared with the previous template (20 nodes and 31 edges, now 19 and 29): "Check Best Quality Tier" (chkForceReencode) is gone together with its two edges (forceToClean, to Go To Muxer (passthrough), and sCVyxgHnN, to Check Source Efficiency). Four Classify Source edges changed, using the output meanings in the Controller (v16) note above: output 2 (hevc) now goes to Check Source Efficiency (it went to Check Best Quality Tier, edge vpihbUuhJ, now AM5Vodhgu); output 3 (hevc + HDR/DoVi) now goes to Check Source Efficiency (it went to Check Best Quality Tier, edge hevcNotHdrToForceCheck, now DFXYvUiH3); output 7 (av1 + Dolby Vision 4/5) now goes to Go To Muxer (passthrough) (it went to Check Source Efficiency, edge legacyNotHdrToConverter, now Aia2YQUi3); output 8 (legacy) now goes to Check Source Efficiency (it went to Go To Muxer (passthrough), edge legacyHdrToClean, now zUDTqFJT9). The other Classify Source edges (1 to Check Source Efficiency, 4, 5, 6, 9 and 10 to Go To Muxer (passthrough)) are as before, and both outputs of Check Source Efficiency still go to Go To Encoder. This replaces the Classify Source routing in the notes above. Eight node positions moved (Classify Source, Check Source Efficiency, Go To Encoder, Go To Muxer (passthrough), Fail Flow (no English audio), Split Streams (ffmpeg), Repair Language Tags, Check Clean Quality Tier); no other node or setting changed.
+// H.264 SEI/SPS splice repair, 2026-11-21, synced to Bob's live Controller as he pasted it (named "Controller (v18)"; the version is stamped on at build, so the name here stays plain). Compared with the previous template (19 nodes and 29 edges, now 21 and 34): two new nodes between Split Streams (ffmpeg) and Check Clean Quality Tier, "Detect H.264 SEI/SPS Splice" (scDetectSplice, Only Scan After An SEI Warning on, position 828,84) and "Fix H.264 SEI/SPS Splice" (scFixSplice, position 828,156). The edge from Split Streams (ffmpeg) straight to Check Clean Quality Tier (imC5002CI) is gone; Split Streams (ffmpeg) output 1 now goes to Detect (scSplitToDetect), Detect output 1 (repairable) to Fix (scDetect1ToFix), Detect outputs 2 (nothing to fix) and 3 (differs in a way not repaired here) to Check Clean Quality Tier (scDetect2ToTier, scDetect3ToTier), and Fix outputs 1 (fixed) and 2 (nothing to fix) to Check Clean Quality Tier (scFix1ToTier, scFix2ToTier), so both the Clean path and the Encoder path run on the repaired file. Detect output 3 therefore carries on to the Encoder unrepaired. Split Streams (ffmpeg) moved from 828,96 to 828,48; no other node or setting changed.
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.details = void 0;
 const details = () => ({
@@ -284,7 +285,34 @@ const details = () => ({
         "id": "scSplit",
         "position": {
           "x": 828,
-          "y": 96
+          "y": 48
+        }
+      },
+      {
+        "name": "Detect H.264 SEI/SPS Splice",
+        "sourceRepo": "Local",
+        "pluginName": "detectH264Splice",
+        "version": "1.0.0",
+        "inputsDB": {
+          "onlyAfterWarning": "true"
+        },
+        "fpEnabled": true,
+        "id": "scDetectSplice",
+        "position": {
+          "x": 828,
+          "y": 84
+        }
+      },
+      {
+        "name": "Fix H.264 SEI/SPS Splice",
+        "sourceRepo": "Local",
+        "pluginName": "fixH264Splice",
+        "version": "1.0.0",
+        "fpEnabled": true,
+        "id": "scFixSplice",
+        "position": {
+          "x": 828,
+          "y": 156
         }
       },
       {
@@ -467,9 +495,44 @@ const details = () => ({
       {
         "source": "scSplit",
         "sourceHandle": "1",
+        "target": "scDetectSplice",
+        "targetHandle": null,
+        "id": "scSplitToDetect"
+      },
+      {
+        "source": "scDetectSplice",
+        "sourceHandle": "1",
+        "target": "scFixSplice",
+        "targetHandle": null,
+        "id": "scDetect1ToFix"
+      },
+      {
+        "source": "scDetectSplice",
+        "sourceHandle": "2",
         "target": "Fu2JDoG05",
         "targetHandle": null,
-        "id": "imC5002CI"
+        "id": "scDetect2ToTier"
+      },
+      {
+        "source": "scDetectSplice",
+        "sourceHandle": "3",
+        "target": "Fu2JDoG05",
+        "targetHandle": null,
+        "id": "scDetect3ToTier"
+      },
+      {
+        "source": "scFixSplice",
+        "sourceHandle": "1",
+        "target": "Fu2JDoG05",
+        "targetHandle": null,
+        "id": "scFix1ToTier"
+      },
+      {
+        "source": "scFixSplice",
+        "sourceHandle": "2",
+        "target": "Fu2JDoG05",
+        "targetHandle": null,
+        "id": "scFix2ToTier"
       },
       {
         "source": "Fu2JDoG05",
