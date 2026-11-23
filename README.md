@@ -558,6 +558,20 @@ Several overlays are separated by `|`. Put it on the server container only; remo
   log line and the tag keep their old form. A value that is not a number in that range fails the job, like the minimums. A tag written by an earlier version has no counts, and
   the per-frame file is still removed after scoring, so earlier runs cannot be counted afterwards. Checked in a sandbox with stand-ins for the CLI helper and ffmpeg-vmaf-cuda and a
   made-up per-frame log; Tag Output Metadata's one-line change was checked as a string only, not with `mkvpropedit`; not yet seen in a real Tdarr job.
+- **Worst stretches in Run VMAF.** The per-frame scores say how many frames are low but not where, so Run VMAF can also report the lowest-scoring stretches of the file (issue #123).
+  The new `worstSeconds` input (shown as Worst stretches: window length (seconds), default `5`, a number above 0 up to 300) and `worstCount` input (Worst stretches: how many, default `3`,
+  a whole number from 0 to 10, `0` = off) set it up. From the per-frame scores the plugin takes the rolling mean over windows of that length, picks the lowest windows that do not overlap
+  (a window that starts within one window length of an already picked one is skipped) and reports each as `HH:MM:SS/mean/min`, worst first: the start time in the file, the window's mean
+  and its lowest frame, one decimal each (for example `worst=00:23:41/61.2/48.3,00:41:05/64.0/60.1`). The start time is counted from the frame number and the frame rate, whole seconds
+  rounded down, so it is exact for a constant frame rate and drifts for a variable one. The text goes to the job log (`worst stretches (windows of 5 s = 120 scored frames, ...)`), to the
+  Flow Variable `user.vmafWorst` (the whole `worst=...` text, cleared for an unscored file like the other VMAF variables), and Tag Output Metadata and Tag VMAF Score put it right after the
+  below counts in `TDARR_VMAF_SCORE` (`mean=..;min=..;p1=..;below60=..;below70=..;below75=..;worst=..;every=..;geom=..`). Reported only: it never changes which output the file leaves
+  through. It always lists the requested number of windows, so a file with one real dip also lists healthy windows (there is no score threshold). With `frameStep` above 1 (CPU path) a window
+  holds `round(seconds x fps / N)` scored frames and the times account for the step; the GPU path scores every frame. A file shorter than one window gets one window over all of it; a value that
+  is not in range fails the job, like the other inputs. A Run VMAF node already saved in a flow has no value for the two new inputs; the plugin fills missing inputs from its defaults, so such a
+  node is expected to start writing `worst=` after a `tdarr` restart (not seen in Tdarr; set `worstCount` to 0 on a node to turn it off). Checked in a sandbox with a stand-in per-frame log
+  (hand cases, 200 random arrays against a naive version, 360,000 frames in about 130 ms) and both tag plugins writing and reading back the tag with real `mkvpropedit`; no real libvmaf score and
+  not yet seen in a real Tdarr job.
 - **Run VMAF scores on the GPU or the CPU, whichever the node has.** Run VMAF looks for the file in its input *GPU device file* (default
   `/dev/nvidiactl`, which a container with the NVIDIA runtime has) and picks the path for that run, logging which and why. With it: the GPU path as
   before (NVDEC decode, `scale_cuda`, `libvmaf_cuda`, one run at a time under the lock file). Without it: the CPU path (software decode, the `format`
