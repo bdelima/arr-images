@@ -33,9 +33,18 @@
 // pooled_metrics, p1 (the 1st percentile of the per-frame scores, linear interpolation between the two nearest frames)
 // from the sorted per-frame scores, exactly as the shell did. The job log gets the same line as before:
 //   VMAF score: mean=.. min=.. harmonic_mean=.. p1=.. n=.. below60=.. below70=.. below75=..
-// and the Flow Variables user.vmafMean, user.vmafMin, user.vmafP1 and user.vmafBelow are set, which Tag Output Metadata writes into the TDARR_VMAF_SCORE tag.
+// and the Flow Variables user.vmafMean, user.vmafMin, user.vmafP1, user.vmafBelow and user.vmafWorst are set, which Tag Output Metadata writes into the TDARR_VMAF_SCORE tag.
 // The belowN figures count the frames whose VMAF score is under N, for each number in the countBelow input (default 60,70,75).
 // They are only reported, never checked: a pass or a fail still depends on the mean, min and p1 minimums alone.
+//
+// Worst stretches: the per-frame scores say how many frames are low but not where. The inputs "Worst stretches: window length" (default
+// 5 seconds) and "Worst stretches: how many" (default 3, 0 = off) make the plugin take the rolling mean of the per-frame scores over
+// windows of that length, pick the lowest ones that do not overlap (a window that starts within one window length of an already picked
+// one is skipped), and report each as its start time, its mean and its lowest frame: worst=HH:MM:SS/mean/min,HH:MM:SS/mean/min,...
+// worst first, for example worst=00:23:41/61.2/48.3,00:41:05/64.0/60.1. The start time is relative to the start of the file, counted from
+// the frame number and the frame rate, so it is exact for a constant frame rate. The same text goes into the job log, the Flow Variable
+// user.vmafWorst, and, after the below counts, into TDARR_VMAF_SCORE (Tag Output Metadata and Tag VMAF Score). Reported only, never
+// checked. With "score every Nth frame" above 1 the windows are made of the frames scored, which still span the same time.
 //
 // Two ways to score, chosen per run by whether the node has an NVIDIA GPU (the device file in the "GPU device file" input, by
 // default /dev/nvidiactl, exists inside the container): with one, the CUDA path (NVDEC decode, scale_cuda, libvmaf_cuda, one run
@@ -90,7 +99,7 @@
 // Output Metadata and Tag VMAF Score append it to TDARR_VMAF_SCORE, after the other fields, for example
 // mean=95.12;min=81.3;p1=90.4;below60=0;below70=2;below75=5;geom=padcrop:4,264,4,264. A pair that needed no adjustment has no geom.
 // A pair that is not scored: Flow Variable user.vmafUnscored is set to "UNSCORED: geometry mismatch", the VMAF Flow Variables
-// (vmafMean, vmafMin, vmafP1, vmafBelow, vmafStep, vmafGeom) are cleared, and Tag Output Metadata and Tag VMAF Score write that
+// (vmafMean, vmafMin, vmafP1, vmafBelow, vmafWorst, vmafStep, vmafGeom) are cleared, and Tag Output Metadata and Tag VMAF Score write that
 // text as the TDARR_VMAF_SCORE tag instead of a score. The file leaves through the output chosen in "Output for an unscored
 // file" (default 1: a re-encode cannot fix a size difference, so output 2, which the Encoder uses to encode again at a lower
 // quality, would only repeat the same unscored run). If the size of either file cannot be read, a warning goes to the job log and
@@ -117,7 +126,7 @@ const details = () => ({
     + 'with libvmaf_cuda (one run at a time under a lock file), on a node without one with the CPU libvmaf filter (no lock, '
     + 'threads capped). Shows progress in the Tdarr worker, logs "VMAF score: mean= min= harmonic_mean= p1= n=" followed by the number of '
     + 'frames below each score in Count frames below, sets the Flow '
-    + 'Variables user.vmafMean, user.vmafMin, user.vmafP1 and user.vmafBelow, and checks the mean, the lowest frame (min) and the 1st '
+    + 'Variables user.vmafMean, user.vmafMin, user.vmafP1, user.vmafBelow and user.vmafWorst, and checks the mean, the lowest frame (min) and the 1st '
     + 'percentile (p1) against their minimums: output 1 when all pass, output 2 when any fails. It still fails the job when '
     + 'ffmpeg fails or no score can be produced. '
     + 'Before scoring it counts the video frames of both files and fails the job when they differ. '
@@ -206,6 +215,27 @@ const details = () => ({
         + 'The job log gets belowN=<frames scoring under N> after n=, in ascending order, and Tag Output Metadata adds the same '
         + 'figures to TDARR_VMAF_SCORE. The counts are only reported; they do not change which output the file leaves through. '
         + 'Empty = not counted.',
+    },
+    {
+      name: 'worstSeconds',
+      label: 'Worst stretches: window length (seconds)',
+      type: 'string',
+      defaultValue: '5',
+      inputUI: { type: 'text' },
+      tooltip: 'Length of the windows used to find the lowest-scoring stretches: a number above 0 up to 300 seconds (default 5). '
+        + 'The rolling mean of the per-frame scores is taken over windows this long; see "Worst stretches: how many".',
+    },
+    {
+      name: 'worstCount',
+      label: 'Worst stretches: how many',
+      type: 'string',
+      defaultValue: '3',
+      inputUI: { type: 'text' },
+      tooltip: 'How many of the lowest-scoring stretches to report: a whole number from 0 to 10 (default 3). Each is a window of the length '
+        + 'above, none overlapping (a window that starts within one window length of a picked one is skipped). The job log gets '
+        + 'worst=HH:MM:SS/mean/min,... (start time in the file, the window mean, its lowest frame), worst first, and Tag Output Metadata and '
+        + 'Tag VMAF Score add the same text to TDARR_VMAF_SCORE after the below counts. Only reported; it does not change which output '
+        + 'the file leaves through. 0 = not reported.',
     },
     {
       name: 'unscoredOutput',
@@ -303,6 +333,56 @@ const parseCountBelow = (text) => {
   const list = values.filter((v, i) => values.indexOf(v) === i).sort((a, b) => a - b);
   if (list.length > 8) return { error: `${list.length} scores listed, at most 8 are counted` };
   return list;
+};
+
+// The window length in seconds: a number above 0 up to 300. Anything else gives { error }.
+const parseWorstSeconds = (text) => {
+  const raw = String(text === undefined || text === null ? '' : text).trim();
+  const v = /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : NaN;
+  if (!(v > 0 && v <= 300)) return { error: `"${raw}" is not a number above 0 up to 300` };
+  return v;
+};
+
+// How many worst stretches to report: a whole number from 0 to 10. Anything else gives { error }.
+const parseWorstCount = (text) => {
+  const raw = String(text === undefined || text === null ? '' : text).trim();
+  const v = /^\d+$/.test(raw) ? Number(raw) : NaN;
+  if (!(v >= 0 && v <= 10)) return { error: `"${raw}" is not a whole number from 0 to 10` };
+  return v;
+};
+
+// Seconds -> "HH:MM:SS" (whole seconds, rounded down; the hours may have more than two digits)
+const clock = (seconds) => {
+  const total = Math.floor(seconds + 1e-6);
+  const two = (x) => String(x).padStart(2, '0');
+  return `${two(Math.floor(total / 3600))}:${two(Math.floor((total % 3600) / 60))}:${two(total % 60)}`;
+};
+
+// The `count` lowest rolling means of `size` consecutive scored frames, none overlapping: a window whose first frame is less than
+// `size` frames from the first frame of one already picked is skipped. `frames` are the per-frame scores in order; `step` is the
+// number of source frames between two scored frames (1 = every frame); `fps` is the frame rate. A file with fewer than `size` scored
+// frames gets one window over all of them. Returns [{ start (index of the first scored frame), seconds, mean, min }], lowest mean
+// first (the earlier window first on a tie).
+const findWorstWindows = (frames, size, count, step, fps) => {
+  const n = frames.length;
+  if (n === 0 || count < 1) return [];
+  const w = Math.max(1, Math.min(size, n));
+  const prefix = new Float64Array(n + 1);
+  for (let i = 0; i < n; i += 1) prefix[i + 1] = prefix[i] + frames[i];
+  const windows = n - w + 1;
+  const means = new Float64Array(windows);
+  for (let s = 0; s < windows; s += 1) means[s] = (prefix[s + w] - prefix[s]) / w;
+  const order = Array.from({ length: windows }, (_, i) => i).sort((a, b) => (means[a] - means[b]) || (a - b));
+  const picked = [];
+  for (let i = 0; i < order.length && picked.length < count; i += 1) {
+    const s = order[i];
+    if (picked.every((p) => Math.abs(p - s) >= w)) picked.push(s);
+  }
+  return picked.map((s) => {
+    let min = Infinity;
+    for (let i = s; i < s + w; i += 1) if (frames[i] < min) min = frames[i];
+    return { start: s, seconds: (s * step) / fps, mean: means[s], min };
+  });
 };
 
 // "better=90,75,85" lines (new lines or semicolons between them) -> Map of lower-cased tier name to { minMean,
@@ -717,6 +797,10 @@ const plugin = async (args) => {
   if (!Number.isInteger(frameStep) || frameStep < 1 || frameStep > 10) fail(`CPU path: score every Nth frame "${args.inputs.frameStep}" is not a whole number from 1 to 10`);
   const countBelow = parseCountBelow(args.inputs.countBelow);
   if (!Array.isArray(countBelow)) fail(`Count frames below "${args.inputs.countBelow}": ${countBelow.error}`);
+  const worstSeconds = parseWorstSeconds(args.inputs.worstSeconds);
+  if (typeof worstSeconds !== 'number') fail(`Worst stretches: window length ${worstSeconds.error}`);
+  const worstCount = parseWorstCount(args.inputs.worstCount);
+  if (typeof worstCount !== 'number') fail(`Worst stretches: how many ${worstCount.error}`);
   // the log path is written into ffmpeg's filter graph, where ':' ',' ';' quotes and spaces are special
   if (!/^[A-Za-z0-9_./-]+$/.test(tempDir)) fail(`tempDir "${tempDir}" may only contain letters, digits, / . _ -`);
 
@@ -783,7 +867,7 @@ const plugin = async (args) => {
           + `TDARR_VMAF_SCORE will be "${text}"; leaving through output ${unscoredOutput}`);
         args.variables = args.variables || {};
         if (!args.variables.user) args.variables.user = {};
-        ['vmafMean', 'vmafMin', 'vmafP1', 'vmafBelow', 'vmafStep', 'vmafGeom'].forEach((k) => { delete args.variables.user[k]; });
+        ['vmafMean', 'vmafMin', 'vmafP1', 'vmafBelow', 'vmafWorst', 'vmafStep', 'vmafGeom'].forEach((k) => { delete args.variables.user[k]; });
         args.variables.user.vmafUnscored = text;
         return { outputFileObj: args.inputFileObj, outputNumber: unscoredOutput, variables: args.variables };
       }
@@ -1007,6 +1091,18 @@ const plugin = async (args) => {
         + '(an estimate for the whole file), and min and p1 come from the frames scored only');
     }
 
+    // the lowest-scoring stretches (see the header): windows of worstSeconds, counted in scored frames, none overlapping
+    let worstText = '';
+    if (worstCount > 0) {
+      const windowFrames = Math.max(1, Math.round((worstSeconds * rate.fps) / step));
+      const worst = findWorstWindows(frames, windowFrames, worstCount, step, rate.fps);
+      worstText = worst.map((x) => `${clock(x.seconds)}/${x.mean.toFixed(1)}/${x.min.toFixed(1)}`).join(',');
+      if (worst.length > 0) {
+        log(`worst stretches (windows of ${worstSeconds} s = ${windowFrames} scored frame${windowFrames === 1 ? '' : 's'}, lowest ${worstCount}, none overlapping): `
+          + `${worst.map((x) => `${clock(x.seconds)} mean ${x.mean.toFixed(1)} min ${x.min.toFixed(1)}`).join('; ')}`);
+      }
+    }
+
     const round2 = (v) => Math.round(v * 100) / 100;
     // Tag Output Metadata reads these from args.variables.user, the same place the step trail lives. They used to be set
     // directly on args.variables, where Tag Output Metadata never looked, so TDARR_VMAF_SCORE could not be written.
@@ -1028,6 +1124,8 @@ const plugin = async (args) => {
     else delete args.variables.user.vmafStep;
     if (belowParts.length > 0) args.variables.user.vmafBelow = belowParts.join(';');
     else delete args.variables.user.vmafBelow;
+    if (worstText !== '') args.variables.user.vmafWorst = `worst=${worstText}`;
+    else delete args.variables.user.vmafWorst;
 
     // Quality checks: every check that fails is listed, then the file leaves through output 2 (see the header).
     const failedChecks = [];
@@ -1055,6 +1153,6 @@ const plugin = async (args) => {
 };
 
 module.exports = {
-  details, plugin, parseFrameCount, countVideoFrames, planGeometry, planTagGeometry, parseMargins, readGlobalTags, probeVideoGeometry,
+  details, plugin, parseWorstSeconds, parseWorstCount, clock, findWorstWindows, parseFrameCount, countVideoFrames, planGeometry, planTagGeometry, parseMargins, readGlobalTags, probeVideoGeometry,
   CUVID_DECODERS, UNSCORED_TEXT, UNSCORED_TAG_TEXT,
 };
