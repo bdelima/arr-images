@@ -225,7 +225,7 @@ const plugin = async (args) => {
     TDARR_VMAF_SCORE: v.vmafUnscored
       ? String(v.vmafUnscored)
       : (v.vmafMean !== undefined)
-        ? `mean=${v.vmafMean};min=${v.vmafMin};p1=${v.vmafP1}${v.vmafBelow ? `;${v.vmafBelow}` : ''}${v.vmafStep > 1 ? `;every=${v.vmafStep}` : ''}${v.vmafGeom ? `;${v.vmafGeom}` : ''}`
+        ? `mean=${v.vmafMean};min=${v.vmafMin};p1=${v.vmafP1}${v.vmafBelow ? `;${v.vmafBelow}` : ''}${v.vmafWorst ? `;${v.vmafWorst}` : ''}${v.vmafStep > 1 ? `;every=${v.vmafStep}` : ''}${v.vmafGeom ? `;${v.vmafGeom}` : ''}`
         : undefined,
     TDARR_TRAIL: v.tdarrTrail,
   };
