@@ -1,0 +1,72 @@
+diff --git a/src/Services/EnhancedDownloadMonitorService.cs b/src/Services/EnhancedDownloadMonitorService.cs
+index faa2b97..257a642 100644
+--- a/src/Services/EnhancedDownloadMonitorService.cs
++++ b/src/Services/EnhancedDownloadMonitorService.cs
+@@ -411,7 +411,8 @@ private async Task ProcessDownloadAsync(
+                     }
+ 
+                     var clientReportsFailure = clientStatus != null &&
+-                        string.Equals(clientStatus.Status, "failed", StringComparison.OrdinalIgnoreCase);
++                        string.Equals(clientStatus.Status, "failed", StringComparison.OrdinalIgnoreCase) &&
++                        !await ConvertedMissingFilesAsync(download, clientStatus, db);
+ 
+                     if (clientReportsFailure)
+                     {
+@@ -624,6 +625,15 @@ await HandleFailedDownload(
+             download.ErrorMessage = null;
+         }
+ 
++        // arr-images: a torrent whose file a Flow converted or renamed is "missing files" to qBittorrent, which this
++        // app maps to failed (blocklist, re-search). When the PreImportValidator knows the converted file, treat it as
++        // completed so HandleCompletedDownload imports it; any other answer leaves the failure exactly as it was.
++        if (status.Status == "failed" && await ConvertedMissingFilesAsync(download, status, db))
++        {
++            status.Status = "completed";
++            status.ErrorMessage = null;
++        }
++
+         download.Status = status.Status switch
+         {
+             "downloading" => DownloadStatus.Downloading,
+@@ -902,6 +912,41 @@ private async Task<string> ResolveDownloadPathAsync(DownloadQueueItem download,
+         }
+     }
+ 
++    // arr-images: true when the client reports a torrent as missing files and the PreImportValidator answers ready with
++    // a path that passes the guard (it exists and is the reported folder or a file directly in it): the file was
++    // converted or renamed, not deleted. False for everything else (not ready, failed, no path, validator not
++    // configured or unreachable, pack downloads), so those keep their current failure handling.
++    private async Task<bool> ConvertedMissingFilesAsync(DownloadQueueItem download, DownloadClientStatus status, SportarrDbContext? db)
++    {
++        if (download.IsPack || string.IsNullOrWhiteSpace(download.OutputPath) ||
++            status.ErrorMessage == null || !status.ErrorMessage.StartsWith("Missing files", StringComparison.Ordinal))
++        {
++            return false;
++        }
++
++        var preImportValidator = GetPreImportValidator();
++        if (!preImportValidator.IsConfigured)
++        {
++            return false;
++        }
++
++        try
++        {
++            var tags = await ResolveLeagueTagLabelsAsync(download, db);
++            var reportedPath = await ResolveDownloadPathAsync(download, db);
++            var preImport = await preImportValidator.CheckAsync(reportedPath, tags);
++
++            return preImport.Status == PreImportStatus.Ready &&
++                   !string.IsNullOrEmpty(preImport.Path) &&
++                   PreImportValidator.IsReplacementPath(reportedPath, preImport.Path);
++        }
++        catch (Exception ex)
++        {
++            _logger.LogDebug(ex, "[Enhanced Download Monitor] Could not ask the pre-import check about the missing files of '{Title}'", download.Title);
++            return false;
++        }
++    }
++
+     private async Task HandleCompletedDownload(
+         DownloadQueueItem download,
+         DownloadClientService downloadClientService,

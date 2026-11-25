@@ -208,6 +208,17 @@ not ready and nothing is imported). Answers that did not use the fallback have n
 rebuilt ignores it, but then fails the import with "path does not exist": **release the arr images before the validator.**
 Sportarr pack imports (several events in one download) do not use `path`.
 
+**Torrents that qBittorrent reports as missing files.** When a Flow replaces the file a torrent seeds, qBittorrent shows
+the torrent as "missing files". Sonarr and Radarr keep that as a download *warning* and only ask the validator about a
+*completed* download, so the validator was never asked. Now the qBittorrent client marks such an item
+(`DownloadClientItem.MissingFiles`, status still Warning) and `CompletedDownloadService.Check` asks the validator about it
+too. **Only** a ready answer whose `path` passes the guard changes anything (the download becomes import-pending and imports
+from that path); not ready, failed, no path, no answer or an unexpected error leave the warning exactly as it is, and
+nothing is marked failed, blocklisted or searched again. Sportarr already maps `missingfiles` to *failed* (blocklist and
+re-search); there the same ready-with-a-valid-path answer makes the download count as completed instead, and every other
+answer keeps the old failure handling. The torrent stays in qBittorrent as missing files after the import (Sonarr only
+removes a torrent it finds paused or stopped), so clean it up by hand; seeding is not restored.
+
 Tdarr's scan API (`scanFolderWatcher`) only accepts individual file paths, never a folder, so to trigger a scan on a
 multi-file download the validator walks that folder **on disk** itself and hands Tdarr the files it finds there --
 it needs read access to the same downloads tree the arr apps and Tdarr use, at the same path (mount it read-only).
@@ -690,6 +701,9 @@ is LinuxServer's, unchanged.
    it when the reported path is gone -- see **Converted or renamed files** under
    [Import validator](#import-validator-tdarr-download-validator) above. **Sportarr:** `sportarr/patches/04-preimport-path-override.patch`
    does the same by handing the path to `ImportDownloadAsync` as its override path.
+9. **`07-preimport-missing-files.patch` (Sonarr, Radarr) and `sportarr/patches/05-preimport-missing-files.patch`** let a
+   torrent that qBittorrent reports as missing files be imported from the validator's `path` -- see **Torrents that
+   qBittorrent reports as missing files** under [Import validator](#import-validator-tdarr-download-validator) above.
 
 ## How the images are built
 

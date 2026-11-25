@@ -1,0 +1,119 @@
+diff --git a/src/NzbDrone.Core/Download/Clients/QBittorrent/QBittorrent.cs b/src/NzbDrone.Core/Download/Clients/QBittorrent/QBittorrent.cs
+index 473ac82..5cac16b 100644
+--- a/src/NzbDrone.Core/Download/Clients/QBittorrent/QBittorrent.cs
++++ b/src/NzbDrone.Core/Download/Clients/QBittorrent/QBittorrent.cs
+@@ -296,6 +296,7 @@ torrent.State is "pausedUP" or "stoppedUP" &&
+                     case "missingFiles": // torrent is missing files
+                         item.Status = DownloadItemStatus.Warning;
+                         item.Message = _localizationService.GetLocalizedString("DownloadClientQbittorrentTorrentStateMissingFiles");
++                        item.MissingFiles = true;
+                         break;
+ 
+                     case "metaDL": // torrent magnet is being downloaded
+diff --git a/src/NzbDrone.Core/Download/CompletedDownloadService.cs b/src/NzbDrone.Core/Download/CompletedDownloadService.cs
+index 05b5cfb..6632c00 100644
+--- a/src/NzbDrone.Core/Download/CompletedDownloadService.cs
++++ b/src/NzbDrone.Core/Download/CompletedDownloadService.cs
+@@ -84,6 +84,11 @@ public void Check(TrackedDownload trackedDownload)
+         {
+             if (trackedDownload.DownloadItem.Status != DownloadItemStatus.Completed)
+             {
++                if (trackedDownload.DownloadItem.MissingFiles)
++                {
++                    CheckMissingFiles(trackedDownload);
++                }
++
+                 return;
+             }
+ 
+@@ -186,6 +191,76 @@ public void Check(TrackedDownload trackedDownload)
+             trackedDownload.State = TrackedDownloadState.ImportPending;
+         }
+ 
++        // arr-images: qBittorrent reports a torrent whose file a Flow converted or renamed as missing files, which this app
++        // keeps as a warning and never sends to Check's pre-import step. Ask the validator about it anyway; only a ready
++        // answer whose path passes IsReplacementPath changes anything (the download becomes ImportPending and imports
++        // from that path). Not ready, failed, no path, no answer, anything unexpected: the warning stays exactly as it is,
++        // and nothing is marked failed, blocklisted or searched again.
++        private void CheckMissingFiles(TrackedDownload trackedDownload)
++        {
++            if (!_preImportValidator.IsConfigured ||
++                (trackedDownload.State != TrackedDownloadState.Downloading && trackedDownload.State != TrackedDownloadState.ImportBlocked))
++            {
++                return;
++            }
++
++            try
++            {
++                SetImportItem(trackedDownload);
++
++                var reportedPath = trackedDownload.ImportItem.OutputPath;
++
++                if (reportedPath.IsEmpty)
++                {
++                    return;
++                }
++
++                var grabbedHistories = _historyService.FindByDownloadId(trackedDownload.DownloadItem.DownloadId).Where(h => h.EventType == MovieHistoryEventType.Grabbed).ToList();
++                var historyItem = grabbedHistories.MaxBy(h => h.Date);
++
++                if (historyItem == null && trackedDownload.DownloadItem.Category.IsNullOrWhiteSpace())
++                {
++                    return;
++                }
++
++            var movie = _parsingService.GetMovie(trackedDownload.DownloadItem.Title);
++
++            if (movie == null && historyItem != null)
++            {
++                movie = _movieService.GetMovie(historyItem.MovieId);
++            }
++
++            if (movie == null)
++            {
++                return;
++            }
++
++                var preImport = _preImportValidator.Check(reportedPath.FullPath, ResolveTagLabels(movie.Tags));
++
++                if (preImport.Status != PreImportStatus.Ready || string.IsNullOrEmpty(preImport.Path))
++                {
++                    return;
++                }
++
++                if (!PreImportValidator.IsReplacementPath(reportedPath.FullPath, preImport.Path))
++                {
++                    _logger.Warn("PreImportValidator named '{0}' for '{1}', which is not an existing file or folder next to '{2}'; leaving the missing-files warning",
++                        preImport.Path, trackedDownload.DownloadItem.Title, reportedPath.FullPath);
++
++                    return;
++                }
++
++                _logger.Info("PreImportValidator: the file of '{0}' was converted or renamed; importing '{1}' instead of '{2}'",
++                    trackedDownload.DownloadItem.Title, preImport.Path, reportedPath.FullPath);
++                trackedDownload.PreImportPath = preImport.Path;
++                trackedDownload.State = TrackedDownloadState.ImportPending;
++            }
++            catch (Exception ex)
++            {
++                _logger.Debug(ex, "PreImportValidator: could not check the missing files of '{0}'", trackedDownload.DownloadItem.Title);
++            }
++        }
++
+         public void Import(TrackedDownload trackedDownload)
+         {
+             SetImportItem(trackedDownload);
+diff --git a/src/NzbDrone.Core/Download/DownloadClientItem.cs b/src/NzbDrone.Core/Download/DownloadClientItem.cs
+index 720cb30..6740177 100644
+--- a/src/NzbDrone.Core/Download/DownloadClientItem.cs
++++ b/src/NzbDrone.Core/Download/DownloadClientItem.cs
+@@ -26,6 +26,9 @@ public class DownloadClientItem
+         public bool CanBeRemoved { get; set; }
+         public bool Removed { get; set; }
+ 
++        // arr-images: set by the qBittorrent client for a torrent it reports as missing files (the Status stays Warning).
++        public bool MissingFiles { get; set; }
++
+         public DownloadClientItem Clone()
+         {
+             return MemberwiseClone() as DownloadClientItem;
