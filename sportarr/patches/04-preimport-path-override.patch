@@ -1,0 +1,56 @@
+diff --git a/src/Services/EnhancedDownloadMonitorService.cs b/src/Services/EnhancedDownloadMonitorService.cs
+index 16cf91a..faa2b97 100644
+--- a/src/Services/EnhancedDownloadMonitorService.cs
++++ b/src/Services/EnhancedDownloadMonitorService.cs
+@@ -914,13 +914,17 @@ private async Task HandleCompletedDownload(
+         // HandleFailedDownload (blocklist, re-search, removal from the client). With no validator configured
+         // none of this runs.
+         var preImportValidator = GetPreImportValidator();
++        // arr-images: the file or folder to import instead of the download client's, when a Flow converted or renamed it
++        string? importOverridePath = null;
+         if (preImportValidator.IsConfigured && !string.IsNullOrWhiteSpace(download.OutputPath))
+         {
+             PreImportResult preImport;
++            string reportedPath;
+             try
+             {
+                 var tags = await ResolveLeagueTagLabelsAsync(download, db);
+-                preImport = await preImportValidator.CheckAsync(await ResolveDownloadPathAsync(download, db), tags);
++                reportedPath = await ResolveDownloadPathAsync(download, db);
++                preImport = await preImportValidator.CheckAsync(reportedPath, tags);
+             }
+             catch (Exception ex)
+             {
+@@ -942,6 +946,23 @@ private async Task HandleCompletedDownload(
+                 _logger.LogDebug("[Enhanced Download Monitor] Pre-import check not ready for '{Title}', deferring import", download.Title);
+                 return;
+             }
++
++            // arr-images: the validator may name the file a Flow converted or renamed (or its folder) instead of the
++            // path the client reported. Only a path that exists and sits in the same folder is accepted; anything else
++            // counts as not ready, so nothing is imported blindly and the next poll asks again.
++            if (!string.IsNullOrEmpty(preImport.Path))
++            {
++                if (!PreImportValidator.IsReplacementPath(reportedPath, preImport.Path))
++                {
++                    _logger.LogWarning("[Enhanced Download Monitor] Pre-import check named '{Path}' for '{Title}', which is not an existing file or folder next to '{Reported}'; deferring import",
++                        preImport.Path, download.Title, reportedPath);
++                    return;
++                }
++
++                _logger.LogInformation("[Enhanced Download Monitor] Pre-import check: '{Title}' was converted or renamed; importing '{Path}' instead of '{Reported}'",
++                    download.Title, preImport.Path, reportedPath);
++                importOverridePath = preImport.Path;
++            }
+         }
+ 
+         // Set-once: CompletedAt is the moment the download first finished, not the
+@@ -980,7 +1001,7 @@ private async Task HandleCompletedDownload(
+             var importResult = download.IsPack
+                 ? await fileImportService.ImportCompletedPackAsync(download,
+                     () => new CompletedDownloadCleanup(_serviceProvider, _logger).RunAsync(download, downloadClientService, db))
+-                : await fileImportService.ImportDownloadAsync(download);
++                : await fileImportService.ImportDownloadAsync(download, importOverridePath);
+ 
+             // A null result means ImportDownloadAsync rejected the import (e.g. "not an
+             // upgrade") without throwing - it has already set Status/ErrorMessage and

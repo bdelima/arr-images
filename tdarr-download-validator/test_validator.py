@@ -620,6 +620,151 @@ class StaleRecordTests(unittest.TestCase):
         self.assertEqual(self.tdarr.scans, [])
 
 
+class ConvertedFileTests(unittest.TestCase):
+    """A single-file download whose file a Flow renamed or converted (X.mp4 -> Y-injected.mkv): the requested path is
+    gone and Tdarr has no record under it, so the answer comes from the file(s) now in the same folder, and a ready
+    answer carries "path" for the arr app to import from."""
+
+    def setUp(self):
+        self.tdarr = FakeTdarr()
+        self.now = 1000.0
+        self.validator = validator.Validator(
+            validator.Tdarr(self.tdarr.url, "lib1", 2), dedup_seconds=60, clock=lambda: self.now,
+            library_map={"balanced": "lib-balanced"})
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.folder = validator._norm(os.path.join(self.dir.name, "Release-GRP"))
+        os.mkdir(self.folder)
+        self.requested = self.folder + "/X.mp4"      # gone: only the converted file(s) exist
+
+    def tearDown(self):
+        self.tdarr.close()
+
+    def make(self, name, size=2000, mtime=1794236663, folder=None):
+        path = (folder or self.folder) + "/" + name
+        with open(path, "wb") as f:
+            f.write(b"x" * size)
+        os.utime(path, (mtime, mtime))
+        return path
+
+    def check(self, path=None, tags=None):
+        return self.validator.safe_validate(path or self.requested, tags)
+
+    def test_converted_file_with_a_success_record_is_ready_and_names_the_file(self):
+        mkv = self.make("Y-injected.mkv")
+        self.tdarr.file(mkv, "Transcode success", size=2000, mtime_ms=1794236663000.0)
+        r = self.check()
+        self.assertTrue(r["ready"])
+        self.assertEqual(r["path"], mkv)
+        self.assertEqual(r["message"], "done (1 file(s)); original path is gone, found in the same folder: Y-injected.mkv")
+        self.assertNotIn("failed", r)
+        self.assertEqual(self.tdarr.scans, [])
+
+    def test_converted_file_with_an_error_record_is_failed_without_a_path(self):
+        mkv = self.make("Y-injected.mkv")
+        self.tdarr.file(mkv, "Transcode error")
+        r = self.check()
+        self.assertEqual((r["ready"], r["failed"]), (False, True))
+        self.assertNotIn("path", r)
+
+    def test_a_queued_converted_file_is_scanned_by_its_own_path_not_the_missing_one(self):
+        mkv = self.make("Y-injected.mkv")
+        self.tdarr.file(mkv, "Queued")
+        r = self.check(tags=["Balanced"])
+        self.assertEqual((r["ready"], r["message"]), (False, "triggered"))
+        self.assertNotIn("path", r)
+        self.assertEqual(self.tdarr.scans, [{"dbID": "lib-balanced", "arrayOrPath": [mkv], "mode": "scanFolderWatcher"}])
+        self.now += 10
+        self.assertEqual(self.check()["message"], "triggered, waiting for Tdarr to pick it up")
+        self.assertEqual(len(self.tdarr.scans), 1)
+
+    def test_a_running_flow_on_the_converted_file_is_processing(self):
+        mkv = self.make("Y-injected.mkv")
+        self.tdarr.stage(mkv)
+        r = self.check()
+        self.assertEqual((r["ready"], r["message"]), (False, "processing (1 file(s) in a Flow)"))
+        self.assertNotIn("path", r)
+
+    def test_two_converted_files_answer_with_the_folder(self):
+        a, b = self.make("A.mkv"), self.make("B.mkv")
+        self.tdarr.file(a, "Transcode success", size=2000, mtime_ms=1794236663000.0)
+        self.tdarr.file(b, "Not required", size=2000, mtime_ms=1794236663000.0)
+        r = self.check()
+        self.assertTrue(r["ready"])
+        self.assertEqual(r["path"], self.folder)
+        self.assertIn("done (2 file(s))", r["message"])
+
+    def test_only_the_pending_candidates_are_scanned(self):
+        a, b = self.make("A.mkv"), self.make("B.mkv")
+        self.tdarr.file(a, "Transcode success", size=2000, mtime_ms=1794236663000.0)
+        self.tdarr.file(b, "")
+        self.assertEqual(self.check()["message"], "triggered")
+        self.assertEqual(self.tdarr.scans[0]["arrayOrPath"], [b])
+
+    def test_a_stale_record_is_removed_and_rescanned_not_ready(self):
+        mkv = self.make("Y-injected.mkv", size=2000)
+        self.tdarr.file(mkv, "Transcode success", size=1500, mtime_ms=1793977625036.548)
+        r = self.check()
+        self.assertFalse(r["ready"])
+        self.assertNotIn("path", r)
+        self.assertIn("stale Tdarr record removed for 1 file(s)", r["message"])
+        self.assertEqual(self.tdarr.removed, [("FileJSONDB", mkv)])
+        self.assertEqual(self.tdarr.scans, [{"dbID": "lib1", "arrayOrPath": [mkv], "mode": "scanFolderWatcher"}])
+
+    def test_a_requested_file_still_on_disk_is_never_answered_from_a_neighbor(self):
+        self.make("X.mp4")
+        mkv = self.make("Y-injected.mkv")
+        self.tdarr.file(mkv, "Transcode success", size=2000, mtime_ms=1794236663000.0)
+        r = self.check()
+        self.assertEqual((r["ready"], r["message"]), (False, "triggered"))
+        self.assertNotIn("path", r)
+        self.assertEqual(self.tdarr.scans[0]["arrayOrPath"], [self.requested])
+
+    def test_a_folder_with_a_subfolder_does_not_use_the_fallback(self):
+        mkv = self.make("Y-injected.mkv")
+        self.tdarr.file(mkv, "Transcode success", size=2000, mtime_ms=1794236663000.0)
+        os.mkdir(self.folder + "/Subs")
+        r = self.check()
+        self.assertEqual((r["ready"], r["message"]), (False, "triggered"))
+        self.assertNotIn("path", r)
+
+    def test_a_flat_category_folder_is_not_taken_for_one_download(self):
+        # the arr app asks about <downloads>/tv/X.mp4; the folder holds other releases, so it has subfolders
+        other = self.dir.name + "/tv"
+        os.mkdir(other)
+        os.mkdir(other + "/Other.Release-GRP")
+        mkv = self.make("Y.mkv", folder=other)
+        self.tdarr.file(mkv, "Transcode success", size=2000, mtime_ms=1794236663000.0)
+        self.assertEqual(self.check(other + "/X.mp4")["message"], "triggered")
+
+    def test_a_gone_parent_does_not_use_the_fallback(self):
+        r = self.check(validator._norm(os.path.join(self.dir.name, "nope")) + "/X.mp4")
+        self.assertEqual((r["ready"], r["message"]), (False, "triggered"))
+        self.assertNotIn("path", r)
+
+    def test_a_record_of_a_file_that_is_not_on_disk_is_ignored(self):
+        self.tdarr.file(self.folder + "/Ghost.mkv", "Transcode success", size=2000, mtime_ms=1794236663000.0)
+        r = self.check()
+        self.assertEqual((r["ready"], r["message"]), (False, "triggered"))
+        self.assertNotIn("path", r)
+
+    def test_files_without_a_record_are_ignored(self):
+        self.make("Y-injected.mkv")
+        r = self.check()
+        self.assertEqual((r["ready"], r["message"]), (False, "triggered"))
+        self.assertEqual(self.tdarr.scans[0]["arrayOrPath"], [self.requested])
+
+    def test_the_exact_path_and_folder_answers_have_no_path(self):
+        mkv = self.make("X.mkv")
+        self.tdarr.file(mkv, "Transcode success", size=2000, mtime_ms=1794236663000.0)
+        self.assertNotIn("path", self.check(mkv))
+        self.assertTrue(self.check(mkv)["ready"])
+        folder_answer = self.check(self.folder)
+        self.assertTrue(folder_answer["ready"])
+        self.assertNotIn("path", folder_answer)
+        self.assertEqual(folder_answer["message"], "done (1 file(s))")
+
+
 class HttpTests(unittest.TestCase):
     def setUp(self):
         self.tdarr = FakeTdarr()
@@ -655,6 +800,15 @@ class HttpTests(unittest.TestCase):
             self.assertFalse(body["ready"])
             self.assertIn("stale", body["message"])
             self.assertEqual(self.tdarr.scans[0]["arrayOrPath"], [ep])
+
+    def test_a_converted_file_answers_with_its_path_over_http(self):
+        with tempfile.TemporaryDirectory() as d:
+            mkv = validator._norm(os.path.join(d, "Y-injected.mkv"))
+            with open(mkv, "wb") as f:
+                f.write(b"x" * 2000)
+            self.tdarr.file(mkv, "Transcode success")
+            status, body = self.post(json.dumps({"path": d.replace("\\", "/") + "/X.mp4"}).encode())
+            self.assertEqual((status, body["ready"], body["path"]), (200, True, mkv))
 
     def test_tags_in_the_body_route_the_scan(self):
         status, body = self.post(b'{"path": "/downloads/a/ep.mkv", "tags": ["drama", "Balanced"]}')

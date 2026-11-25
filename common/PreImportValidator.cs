@@ -21,6 +21,10 @@ namespace NzbDrone.Core.Download
     {
         public PreImportStatus Status { get; set; }
         public string Message { get; set; }
+
+        // Only on a Ready answer, and only when the validator names a different place to import from (the download
+        // client's file was renamed or converted); null otherwise.
+        public string Path { get; set; }
     }
 
     // Asks an external service whether a completed download may be imported yet, so a pre-import process (stripping
@@ -35,8 +39,12 @@ namespace NzbDrone.Core.Download
     // Per check: POST {Url}/validate with {"path": "<the download's folder or file>"} and, when the caller has any,
     // {"tags": ["<every tag label on the series/movie>", ...]} -- unfiltered: which of them (if any) names a quality
     // tier is the validator's business (the Tdarr service's TDARR_LIBRARY_MAP), not this app's. 10 second timeout.
-    // The answer is read from the JSON body only: {"ready": bool, "failed": bool, "message": string}. "failed": true
-    // is PreImportStatus.Failed, "ready": true is Ready, anything else is NotReady. A timeout, an HTTP error status or
+    // The answer is read from the JSON body only: {"ready": bool, "failed": bool, "message": string, "path": string}.
+    // "failed": true is PreImportStatus.Failed, "ready": true is Ready, anything else is NotReady. "path" is optional
+    // and is read only from a Ready answer: when the file the download client reported was renamed or converted (an
+    // mp4 turned into an mkv by a Flow), it names the file (or the folder) to import instead, in PreImportResult.Path;
+    // a missing, empty or non-string "path" leaves it null. The caller must check it with IsReplacementPath before
+    // using it. A timeout, an HTTP error status or
     // a body that cannot be read is also NotReady (logged as a warning), never Ready: the import is deferred and the
     // next queue refresh asks again.
     //
@@ -110,7 +118,14 @@ namespace NzbDrone.Core.Download
 
                             if (Flag(root, "ready"))
                             {
-                                return new PreImportResult { Status = PreImportStatus.Ready, Message = message };
+                                var replacement = root.TryGetProperty("path", out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+
+                                return new PreImportResult
+                                {
+                                    Status = PreImportStatus.Ready,
+                                    Message = message,
+                                    Path = string.IsNullOrEmpty(replacement) ? null : replacement
+                                };
                             }
 
                             _logger.Debug("PreImportValidator: '{0}' is not ready yet ({1})", path, message ?? "no message");
@@ -124,6 +139,32 @@ namespace NzbDrone.Core.Download
             {
                 return NotReady(path, ex.Message);
             }
+        }
+
+        // True when `replacement` (the validator's "path") exists on disk and is either the folder the download
+        // client's `original` path sits in, or a file directly inside that folder. Anything else is not trusted.
+        public static bool IsReplacementPath(string original, string replacement)
+        {
+            if (string.IsNullOrWhiteSpace(original) || string.IsNullOrWhiteSpace(replacement))
+            {
+                return false;
+            }
+
+            var folder = System.IO.Path.GetDirectoryName(original.TrimEnd('/', '\\'))?.TrimEnd('/', '\\');
+            var candidate = replacement.TrimEnd('/', '\\');
+
+            if (string.IsNullOrEmpty(folder) || string.IsNullOrEmpty(candidate))
+            {
+                return false;
+            }
+
+            if (Directory.Exists(candidate))
+            {
+                return string.Equals(candidate, folder, StringComparison.Ordinal);
+            }
+
+            return File.Exists(candidate) &&
+                   string.Equals(System.IO.Path.GetDirectoryName(candidate)?.TrimEnd('/', '\\'), folder, StringComparison.Ordinal);
         }
 
         private PreImportResult NotReady(string path, string reason)

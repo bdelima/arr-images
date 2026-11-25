@@ -1,0 +1,71 @@
+diff --git a/src/NzbDrone.Core/Download/CompletedDownloadService.cs b/src/NzbDrone.Core/Download/CompletedDownloadService.cs
+index 05b230c..b6c09cd 100644
+--- a/src/NzbDrone.Core/Download/CompletedDownloadService.cs
++++ b/src/NzbDrone.Core/Download/CompletedDownloadService.cs
+@@ -154,6 +154,8 @@ public void Check(TrackedDownload trackedDownload)
+                 var tags = ResolveTagLabels(series.Tags);
+                 var preImport = _preImportValidator.Check(trackedDownload.ImportItem.OutputPath.FullPath, tags);
+ 
++                trackedDownload.PreImportPath = null;
++
+                 if (preImport.Status == PreImportStatus.Failed)
+                 {
+                     _logger.Warn("PreImportValidator failed '{0}': {1}", trackedDownload.DownloadItem.Title, preImport.Message);
+@@ -167,6 +169,24 @@ public void Check(TrackedDownload trackedDownload)
+                 {
+                     return;
+                 }
++
++                // arr-images: the validator may name the file a Flow converted or renamed (or its folder) instead of the
++                // path the download client reported. Only a path that exists and sits in the same folder is accepted;
++                // anything else counts as not ready, so nothing is imported blindly and the next refresh asks again.
++                if (!string.IsNullOrEmpty(preImport.Path))
++                {
++                    if (!PreImportValidator.IsReplacementPath(trackedDownload.ImportItem.OutputPath.FullPath, preImport.Path))
++                    {
++                        _logger.Warn("PreImportValidator named '{0}' for '{1}', which is not an existing file or folder next to '{2}'; not importing yet",
++                            preImport.Path, trackedDownload.DownloadItem.Title, trackedDownload.ImportItem.OutputPath.FullPath);
++
++                        return;
++                    }
++
++                    _logger.Info("PreImportValidator: '{0}' was converted or renamed; importing '{1}' instead of '{2}'",
++                        trackedDownload.DownloadItem.Title, preImport.Path, trackedDownload.ImportItem.OutputPath.FullPath);
++                    trackedDownload.PreImportPath = preImport.Path;
++                }
+             }
+ 
+             trackedDownload.State = TrackedDownloadState.ImportPending;
+@@ -192,6 +212,17 @@ public void Import(TrackedDownload trackedDownload)
+             trackedDownload.State = TrackedDownloadState.Importing;
+ 
+             var outputPath = trackedDownload.ImportItem.OutputPath.FullPath;
++
++            // arr-images: the file the download client reported is gone because a Flow converted or renamed it; import
++            // the one the pre-import check found (Check set it). SetImportItem above rebuilt ImportItem from the client,
++            // which is why this lives on the TrackedDownload.
++            if (!string.IsNullOrEmpty(trackedDownload.PreImportPath) &&
++                !System.IO.File.Exists(outputPath) &&
++                !System.IO.Directory.Exists(outputPath))
++            {
++                outputPath = trackedDownload.PreImportPath;
++            }
++
+             var importResults = _downloadedEpisodesImportService.ProcessPath(outputPath,
+                 ImportMode.Auto,
+                 trackedDownload.RemoteEpisode.Series,
+diff --git a/src/NzbDrone.Core/Download/TrackedDownloads/TrackedDownload.cs b/src/NzbDrone.Core/Download/TrackedDownloads/TrackedDownload.cs
+index 485f1ce..b3c5bd7 100644
+--- a/src/NzbDrone.Core/Download/TrackedDownloads/TrackedDownload.cs
++++ b/src/NzbDrone.Core/Download/TrackedDownloads/TrackedDownload.cs
+@@ -19,6 +19,10 @@ public class TrackedDownload
+         public bool IsTrackable { get; set; }
+         public bool HasNotifiedManualInteractionRequired { get; set; }
+ 
++        // arr-images: set by the pre-import check (CompletedDownloadService.Check) when a Flow renamed or converted the
++        // file the download client reported: the file, or the folder, to import instead. In memory only.
++        public string PreImportPath { get; set; }
++
+         public TrackedDownload()
+         {
+             StatusMessages = Array.Empty<TrackedDownloadStatusMessage>();

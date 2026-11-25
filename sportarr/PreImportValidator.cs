@@ -10,7 +10,9 @@ public enum PreImportStatus
     Failed
 }
 
-public sealed record PreImportResult(PreImportStatus Status, string? Message);
+/// <param name="Path">Only on a Ready answer, and only when the validator names a different place to import from
+/// (the download client's file was renamed or converted): the file, or the folder, to import. Null otherwise.</param>
+public sealed record PreImportResult(PreImportStatus Status, string? Message, string? Path = null);
 
 /// <summary>
 /// Asks an external service whether a completed download may be imported yet, so a pre-import process
@@ -26,8 +28,11 @@ public sealed record PreImportResult(PreImportStatus Status, string? Message);
 /// Per check: POST {Url}/validate with {"path": "..."} and, when the caller has any, {"tags": ["<every tag label on
 /// the league>", ...]} -- unfiltered: which of them (if any) names a quality tier is the validator's business (the Tdarr
 /// service's TDARR_LIBRARY_MAP), not Sportarr's. 10 second timeout. The answer is read from the JSON body only:
-/// {"ready": bool, "failed": bool, "message": string}. "failed": true is Failed, "ready": true is
-/// Ready, anything else is NotReady. A timeout, an HTTP error status or an unreadable body is also NotReady
+/// {"ready": bool, "failed": bool, "message": string, "path": string}. "failed": true is Failed, "ready": true is
+/// Ready, anything else is NotReady. "path" is optional and read only from a Ready answer: when a Flow renamed or
+/// converted the file the download client reported (an mp4 turned into an mkv), it names the file (or the folder) to
+/// import instead, in PreImportResult.Path; a missing, empty or non-string "path" leaves it null. The caller must
+/// check it with IsReplacementPath before using it. A timeout, an HTTP error status or an unreadable body is also NotReady
 /// (logged as a warning), never Ready: the import is deferred and asked again on the next poll.
 ///
 /// Added by bdelima/arr-images; not part of upstream.
@@ -90,7 +95,8 @@ public sealed class PreImportValidator
 
             if (Flag(root, "ready"))
             {
-                return new PreImportResult(PreImportStatus.Ready, message);
+                var replacement = root.TryGetProperty("path", out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+                return new PreImportResult(PreImportStatus.Ready, message, string.IsNullOrEmpty(replacement) ? null : replacement);
             }
 
             _logger.LogDebug("PreImportValidator: '{Path}' is not ready yet ({Message})", path, message ?? "no message");
@@ -100,6 +106,34 @@ public sealed class PreImportValidator
         {
             return NotReady(path, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// True when <paramref name="replacement"/> (the validator's "path") exists on disk and is either the folder the
+    /// download client's <paramref name="original"/> path sits in, or a file directly inside that folder. Anything
+    /// else is not trusted.
+    /// </summary>
+    public static bool IsReplacementPath(string? original, string? replacement)
+    {
+        if (string.IsNullOrWhiteSpace(original) || string.IsNullOrWhiteSpace(replacement))
+        {
+            return false;
+        }
+
+        var folder = System.IO.Path.GetDirectoryName(original.TrimEnd('/', '\\'))?.TrimEnd('/', '\\');
+        var candidate = replacement.TrimEnd('/', '\\');
+        if (string.IsNullOrEmpty(folder) || string.IsNullOrEmpty(candidate))
+        {
+            return false;
+        }
+
+        if (Directory.Exists(candidate))
+        {
+            return string.Equals(candidate, folder, StringComparison.Ordinal);
+        }
+
+        return File.Exists(candidate) &&
+               string.Equals(System.IO.Path.GetDirectoryName(candidate)?.TrimEnd('/', '\\'), folder, StringComparison.Ordinal);
     }
 
     private PreImportResult NotReady(string path, string reason)
