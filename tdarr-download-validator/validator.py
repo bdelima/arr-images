@@ -4,7 +4,7 @@
 The arr apps (with the preimport-validator patch) call it before importing a completed download:
 
     POST /validate   {"path": "<file or folder>", "tags": ["<every tag the series/movie/league has>", ...]}
-    -> 200           {"ready": bool, "failed": bool, "message": str}
+    -> 200           {"ready": bool, "failed": bool, "message": str, "path": str (optional)}
 
 It answers from Tdarr's own records and starts Tdarr on a download it has not seen yet:
 
@@ -51,6 +51,18 @@ are logged. The older singular "tag": "<label>" field is still accepted when "ta
 migration aid for arr images that have not been rebuilt yet). The map only decides which library a *scan* is pointed
 at; it has no effect on the "ready"/"failed"/"processing" answer itself, which is read from Tdarr's records by file
 path alone, independent of library.
+
+A download whose file a Tdarr Flow renamed or converted (an mp4 turned into an mkv, a DoVi injection that writes
+"<name>-injected.mkv") has no Tdarr record under the path the download client reported, and that path is gone from
+disk. When all of these hold, the answer comes from the converted file(s) instead: the exact-path and folder lookups
+found nothing; the requested path does not exist (lexists); its parent folder is readable and has no subfolders (a
+flat category folder holding many releases always has some, so it is never taken for one download's folder); and the
+candidates are the Tdarr records (staged or finished) whose id is a regular file directly in that folder. They go
+through the same answers as any other record (processing, stale, failed, triggered, done); a scan request for a
+candidate carries the candidate's own path, never the missing one. A ready answer from this fallback also carries
+"path": the single candidate file, or the parent folder when there are several, and the arr app imports from it
+instead of the path the download client reported. Answers that did not use the fallback, and answers that are not
+ready, have no "path" field.
 
 Standard library only. Configuration (environment):
 
@@ -219,6 +231,25 @@ class Validator:
         files = [d for d in self.tdarr.get_all("FileJSONDB") if _under(_norm(d["_id"]), path)]
         return staged, files
 
+    def _converted_records(self, path):
+        """(staged, files) of the converted file(s) that replaced a gone single-file download, else ([], []).
+
+        Only for a requested path that is no longer on disk, whose parent folder is readable and has no subfolders;
+        the candidates are the Tdarr records whose id is a regular file directly in that folder, so the returned
+        paths always exist."""
+        if os.path.lexists(path):
+            return [], []
+        try:
+            entries = list(os.scandir(posixpath.dirname(path)))
+        except OSError:
+            return [], []
+        if any(e.is_dir(follow_symlinks=False) for e in entries):
+            return [], []
+        names = {_norm(e.path) for e in entries if e.is_file(follow_symlinks=False)}
+        staged = [d for d in self.tdarr.get_all("StagedJSONDB") if _norm(d["_id"]) in names]
+        files = [d for d in self.tdarr.get_all("FileJSONDB") if _norm(d["_id"]) in names]
+        return staged, files
+
     def _resolve_scan_targets(self, path):
         """The actual file paths to hand scanFolderWatcher for `path`.
 
@@ -323,6 +354,10 @@ class Validator:
     def validate(self, path, tags=None):
         path = _norm(path)
         staged, files = self._records(path)
+        converted = False
+        if not staged and not files:
+            staged, files = self._converted_records(path)
+            converted = bool(staged or files)
         if staged:
             return {"ready": False, "message": f"processing ({len(staged)} file(s) in a Flow)"}
         stale = [d for d in files if self._is_stale(d)]
@@ -338,9 +373,16 @@ class Validator:
         pending = [d for d in files if _decision(d).lower() in ("", "queued")]
         if not files or pending:
             library_id = self._library_for_tags(tags)
-            if self._trigger(path, library_id):
+            # a converted file is scanned by its own path: the requested one is gone
+            targets = sorted(d["_id"] for d in pending) if converted else None
+            if self._trigger(path, library_id, targets=targets):
                 return {"ready": False, "message": "triggered"}
             return {"ready": False, "message": "triggered, waiting for Tdarr to pick it up"}
+        if converted:
+            ids = sorted(_norm(d["_id"]) for d in files)
+            names = ", ".join(posixpath.basename(i) for i in ids)
+            return {"ready": True, "path": ids[0] if len(ids) == 1 else posixpath.dirname(path),
+                    "message": f"done ({len(files)} file(s)); original path is gone, found in the same folder: {names}"}
         return {"ready": True, "message": f"done ({len(files)} file(s))"}
 
     def safe_validate(self, path, tags=None):

@@ -110,7 +110,8 @@ download client it came from, so the gate lives there.
   in [`common/preimport-validator.properties.example`](common/preimport-validator.properties.example)); restart to
   apply. **Without a Url nothing changes versus upstream.**
 - The app sends `POST <Url>/validate` with `{"path": "<the download's output folder or file>"}` (10 second timeout)
-  and reads only the JSON body: `{"ready": bool, "failed": bool, "message": string}`.
+  and reads only the JSON body: `{"ready": bool, "failed": bool, "message": string}`, plus an optional `"path"` on a
+  ready answer (see **Converted or renamed files** below).
 - `ready: true` -> the download goes on to import as it always does. `ready: false` -> it stays in `Downloading`
   (still visible in the queue) and is asked again on the next queue refresh.
 - `failed: true` -> the download is marked failed: blocklisted, a replacement is searched for as for any failed
@@ -192,6 +193,20 @@ record that no longer matches the file on disk (see below) → remove it and sca
 folder the answer covers every file Tdarr knows under it.
 
 **Stale records.** A finished Tdarr record is compared with the file on disk (size and modification time from the record's `statSync`). If they differ, the record belongs to an older file at the same path (a re-download of a release): it is removed from Tdarr's file database and the file is scanned like an unseen one. Some records carry no stored size (the error records of the 2026-11-11 Boroughs pack had a modification time but no size), so that comparison cannot be made; for those the record's own date (its last transcode date, else its creation time) is compared with the file's modification time, and a record written more than 2 seconds before the file on disk is treated the same way (removed, file scanned). Without this, an old error record failed every re-download of the same path and Sonarr blocklisted it again. Files not visible to the validator, records with no decision yet, and records with neither a usable stored size/time nor a date are left as they are. A path is not cleaned again for an hour. A re-download whose file keeps an old modification time (some clients restore the release's own time) is not caught by the date rule.
+
+**Converted or renamed files.** A Tdarr Flow can replace the file the download client reported: an mp4 turned into an
+mkv, or a DoVi injection that writes `<name>-injected.mkv`. The reported path is then gone from disk and Tdarr has no
+record under it, so without help the answer would be `triggered` forever and the arr app could not find the file either.
+When the exact-path and folder lookups both find nothing, the requested path does not exist, and its parent folder is
+readable and has **no subfolders** (a flat category folder holding many releases always has some, so it is never taken for
+one download's folder), the validator answers from the Tdarr records of the regular files directly in that folder. They
+get the same answers as any other record (`processing`, stale, `failed`, `triggered` -- scanned by the converted file's own
+path, never the missing one -- or `done`). A ready answer from this fallback also carries `"path"`: the converted file, or
+the parent folder when there are several. Sonarr, Radarr and Sportarr import from that path instead of the one the download
+client reported, after checking that it exists and is that folder or a file directly in it (otherwise the check counts as
+not ready and nothing is imported). Answers that did not use the fallback have no `path`, so an arr image that has not been
+rebuilt ignores it, but then fails the import with "path does not exist": **release the arr images before the validator.**
+Sportarr pack imports (several events in one download) do not use `path`.
 
 Tdarr's scan API (`scanFolderWatcher`) only accepts individual file paths, never a folder, so to trigger a scan on a
 multi-file download the validator walks that folder **on disk** itself and hands Tdarr the files it finds there --
@@ -669,6 +684,12 @@ is LinuxServer's, unchanged.
    constructor and resolves every tag label on the series/movie, sending the whole list to the PreImportValidator as
    `"tags"` -- see the quality-tag routing notes under [Import hold](#import-hold) and
    [Import validator](#import-validator-tdarr-download-validator) above.
+8. **Sonarr and Radarr only: `06-preimport-path-override.patch`** reads the validator's optional `"path"`, checks it
+   (it must exist and be the reported path's folder or a file directly in it), keeps it on the `TrackedDownload`
+   (`PreImportPath`, in memory only, because `Import()` rebuilds `ImportItem` from the download client) and imports from
+   it when the reported path is gone -- see **Converted or renamed files** under
+   [Import validator](#import-validator-tdarr-download-validator) above. **Sportarr:** `sportarr/patches/04-preimport-path-override.patch`
+   does the same by handing the path to `ImportDownloadAsync` as its override path.
 
 ## How the images are built
 
